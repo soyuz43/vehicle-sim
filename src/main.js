@@ -91,8 +91,12 @@ function updateCarMovement() {
   const moveSpeed = 0.2
   const turnSpeed = 0.04
 
-  if (keys['KeyW']) car.translateZ(-moveSpeed)
-  if (keys['KeyS']) car.translateZ(moveSpeed)
+  // W should move "forward" (away from the chase cam behind the car)
+  if (keys['KeyW']) car.translateZ(moveSpeed)
+
+  // S should move "backward" (toward the chase cam behind the car)
+  if (keys['KeyS']) car.translateZ(-moveSpeed)
+
   if (keys['KeyA']) car.rotation.y += turnSpeed
   if (keys['KeyD']) car.rotation.y -= turnSpeed
 }
