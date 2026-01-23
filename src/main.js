@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { createTerrain } from './terrain/createTerrain.js'
 import { createCar } from './car/createCar.js'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { CameraManager } from './controls/CameraManager.js'
 
 /* =========================
    Scene
@@ -56,22 +56,15 @@ const terrain = createTerrain()
 scene.add(terrain)
 
 /* =========================
-   Car (placeholder)
+   Car
 ========================= */
 const car = createCar()
-car.position.set(0, 0, 0)
 scene.add(car)
 
 /* =========================
-   Camera Controls (Orbit + follow)
+   Camera Manager
 ========================= */
-const controls = new OrbitControls(camera, renderer.domElement)
-controls.enableDamping = true
-controls.enablePan = false
-controls.enableZoom = false
-controls.minDistance = 8
-controls.maxDistance = 40
-controls.maxPolarAngle = Math.PI / 2.2
+const cameraManager = new CameraManager(camera, renderer, car)
 
 /* =========================
    Keyboard Input
@@ -80,6 +73,11 @@ const keys = {}
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true
+
+  // Press C to cycle camera modes
+  if (e.code === 'KeyC') {
+    cameraManager.cycleMode()
+  }
 })
 
 window.addEventListener('keyup', (e) => {
@@ -87,8 +85,7 @@ window.addEventListener('keyup', (e) => {
 })
 
 /* =========================
-   Basic WASD Driving Logic
-   (NO physics yet)
+   Car Movement (placeholder)
 ========================= */
 function updateCarMovement() {
   const moveSpeed = 0.2
@@ -116,10 +113,7 @@ function animate() {
   requestAnimationFrame(animate)
 
   updateCarMovement()
-
-  // Camera follows car
-  controls.target.copy(car.position)
-  controls.update()
+  cameraManager.update()
 
   renderer.render(scene, camera)
 }
