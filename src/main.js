@@ -1,12 +1,18 @@
 import * as THREE from 'three'
 import { createTerrain } from './terrain/createTerrain.js'
+import { createCar } from './car/createCar.js'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
-// === Scene ===
+/* =========================
+   Scene
+========================= */
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x1a1a1a)
 scene.fog = new THREE.Fog(0x1a1a1a, 50, 200)
 
-// === Camera ===
+/* =========================
+   Camera
+========================= */
 const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
@@ -14,15 +20,15 @@ const camera = new THREE.PerspectiveCamera(
   500
 )
 camera.position.set(0, 15, 30)
-camera.lookAt(0, 0, 0)
 
-// === Renderer ===
+/* =========================
+   Renderer
+========================= */
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 
-// Apply styling via JS
 renderer.domElement.style.position = 'absolute'
 renderer.domElement.style.top = '0'
 renderer.domElement.style.left = '0'
@@ -33,29 +39,88 @@ document.body.style.margin = '0'
 document.body.style.overflow = 'hidden'
 document.body.appendChild(renderer.domElement)
 
-// === Lights ===
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
-scene.add(ambientLight)
+/* =========================
+   Lights
+========================= */
+scene.add(new THREE.AmbientLight(0xffffff, 0.4))
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1)
-directionalLight.position.set(20, 40, 20)
-directionalLight.castShadow = true
-scene.add(directionalLight)
+const sun = new THREE.DirectionalLight(0xffffff, 1)
+sun.position.set(20, 40, 20)
+sun.castShadow = true
+scene.add(sun)
 
-// === Terrain ===
+/* =========================
+   Terrain
+========================= */
 const terrain = createTerrain()
 scene.add(terrain)
 
-// === Resize Handling ===
+/* =========================
+   Car (placeholder)
+========================= */
+const car = createCar()
+car.position.set(0, 0, 0)
+scene.add(car)
+
+/* =========================
+   Camera Controls (Orbit + follow)
+========================= */
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.enablePan = false
+controls.enableZoom = false
+controls.minDistance = 8
+controls.maxDistance = 40
+controls.maxPolarAngle = Math.PI / 2.2
+
+/* =========================
+   Keyboard Input
+========================= */
+const keys = {}
+
+window.addEventListener('keydown', (e) => {
+  keys[e.code] = true
+})
+
+window.addEventListener('keyup', (e) => {
+  keys[e.code] = false
+})
+
+/* =========================
+   Basic WASD Driving Logic
+   (NO physics yet)
+========================= */
+function updateCarMovement() {
+  const moveSpeed = 0.2
+  const turnSpeed = 0.04
+
+  if (keys['KeyW']) car.translateZ(-moveSpeed)
+  if (keys['KeyS']) car.translateZ(moveSpeed)
+  if (keys['KeyA']) car.rotation.y += turnSpeed
+  if (keys['KeyD']) car.rotation.y -= turnSpeed
+}
+
+/* =========================
+   Resize Handling
+========================= */
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
 })
 
-// === Animate ===
+/* =========================
+   Animation Loop
+========================= */
 function animate() {
   requestAnimationFrame(animate)
+
+  updateCarMovement()
+
+  // Camera follows car
+  controls.target.copy(car.position)
+  controls.update()
+
   renderer.render(scene, camera)
 }
 
