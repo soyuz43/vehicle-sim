@@ -17,7 +17,11 @@ export class CameraManager {
         // flip this to new THREE.Vector3(0, 0, -1)
         forwardAxisLocal: new THREE.Vector3(0, 0, 1)
       }),
-      chase: createChaseCameraControls(camera, car),
+      chase: createChaseCameraControls(camera, car, {
+        // Tweak chase parameters here if needed
+        baseDistance: 12.0,
+        baseHeight: 5.5
+      }),
       fp: createFirstPersonCameraControls(camera, car)
     }
 
@@ -68,11 +72,12 @@ export class CameraManager {
 
   /**
    * Per-frame update (called from main animation loop)
+   * @param {number} dt - Delta time in seconds
    */
-  update() {
+  update(dt) {
     const mode = this.modes[this.activeMode]
     if (mode && mode.update) {
-      mode.update()
+      mode.update(dt)
     }
   }
 }

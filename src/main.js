@@ -26,9 +26,13 @@ camera.position.set(0, 15, 30)
 ========================= */
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(window.devicePixelRatio)
-renderer.shadowMap.enabled = true
 
+// OPTIMIZATION: Cap pixel ratio at 1.5 or 2.0.
+// Rendering at native 3x or 4x on high-DPI screens causes frame time variance
+// which leads to physics stutter, even with dt integration.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+
+renderer.shadowMap.enabled = true
 renderer.domElement.style.position = 'absolute'
 renderer.domElement.style.top = '0'
 renderer.domElement.style.left = '0'
@@ -59,6 +63,11 @@ scene.add(terrain)
    Car
 ========================= */
 const car = createCar()
+
+// CRITICAL: Pre-allocate the velocity vector.
+// We will reuse this object every frame to avoid Garbage Collection stutter.
+car.userData.velocity = new THREE.Vector3()
+
 scene.add(car)
 
 /* =========================
@@ -73,8 +82,6 @@ const keys = {}
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true
-
-  // Press C to cycle camera modes
   if (e.code === 'KeyC') {
     cameraManager.cycleMode()
   }
@@ -85,20 +92,65 @@ window.addEventListener('keyup', (e) => {
 })
 
 /* =========================
-   Car Movement (placeholder)
+   Car Physics Constants
+   (Units per Second)
 ========================= */
-function updateCarMovement() {
-  const moveSpeed = 0.2
-  const turnSpeed = 0.04
+const PHYSICS = {
+  maxSpeed: 40.0,      // Max units per second
+  acceleration: 20.0,  // Speed increase per second
+  friction: 15.0,      // Deceleration per second
+  turnSpeed: 2.5       // Radians per second
+}
 
-  // W should move "forward" (away from the chase cam behind the car)
-  if (keys['KeyW']) car.translateZ(moveSpeed)
+// Internal state
+let currentSpeed = 0
+const clock = new THREE.Clock()
 
-  // S should move "backward" (toward the chase cam behind the car)
-  if (keys['KeyS']) car.translateZ(-moveSpeed)
+/* =========================
+   Car Movement Logic
+========================= */
+function updateCarMovement(dt) {
+  // 1. Acceleration / Deceleration (Time-based)
+  if (keys['KeyW']) {
+    currentSpeed += PHYSICS.acceleration * dt
+  } else if (keys['KeyS']) {
+    currentSpeed -= PHYSICS.acceleration * dt
+  } else {
+    // Friction
+    const decel = PHYSICS.friction * dt
+    if (currentSpeed > 0) {
+      currentSpeed = Math.max(0, currentSpeed - decel)
+    } else if (currentSpeed < 0) {
+      currentSpeed = Math.min(0, currentSpeed + decel)
+    }
+  }
 
-  if (keys['KeyA']) car.rotation.y += turnSpeed
-  if (keys['KeyD']) car.rotation.y -= turnSpeed
+  // 2. Clamp Speed
+  currentSpeed = THREE.MathUtils.clamp(
+    currentSpeed, 
+    -PHYSICS.maxSpeed, 
+    PHYSICS.maxSpeed
+  )
+
+  // 3. Steering (Time-based)
+  if (Math.abs(currentSpeed) > 0.1) {
+    const turnAmount = PHYSICS.turnSpeed * dt
+    if (keys['KeyA']) car.rotation.y += turnAmount
+    if (keys['KeyD']) car.rotation.y -= turnAmount
+  }
+
+  // 4. Apply Position Change (Distance = Speed * Time)
+  car.translateZ(currentSpeed * dt)
+
+  // 5. UPDATE VELOCITY FOR CAMERA (Zero-Allocation)
+  // We reuse the existing vector instead of creating a new one.
+  // This is the specific fix for the "GC Stutter".
+  const v = car.userData.velocity
+  v.set(0, 0, 1)
+  v.applyQuaternion(car.quaternion)
+  v.multiplyScalar(currentSpeed) 
+  // Note: We store "Units per Second" in velocity, which matches what
+  // the camera controller expects for its physics calculations.
 }
 
 /* =========================
@@ -116,8 +168,12 @@ window.addEventListener('resize', () => {
 function animate() {
   requestAnimationFrame(animate)
 
-  updateCarMovement()
-  cameraManager.update()
+  // Get precise time since last frame (in seconds)
+  const dt = clock.getDelta()
+
+  // Update Car and Camera using the exact same delta time
+  updateCarMovement(dt)
+  cameraManager.update(dt)
 
   renderer.render(scene, camera)
 }
