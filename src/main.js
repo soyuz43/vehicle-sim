@@ -7,6 +7,7 @@ import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
 import { createGearIndicator } from './ui/gearIndicator/createGearIndicator.js'
+import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
 
 /* =========================
    Scene
@@ -96,6 +97,22 @@ const vehicleController = createVehicleController({
 })
 
 /* =========================
+   Fixed Simulation Loop
+========================= */
+const fixedTimeStepSeconds = 1 / 60
+const maxFrameDeltaSeconds = 0.1
+const maxPhysicsStepsPerFrame = 6
+
+const fixedSimulationRunner = createFixedTimestepRunner({
+  fixedTimeStepSeconds,
+  maxFrameDeltaSeconds,
+  maxStepsPerFrame: maxPhysicsStepsPerFrame,
+  step: (stepDeltaSeconds) => {
+    vehicleController.update(stepDeltaSeconds, getVehicleInput())
+  },
+})
+
+/* =========================
    Camera Manager
 ========================= */
 const cameraManager = new CameraManager(camera, renderer, car)
@@ -161,8 +178,9 @@ const clock = new THREE.Clock()
 ========================= */
 function resetCar() {
   vehicleController.reset()
+  fixedSimulationRunner.reset()
   cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
-  updateDebugHud(0)
+  updateDebugHud(0, fixedSimulationRunner.getSnapshot())
   updateGearIndicator()
 }
 
@@ -182,7 +200,7 @@ function getVehicleInput() {
    Debug HUD
 ========================= */
 
-function updateDebugHud(dt) {
+function updateDebugHud(dt, fixedSimulationSnapshot) {
   const vehicleSnapshot = vehicleController.getSnapshot()
   const pos = vehicleSnapshot.position
 
@@ -197,6 +215,7 @@ function updateDebugHud(dt) {
     brakeInput: vehicleSnapshot.brakeInput,
     steeringInput: vehicleSnapshot.steeringInput,
     dt,
+    fixedSimulation: fixedSimulationSnapshot,
     position: pos,
     speedScalar: vehicleSnapshot.speedScalar,
     velocity: vehicleSnapshot.velocity,
@@ -232,16 +251,23 @@ window.addEventListener('resize', () => {
 function animate() {
   requestAnimationFrame(animate)
 
-  // Get precise time since last frame (in seconds)
-  const dt = clock.getDelta()
+  const renderDeltaSeconds = clock.getDelta()
+  const fixedSimulationSnapshot =
+    fixedSimulationRunner.update(renderDeltaSeconds)
+  const clampedRenderDeltaSeconds = sanitizeRenderDeltaSeconds(
+    renderDeltaSeconds
+  )
 
-  // Update vehicle and camera using the same delta time.
-  vehicleController.update(dt, getVehicleInput())
-  cameraManager.update(dt)
-  updateDebugHud(dt)
+  cameraManager.update(clampedRenderDeltaSeconds)
+  updateDebugHud(clampedRenderDeltaSeconds, fixedSimulationSnapshot)
   updateGearIndicator()
 
   renderer.render(scene, camera)
 }
 
 animate()
+
+function sanitizeRenderDeltaSeconds(frameDeltaSeconds) {
+  if (!Number.isFinite(frameDeltaSeconds) || frameDeltaSeconds <= 0) return 0
+  return Math.min(frameDeltaSeconds, maxFrameDeltaSeconds)
+}

@@ -8,6 +8,11 @@ Simulation units:
 - Standard gravity is 9.80665 m/s².
 
 
+## Simulation Loop
+
+Vehicle simulation advances in fixed `1 / 60` second physics steps while rendering remains driven by `requestAnimationFrame`. This prepares the simulation layer for later wheel contact, suspension, and tire-force work without tying physics integration directly to render frame rate.
+
+
 ## Controls
 
 - `W` applies throttle.
