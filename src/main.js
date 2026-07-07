@@ -6,6 +6,7 @@ import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
+import { createGearIndicator } from './ui/gearIndicator/createGearIndicator.js'
 
 /* =========================
    Scene
@@ -108,6 +109,11 @@ const debugHud = createDebugHud({
   initialCollapsed: false,
 })
 
+const gearIndicator = createGearIndicator({
+  parent: document.body,
+  initialGear: vehicleController.getSnapshot().gear,
+})
+
 /* =========================
    Keyboard Input
 ========================= */
@@ -124,6 +130,14 @@ window.addEventListener('keydown', (e) => {
 
   if (e.code === 'KeyR') {
     resetCar()
+  }
+
+  if (e.code === 'BracketLeft') {
+    vehicleController.shiftGearDown()
+  }
+
+  if (e.code === 'BracketRight') {
+    vehicleController.shiftGearUp()
   }
 })
 
@@ -149,6 +163,7 @@ function resetCar() {
   vehicleController.reset()
   cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
   updateDebugHud(0)
+  updateGearIndicator()
 }
 
 /* =========================
@@ -156,8 +171,8 @@ function resetCar() {
 ========================= */
 function getVehicleInput() {
   return {
-    forward: keys['KeyW'],
-    reverse: keys['KeyS'],
+    throttle: keys['KeyW'],
+    brake: keys['KeyS'],
     left: keys['KeyA'],
     right: keys['KeyD'],
   }
@@ -166,6 +181,7 @@ function getVehicleInput() {
 /* =========================
    Debug HUD
 ========================= */
+
 function updateDebugHud(dt) {
   const vehicleSnapshot = vehicleController.getSnapshot()
   const pos = vehicleSnapshot.position
@@ -177,6 +193,9 @@ function updateDebugHud(dt) {
   debugHud.update({
     cameraMode: cameraManager.activeMode,
     controllerKind: vehicleSnapshot.controllerKind,
+    throttleInput: vehicleSnapshot.throttleInput,
+    brakeInput: vehicleSnapshot.brakeInput,
+    steeringInput: vehicleSnapshot.steeringInput,
     dt,
     position: pos,
     speedScalar: vehicleSnapshot.speedScalar,
@@ -186,6 +205,15 @@ function updateDebugHud(dt) {
     forces: vehicleSnapshot.forces,
     terrainSize: terrainInfo.size,
     outsideTerrain,
+  })
+}
+
+function updateGearIndicator() {
+  const vehicleSnapshot = vehicleController.getSnapshot()
+
+  gearIndicator.update({
+    gear: vehicleSnapshot.gear,
+    gearLabel: vehicleSnapshot.gearLabel,
   })
 }
 
@@ -211,6 +239,7 @@ function animate() {
   vehicleController.update(dt, getVehicleInput())
   cameraManager.update(dt)
   updateDebugHud(dt)
+  updateGearIndicator()
 
   renderer.render(scene, camera)
 }

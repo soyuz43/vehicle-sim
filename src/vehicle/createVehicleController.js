@@ -3,6 +3,30 @@
 import * as THREE from 'three'
 import { DEFAULT_VEHICLE_SPEC } from './defaultVehicleSpec.js'
 
+const GEARS = Object.freeze({
+  REVERSE: 'reverse',
+  NEUTRAL: 'neutral',
+  DRIVE: 'drive',
+})
+
+const GEAR_SEQUENCE = Object.freeze([
+  GEARS.REVERSE,
+  GEARS.NEUTRAL,
+  GEARS.DRIVE,
+])
+
+const GEAR_LABELS = Object.freeze({
+  [GEARS.REVERSE]: 'R',
+  [GEARS.NEUTRAL]: 'N',
+  [GEARS.DRIVE]: 'D',
+})
+
+const GEAR_DIRECTIONS = Object.freeze({
+  [GEARS.REVERSE]: -1,
+  [GEARS.NEUTRAL]: 0,
+  [GEARS.DRIVE]: 1,
+})
+
 const DEFAULT_CONTROLLER_PARAMS = {
   turnSpeedRadiansPerSecond: 2.5,
   maxVisualSteeringAngleRadians: Math.PI / 5,
@@ -30,18 +54,19 @@ export function createVehicleController(config = {}) {
     ...(config.params ?? {}),
   }
 
+  const initialGear = normalizeGear(config.initialGear ?? GEARS.DRIVE)
   const startPosition = (config.startPosition ?? vehicle.position).clone()
   const startRotation = (config.startRotation ?? vehicle.rotation).clone()
 
   const velocity = ensureVelocityVector(vehicle)
-  const wheelStates = createWheelRuntimeStates(vehicle)
+  const wheelStates = createWheelRuntimeStates(vehicle, spec)
 
   const state = {
     controllerKind: 'flat-ground-force-longitudinal',
+    gear: initialGear,
     speedScalar: 0,
     throttleInput: 0,
-    reverseInput: 0,
-    brakingInput: 0,
+    brakeInput: 0,
     steeringInput: 0,
     wheelStates,
     forces: createEmptyForceSnapshot(),
@@ -61,12 +86,12 @@ export function createVehicleController(config = {}) {
   }
 
   function reset() {
+    state.gear = initialGear
     state.speedScalar = 0
     state.throttleInput = 0
-    state.reverseInput = 0
-    state.brakingInput = 0
+    state.brakeInput = 0
     state.steeringInput = 0
-    state.forces = createEmptyForceSnapshot()
+    state.forces = calculateLongitudinalForces()
 
     vehicle.position.copy(startPosition)
     vehicle.rotation.copy(startRotation)
@@ -95,15 +120,46 @@ export function createVehicleController(config = {}) {
     return getSnapshot()
   }
 
+  function shiftGearDown() {
+    return shiftGearBy(-1)
+  }
+
+  function shiftGearUp() {
+    return shiftGearBy(1)
+  }
+
+  function shiftGearBy(offset) {
+    const currentIndex = GEAR_SEQUENCE.indexOf(state.gear)
+    const safeCurrentIndex =
+      currentIndex >= 0 ? currentIndex : GEAR_SEQUENCE.indexOf(GEARS.DRIVE)
+
+    const rawNextIndex = safeCurrentIndex + offset
+    const nextIndex =
+      ((rawNextIndex % GEAR_SEQUENCE.length) + GEAR_SEQUENCE.length) %
+      GEAR_SEQUENCE.length
+
+    state.gear = GEAR_SEQUENCE[nextIndex]
+
+    return getSnapshot()
+  }
+
+  function setGear(nextGear) {
+    state.gear = normalizeGear(nextGear)
+
+    return getSnapshot()
+  }
+
   function getSnapshot() {
     return {
       controllerKind: state.controllerKind,
       spec,
       params,
+      gear: state.gear,
+      gearLabel: getGearLabel(state.gear),
+      gearDirection: getGearDirection(state.gear),
       speedScalar: state.speedScalar,
       throttleInput: state.throttleInput,
-      reverseInput: state.reverseInput,
-      brakingInput: state.brakingInput,
+      brakeInput: state.brakeInput,
       steeringInput: state.steeringInput,
       position: vehicle.position,
       rotation: vehicle.rotation,
@@ -116,12 +172,8 @@ export function createVehicleController(config = {}) {
   }
 
   function readInput(input) {
-    const forward = Boolean(input.forward)
-    const reverse = Boolean(input.reverse)
-
-    state.throttleInput = forward && !reverse ? 1 : 0
-    state.reverseInput = reverse && !forward ? 1 : 0
-    state.brakingInput = forward && reverse ? 1 : 0
+    state.throttleInput = Boolean(input.throttle ?? input.forward) ? 1 : 0
+    state.brakeInput = Boolean(input.brake ?? input.reverse) ? 1 : 0
 
     if (input.left && !input.right) {
       state.steeringInput = 1
@@ -219,9 +271,11 @@ export function createVehicleController(config = {}) {
     let driveForceNewtons = 0
     let brakeForceNewtons = 0
 
-    if (state.brakingInput > 0 && speedDirection !== 0) {
-      brakeForceNewtons =
-        -speedDirection * spec.maxBrakeForceNewtons
+    if (state.brakeInput > 0) {
+      if (speedDirection !== 0) {
+        brakeForceNewtons =
+          -speedDirection * spec.maxBrakeForceNewtons * state.brakeInput
+      }
 
       return {
         driveForceNewtons,
@@ -229,19 +283,23 @@ export function createVehicleController(config = {}) {
       }
     }
 
-    if (state.throttleInput > 0) {
-      if (speed < -params.steeringDeadSpeedMetersPerSecond) {
-        brakeForceNewtons = spec.maxBrakeForceNewtons
-      } else if (speed < spec.maxForwardSpeedMetersPerSecond) {
-        driveForceNewtons = spec.maxDriveForceNewtons
-      }
-    }
+    const gearDirection = getGearDirection(state.gear)
 
-    if (state.reverseInput > 0) {
-      if (speed > params.steeringDeadSpeedMetersPerSecond) {
-        brakeForceNewtons = -spec.maxBrakeForceNewtons
-      } else if (speed > -spec.maxReverseSpeedMetersPerSecond) {
-        driveForceNewtons = -spec.maxReverseDriveForceNewtons
+    if (state.throttleInput > 0 && gearDirection !== 0) {
+      const speedAlongSelectedGear = speed * gearDirection
+      const maxGearSpeed =
+        gearDirection > 0
+          ? spec.maxForwardSpeedMetersPerSecond
+          : spec.maxReverseSpeedMetersPerSecond
+
+      if (speedAlongSelectedGear < maxGearSpeed) {
+        const maxDriveForce =
+          gearDirection > 0
+            ? spec.maxDriveForceNewtons
+            : spec.maxReverseDriveForceNewtons
+
+        driveForceNewtons =
+          gearDirection * maxDriveForce * state.throttleInput
       }
     }
 
@@ -300,7 +358,11 @@ export function createVehicleController(config = {}) {
   }
 
   function isDriveTryingToMoveFromStop() {
-    return state.throttleInput > 0 || state.reverseInput > 0
+    return (
+      state.throttleInput > 0 &&
+      state.brakeInput === 0 &&
+      getGearDirection(state.gear) !== 0
+    )
   }
 
   function updateSteering(dt) {
@@ -413,11 +475,15 @@ export function createVehicleController(config = {}) {
     return forceByWheelId
   }
 
+  state.forces = calculateLongitudinalForces()
   updateWheelRuntimeState(0)
 
   return {
     update,
     reset,
+    shiftGearDown,
+    shiftGearUp,
+    setGear,
     getSnapshot,
   }
 }
@@ -438,7 +504,7 @@ function ensureVelocityVector(vehicle) {
   return vehicle.userData.velocity
 }
 
-function createWheelRuntimeStates(vehicle) {
+function createWheelRuntimeStates(vehicle, spec) {
   const wheelMetadata = vehicle.userData.vehicle?.wheels ?? []
 
   return wheelMetadata.map((wheel) => {
@@ -461,8 +527,7 @@ function createWheelRuntimeStates(vehicle) {
       isGrounded: true,
       isSlipping: false,
       surfaceKind: 'flat-asphalt-placeholder',
-      frictionCoefficient:
-        DEFAULT_VEHICLE_SPEC.defaultSurfaceFrictionCoefficient,
+      frictionCoefficient: spec.defaultSurfaceFrictionCoefficient,
       normalForceNewtons: 0,
       tractionLimitNewtons: 0,
       requestedLongitudinalForceNewtons: 0,
@@ -517,6 +582,19 @@ function createEmptyForceSnapshot() {
     longitudinalAccelerationMetersPerSecondSquared: 0,
     isTractionLimited: false,
   }
+}
+
+function normalizeGear(gear) {
+  if (GEAR_SEQUENCE.includes(gear)) return gear
+  return GEARS.DRIVE
+}
+
+function getGearLabel(gear) {
+  return GEAR_LABELS[gear] ?? '?'
+}
+
+function getGearDirection(gear) {
+  return GEAR_DIRECTIONS[gear] ?? 0
 }
 
 function getSignWithDeadzone(value, deadzone) {
