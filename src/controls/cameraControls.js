@@ -25,7 +25,14 @@ export function createOrbitCameraControls(camera, renderer, targetObject, config
   controls.maxDistance = 50
 
   // Config
-  const distance = config.distance ?? 18
+  const minDistanceMeters = config.minDistanceMeters ?? 6
+  const maxDistanceMeters = config.maxDistanceMeters ?? 300
+  const zoomStepMeters = config.zoomStepMeters ?? 1.5
+  let distanceMeters = THREE.MathUtils.clamp(
+    config.distance ?? 18,
+    minDistanceMeters,
+    maxDistanceMeters
+  )
   const height = config.height ?? 8
   const lookHeight = config.lookHeight ?? 1.0
   const followLerp = config.followLerp ?? 0.12
@@ -50,7 +57,7 @@ export function createOrbitCameraControls(camera, renderer, targetObject, config
     // Desired Camera Position (Behind car)
     desiredCamPos.copy(_v3_1)
       .addScaledVector(_up, height)
-      .addScaledVector(_v3_2, -distance)
+      .addScaledVector(_v3_2, -distanceMeters)
   }
 
   function enter() {
@@ -72,7 +79,24 @@ export function createOrbitCameraControls(camera, renderer, targetObject, config
     controls.update()
   }
 
-  return { enter, exit, update, controls }
+  function zoom(deltaY) {
+    _v3_3.copy(camera.position).sub(controls.target)
+
+    const currentDistanceMeters = _v3_3.length()
+    if (currentDistanceMeters <= 0.0001) return
+
+    distanceMeters = THREE.MathUtils.clamp(
+      currentDistanceMeters + Math.sign(deltaY) * zoomStepMeters,
+      minDistanceMeters,
+      maxDistanceMeters
+    )
+
+    _v3_3.normalize().multiplyScalar(distanceMeters)
+    camera.position.copy(controls.target).add(_v3_3)
+    controls.update()
+  }
+
+  return { enter, exit, update, zoom, controls }
 }
 
 /**
@@ -84,6 +108,9 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
   const params = {
     baseHeight: config.baseHeight ?? 5.5,
     baseDistance: config.baseDistance ?? 12.0,
+    minBaseDistance: config.minBaseDistance ?? 6.0,
+    maxBaseDistance: config.maxBaseDistance ?? 26.0,
+    zoomStepMeters: config.zoomStepMeters ?? 1.5,
     speedPullback: config.speedPullback ?? 0.05, 
     maxPullback: config.maxPullback ?? 10.0,
     accelLag: config.accelLag ?? 0.1, 
@@ -252,7 +279,15 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
     lastForward.copy(forward)
   }
 
-  return { enter, exit, update }
+  function zoom(deltaY) {
+    params.baseDistance = THREE.MathUtils.clamp(
+      params.baseDistance + Math.sign(deltaY) * params.zoomStepMeters,
+      params.minBaseDistance,
+      params.maxBaseDistance
+    )
+  }
+
+  return { enter, exit, update, zoom }
 }
 
 /**
