@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Patterns and generated files
+diff.txt
+/*.txt
+

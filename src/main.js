@@ -1,7 +1,10 @@
+// src/main.js
+
 import * as THREE from 'three'
 import { createTerrain } from './terrain/createTerrain.js'
 import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
+import { createDebugHud } from './ui/debugHud/createDebugHud.js'
 
 /* =========================
    Scene
@@ -59,6 +62,19 @@ scene.add(sun)
 const terrain = createTerrain()
 scene.add(terrain)
 
+const terrainInfo = terrain.userData.terrain
+
+const terrainGrid = new THREE.GridHelper(
+  terrainInfo.size,
+  200,
+  0x777777,
+  0x555555
+)
+terrainGrid.position.y = 0.02
+terrainGrid.material.transparent = true
+terrainGrid.material.opacity = 0.45
+scene.add(terrainGrid)
+
 /* =========================
    Car
 ========================= */
@@ -76,14 +92,30 @@ scene.add(car)
 const cameraManager = new CameraManager(camera, renderer, car)
 
 /* =========================
+   Debug HUD
+========================= */
+const debugHud = createDebugHud({
+  parent: document.body,
+  initialCorner: 'top-left',
+  initialCollapsed: false,
+})
+
+/* =========================
    Keyboard Input
 ========================= */
 const keys = {}
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true
+
+  if (e.repeat) return
+
   if (e.code === 'KeyC') {
     cameraManager.cycleMode()
+  }
+
+  if (e.code === 'KeyR') {
+    resetCar()
   }
 })
 
@@ -91,20 +123,64 @@ window.addEventListener('keyup', (e) => {
   keys[e.code] = false
 })
 
+window.addEventListener('blur', () => {
+  for (const key of Object.keys(keys)) {
+    keys[key] = false
+  }
+})
+
 /* =========================
    Car Physics Constants
    (Units per Second)
 ========================= */
 const PHYSICS = {
-  maxSpeed: 40.0,      // Max units per second
-  acceleration: 20.0,  // Speed increase per second
-  friction: 15.0,      // Deceleration per second
-  turnSpeed: 2.5       // Radians per second
+  maxSpeed: 60.0,      // Max units per second
+  acceleration: 24.0,  // Speed increase per second
+  friction: 30.0,      // Deceleration per second
+  turnSpeed: 2.5,      // Radians per second
 }
 
 // Internal state
 let currentSpeed = 0
 const clock = new THREE.Clock()
+
+const carStartPosition = new THREE.Vector3(0, 0, 0)
+const carStartRotation = new THREE.Euler(0, 0, 0)
+
+/* =========================
+   Reset
+========================= */
+function resetCar() {
+  currentSpeed = 0
+
+  car.position.copy(carStartPosition)
+  car.rotation.copy(carStartRotation)
+  car.userData.velocity.set(0, 0, 0)
+
+  cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
+  updateDebugHud(0)
+}
+
+/* =========================
+   Debug HUD
+========================= */
+function updateDebugHud(dt) {
+  const pos = car.position
+
+  const outsideTerrain =
+    Math.abs(pos.x) > terrainInfo.halfSize ||
+    Math.abs(pos.z) > terrainInfo.halfSize
+
+  debugHud.update({
+    cameraMode: cameraManager.activeMode,
+    dt,
+    position: pos,
+    speedScalar: currentSpeed,
+    velocity: car.userData.velocity,
+    terrainSize: terrainInfo.size,
+    outsideTerrain,
+  })
+}
 
 /* =========================
    Car Movement Logic
@@ -127,8 +203,8 @@ function updateCarMovement(dt) {
 
   // 2. Clamp Speed
   currentSpeed = THREE.MathUtils.clamp(
-    currentSpeed, 
-    -PHYSICS.maxSpeed, 
+    currentSpeed,
+    -PHYSICS.maxSpeed,
     PHYSICS.maxSpeed
   )
 
@@ -148,7 +224,7 @@ function updateCarMovement(dt) {
   const v = car.userData.velocity
   v.set(0, 0, 1)
   v.applyQuaternion(car.quaternion)
-  v.multiplyScalar(currentSpeed) 
+  v.multiplyScalar(currentSpeed)
   // Note: We store "Units per Second" in velocity, which matches what
   // the camera controller expects for its physics calculations.
 }
@@ -174,6 +250,7 @@ function animate() {
   // Update Car and Camera using the exact same delta time
   updateCarMovement(dt)
   cameraManager.update(dt)
+  updateDebugHud(dt)
 
   renderer.render(scene, camera)
 }
