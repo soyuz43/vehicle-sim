@@ -6,3 +6,16 @@ Simulation units:
 - Y is vertical.
 - Gravity points in negative Y.
 - Standard gravity is 9.80665 m/s².
+
+
+## Controls
+
+- `W` applies throttle.
+- `S` applies brake.
+- `A` / `D` steer.
+- `[` shifts the selector down: Drive → Neutral → Reverse.
+- `]` shifts the selector up: Reverse → Neutral → Drive.
+- `C` cycles camera mode.
+- `R` resets the vehicle.
+
+The current drivetrain model uses a simple Reverse / Neutral / Drive selector. It does not yet simulate engine RPM, gear ratios, clutch behavior, torque converter behavior, or multi-speed transmission logic.

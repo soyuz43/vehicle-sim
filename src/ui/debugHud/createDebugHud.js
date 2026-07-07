@@ -120,6 +120,9 @@ export function createDebugHud(config = {}) {
       '',
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
       `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
+      `Throttle: ${formatNumber(snapshot.throttleInput)}`,
+      `Brake: ${formatNumber(snapshot.brakeInput)}`,
+      `Steering: ${formatNumber(snapshot.steeringInput)}`,
       `dt: ${formatNumber(snapshot.dt, 4)} s`,
       '',
       `Position XYZ: ${formatVector3(snapshot.position)}`,
@@ -138,12 +141,6 @@ export function createDebugHud(config = {}) {
       '',
       `Terrain size: ${snapshot.terrainSize} x ${snapshot.terrainSize}`,
       `Outside terrain: ${snapshot.outsideTerrain ? 'YES' : 'no'}`,
-      '',
-      'Controls:',
-      'W/S = throttle/brake/reverse',
-      'A/D = steer',
-      'C = camera',
-      'R = reset',
     ].join('\n')
   }
 

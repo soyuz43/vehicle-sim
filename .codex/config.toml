@@ -1,0 +1,10 @@
+# .codex/config.toml
+# Repo-local Codex config for vehicle-sim.
+# Machine/user/provider/auth settings stay in ~/.codex/config.toml.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "disabled"
+project_doc_max_bytes = 65536
+project_doc_fallback_filenames = ["AGENTS.md"]
+
