@@ -30,6 +30,13 @@ const AXLE_HANGER_DEPTH = 0.08
 const AXLE_HANGER_TOP_Y = FRAME_Y - FRAME_RAIL_HEIGHT / 2
 const AXLE_HANGER_BOTTOM_Y = WHEEL_Y
 
+const BRAKE_LIGHT_WIDTH = 0.22
+const BRAKE_LIGHT_HEIGHT = 0.16
+const BRAKE_LIGHT_DEPTH = 0.05
+const BRAKE_LIGHT_X = BODY_WIDTH * 0.32
+const BRAKE_LIGHT_Y = BODY_Y + BODY_HEIGHT * 0.12
+const BRAKE_LIGHT_Z = -BODY_LENGTH / 2 - BRAKE_LIGHT_DEPTH / 2 - 0.012
+
 export function createCar() {
   const car = new THREE.Group()
   car.name = 'vehicle-root'
@@ -38,6 +45,7 @@ export function createCar() {
 
   const body = createBody(materials.body)
   const nose = createNose(materials.nose)
+  const brakeLights = createBrakeLights(materials.brakeLight)
 
   const frameRails = [
     createFrameRail('left-frame-rail', -FRAME_RAIL_X, materials.frame),
@@ -74,6 +82,10 @@ export function createCar() {
 
   car.add(body)
   car.add(nose)
+
+  for (const brakeLight of brakeLights) {
+    car.add(brakeLight)
+  }
 
   for (const rail of frameRails) {
     car.add(rail)
@@ -118,6 +130,9 @@ export function createCar() {
     drivetrain: {
       layout: 'rear-wheel-drive-placeholder',
       drivenWheels: ['rear-left', 'rear-right'],
+    },
+    lighting: {
+      brakeLightNodes: brakeLights.map((brakeLight) => brakeLight.name),
     },
     steering: {
       steerableWheels: ['front-left', 'front-right'],
@@ -176,6 +191,14 @@ function createMaterials() {
       transparent: true,
       opacity: 0.55,
     }),
+    brakeLight: new THREE.MeshStandardMaterial({
+      color: 0x330000,
+      emissive: 0x000000,
+      emissiveIntensity: 0,
+      metalness: 0,
+      roughness: 0.25,
+      toneMapped: false,
+    }),
   }
 }
 
@@ -200,6 +223,28 @@ function createNose(material) {
   nose.position.set(0, BODY_Y, BODY_LENGTH / 2 + 0.52)
 
   return nose
+}
+
+function createBrakeLights(material) {
+  return [
+    createBrakeLight('brake-light-left', -BRAKE_LIGHT_X, material),
+    createBrakeLight('brake-light-right', BRAKE_LIGHT_X, material),
+  ]
+}
+
+function createBrakeLight(name, x, material) {
+  const geometry = new THREE.BoxGeometry(
+    BRAKE_LIGHT_WIDTH,
+    BRAKE_LIGHT_HEIGHT,
+    BRAKE_LIGHT_DEPTH
+  )
+
+  const brakeLight = new THREE.Mesh(geometry, material)
+  brakeLight.name = name
+  brakeLight.castShadow = false
+  brakeLight.position.set(x, BRAKE_LIGHT_Y, BRAKE_LIGHT_Z)
+
+  return brakeLight
 }
 
 function createFrameRail(name, x, material) {
