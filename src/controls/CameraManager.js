@@ -9,6 +9,12 @@ export class CameraManager {
   constructor(camera, renderer, car) {
     this.camera = camera
     this.car = car
+    this.renderer = renderer
+
+    this.handleWheel = this.handleWheel.bind(this)
+    this.renderer.domElement.addEventListener('wheel', this.handleWheel, {
+      passive: false,
+    })
 
     // --- Camera modes ---
     this.modes = {
@@ -58,7 +64,6 @@ export class CameraManager {
       this.modes[this.activeMode].enter()
     }
 
-    console.log('Camera mode:', this.activeMode)
   }
 
   /**
@@ -68,6 +73,19 @@ export class CameraManager {
     this.currentIndex =
       (this.currentIndex + 1) % this.modeOrder.length
     this.setMode(this.modeOrder[this.currentIndex])
+  }
+
+  handleWheel(event) {
+    event.preventDefault()
+    this.zoom(event.deltaY)
+  }
+
+  zoom(deltaY) {
+    const mode = this.modes[this.activeMode]
+
+    if (!mode?.zoom) return
+
+    mode.zoom(deltaY)
   }
 
   /**
