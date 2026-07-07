@@ -176,10 +176,14 @@ function updateDebugHud(dt) {
 
   debugHud.update({
     cameraMode: cameraManager.activeMode,
+    controllerKind: vehicleSnapshot.controllerKind,
     dt,
     position: pos,
     speedScalar: vehicleSnapshot.speedScalar,
     velocity: vehicleSnapshot.velocity,
+    longitudinalAcceleration:
+      vehicleSnapshot.longitudinalAcceleration,
+    forces: vehicleSnapshot.forces,
     terrainSize: terrainInfo.size,
     outsideTerrain,
   })

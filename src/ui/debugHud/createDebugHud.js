@@ -113,22 +113,34 @@ export function createDebugHud(config = {}) {
   }
 
   function update(snapshot) {
+    const forces = snapshot.forces ?? {}
+
     debugHudText.textContent = [
       'Vehicle Sim Debug',
       '',
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
+      `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
       `dt: ${formatNumber(snapshot.dt, 4)} s`,
       '',
       `Position XYZ: ${formatVector3(snapshot.position)}`,
-      `Speed scalar: ${formatNumber(snapshot.speedScalar)} units/s`,
-      `Velocity XYZ: ${formatVector3(snapshot.velocity)} units/s`,
-      `Velocity mag: ${formatNumber(vectorMagnitude(snapshot.velocity))} units/s`,
+      `Speed scalar: ${formatNumber(snapshot.speedScalar)} m/s`,
+      `Velocity XYZ: ${formatVector3(snapshot.velocity)} m/s`,
+      `Velocity mag: ${formatNumber(vectorMagnitude(snapshot.velocity))} m/s`,
+      `Acceleration: ${formatNumber(snapshot.longitudinalAcceleration)} m/s²`,
+      '',
+      `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
+      `Brake force: ${formatNumber(forces.brakeForceNewtons)} N`,
+      `Rolling resistance: ${formatNumber(forces.rollingResistanceForceNewtons)} N`,
+      `Aero drag: ${formatNumber(forces.aerodynamicDragForceNewtons)} N`,
+      `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
+      `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
+      `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
       '',
       `Terrain size: ${snapshot.terrainSize} x ${snapshot.terrainSize}`,
       `Outside terrain: ${snapshot.outsideTerrain ? 'YES' : 'no'}`,
       '',
       'Controls:',
-      'W/S = accelerate/reverse',
+      'W/S = throttle/brake/reverse',
       'A/D = steer',
       'C = camera',
       'R = reset',
