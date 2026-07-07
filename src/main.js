@@ -5,6 +5,7 @@ import { createTerrain } from './terrain/createTerrain.js'
 import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
+import { createVehicleController } from './vehicle/createVehicleController.js'
 
 /* =========================
    Scene
@@ -87,6 +88,13 @@ car.userData.velocity = new THREE.Vector3()
 scene.add(car)
 
 /* =========================
+   Vehicle Controller
+========================= */
+const vehicleController = createVehicleController({
+  vehicle: car,
+})
+
+/* =========================
    Camera Manager
 ========================= */
 const cameraManager = new CameraManager(camera, renderer, car)
@@ -130,42 +138,37 @@ window.addEventListener('blur', () => {
 })
 
 /* =========================
-   Car Physics Constants
-   (Units per Second)
+   Clock
 ========================= */
-const PHYSICS = {
-  maxSpeed: 60.0,      // Max units per second
-  acceleration: 24.0,  // Speed increase per second
-  friction: 30.0,      // Deceleration per second
-  turnSpeed: 2.5,      // Radians per second
-}
-
-// Internal state
-let currentSpeed = 0
 const clock = new THREE.Clock()
-
-const carStartPosition = new THREE.Vector3(0, 0, 0)
-const carStartRotation = new THREE.Euler(0, 0, 0)
 
 /* =========================
    Reset
 ========================= */
 function resetCar() {
-  currentSpeed = 0
-
-  car.position.copy(carStartPosition)
-  car.rotation.copy(carStartRotation)
-  car.userData.velocity.set(0, 0, 0)
-
+  vehicleController.reset()
   cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
   updateDebugHud(0)
+}
+
+/* =========================
+   Vehicle Input
+========================= */
+function getVehicleInput() {
+  return {
+    forward: keys['KeyW'],
+    reverse: keys['KeyS'],
+    left: keys['KeyA'],
+    right: keys['KeyD'],
+  }
 }
 
 /* =========================
    Debug HUD
 ========================= */
 function updateDebugHud(dt) {
-  const pos = car.position
+  const vehicleSnapshot = vehicleController.getSnapshot()
+  const pos = vehicleSnapshot.position
 
   const outsideTerrain =
     Math.abs(pos.x) > terrainInfo.halfSize ||
@@ -175,58 +178,11 @@ function updateDebugHud(dt) {
     cameraMode: cameraManager.activeMode,
     dt,
     position: pos,
-    speedScalar: currentSpeed,
-    velocity: car.userData.velocity,
+    speedScalar: vehicleSnapshot.speedScalar,
+    velocity: vehicleSnapshot.velocity,
     terrainSize: terrainInfo.size,
     outsideTerrain,
   })
-}
-
-/* =========================
-   Car Movement Logic
-========================= */
-function updateCarMovement(dt) {
-  // 1. Acceleration / Deceleration (Time-based)
-  if (keys['KeyW']) {
-    currentSpeed += PHYSICS.acceleration * dt
-  } else if (keys['KeyS']) {
-    currentSpeed -= PHYSICS.acceleration * dt
-  } else {
-    // Friction
-    const decel = PHYSICS.friction * dt
-    if (currentSpeed > 0) {
-      currentSpeed = Math.max(0, currentSpeed - decel)
-    } else if (currentSpeed < 0) {
-      currentSpeed = Math.min(0, currentSpeed + decel)
-    }
-  }
-
-  // 2. Clamp Speed
-  currentSpeed = THREE.MathUtils.clamp(
-    currentSpeed,
-    -PHYSICS.maxSpeed,
-    PHYSICS.maxSpeed
-  )
-
-  // 3. Steering (Time-based)
-  if (Math.abs(currentSpeed) > 0.1) {
-    const turnAmount = PHYSICS.turnSpeed * dt
-    if (keys['KeyA']) car.rotation.y += turnAmount
-    if (keys['KeyD']) car.rotation.y -= turnAmount
-  }
-
-  // 4. Apply Position Change (Distance = Speed * Time)
-  car.translateZ(currentSpeed * dt)
-
-  // 5. UPDATE VELOCITY FOR CAMERA (Zero-Allocation)
-  // We reuse the existing vector instead of creating a new one.
-  // This is the specific fix for the "GC Stutter".
-  const v = car.userData.velocity
-  v.set(0, 0, 1)
-  v.applyQuaternion(car.quaternion)
-  v.multiplyScalar(currentSpeed)
-  // Note: We store "Units per Second" in velocity, which matches what
-  // the camera controller expects for its physics calculations.
 }
 
 /* =========================
@@ -247,8 +203,8 @@ function animate() {
   // Get precise time since last frame (in seconds)
   const dt = clock.getDelta()
 
-  // Update Car and Camera using the exact same delta time
-  updateCarMovement(dt)
+  // Update vehicle and camera using the same delta time.
+  vehicleController.update(dt, getVehicleInput())
   cameraManager.update(dt)
   updateDebugHud(dt)
 
