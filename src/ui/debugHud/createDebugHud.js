@@ -114,6 +114,7 @@ export function createDebugHud(config = {}) {
 
   function update(snapshot) {
     const forces = snapshot.forces ?? {}
+    const fixedSimulation = snapshot.fixedSimulation ?? {}
 
     debugHudText.textContent = [
       'Vehicle Sim Debug',
@@ -124,6 +125,9 @@ export function createDebugHud(config = {}) {
       `Brake: ${formatNumber(snapshot.brakeInput)}`,
       `Steering: ${formatNumber(snapshot.steeringInput)}`,
       `dt: ${formatNumber(snapshot.dt, 4)} s`,
+      `Physics steps: ${formatNumber(fixedSimulation.stepsRun, 0)}`,
+      `Fixed dt: ${formatNumber(fixedSimulation.fixedTimeStepSeconds, 4)} s`,
+      `Accumulator: ${formatNumber(fixedSimulation.accumulatorSeconds, 4)} s`,
       '',
       `Position XYZ: ${formatVector3(snapshot.position)}`,
       `Speed scalar: ${formatNumber(snapshot.speedScalar)} m/s`,
