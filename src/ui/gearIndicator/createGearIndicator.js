@@ -188,8 +188,10 @@ export function createGearIndicator(config = {}) {
   parent.appendChild(root)
 
   function update(snapshot = {}) {
+    // Expected telemetry fields: gear, gearLabel, speedMetersPerSecond, wheelStates.
+    // speedScalar remains a legacy fallback for callers not yet using the driver contract.
     const activeGear = snapshot.gear ?? 'drive'
-    const speedMetersPerSecond = Math.abs(snapshot.speedMetersPerSecond ?? 0)
+    const speedMetersPerSecond = Math.abs(resolveSpeedMetersPerSecond(snapshot))
 
     speedMetersPerSecondNode.textContent = `${formatNumber(speedMetersPerSecond, 1)} m/s`
     speedKilometersPerHourNode.textContent = `${formatNumber(speedMetersPerSecond * 3.6, 1)} km/h`
@@ -277,6 +279,13 @@ function createSectionTitleStyle() {
     letterSpacing: '0.08em',
     color: 'rgba(255, 255, 255, 0.62)',
   }
+}
+
+function resolveSpeedMetersPerSecond(snapshot) {
+  const speedMetersPerSecond =
+    snapshot.speedMetersPerSecond ?? snapshot.speedScalar ?? 0
+
+  return Number.isFinite(speedMetersPerSecond) ? speedMetersPerSecond : 0
 }
 
 function findWheelState(wheelStates, wheelId) {
