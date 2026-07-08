@@ -146,6 +146,8 @@ export function createDebugHud(config = {}) {
       '',
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
+      `Wheel angular velocity: ${formatWheelAngularVelocities(wheelStates)} rad/s`,
+      `Wheel lock placeholder: ${countLockedWheels(wheelStates)} / ${wheelStates.length}`,
       '',
       `Terrain size: ${snapshot.terrainSize} x ${snapshot.terrainSize}`,
       `Outside terrain: ${snapshot.outsideTerrain ? 'YES' : 'no'}`,
@@ -207,6 +209,31 @@ function formatWheelGroundedStates(wheelStates) {
       `${formatWheelId(wheelState)}:${wheelState.isGrounded ? 'G' : 'air'}`
     )
     .join(' ')
+}
+
+function formatWheelAngularVelocities(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  return wheelStates
+    .map((wheelState) => {
+      const angularVelocityRadiansPerSecond =
+        wheelState.angularVelocityRadiansPerSecond
+
+      return `${formatWheelId(wheelState)}:${formatNumber(angularVelocityRadiansPerSecond)}`
+    })
+    .join(' ')
+}
+
+function countLockedWheels(wheelStates) {
+  let lockedWheelCount = 0
+
+  for (const wheelState of wheelStates) {
+    if (wheelState.isWheelLocked) {
+      lockedWheelCount += 1
+    }
+  }
+
+  return lockedWheelCount
 }
 
 function formatWheelId(wheelState) {
