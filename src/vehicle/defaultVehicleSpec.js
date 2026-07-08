@@ -21,6 +21,10 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Current longitudinal motion is still force-based and does not tune behavior from this value.
   wheelInertiaKgMeterSquared: 1.2,
 
+  // Per-wheel service brake torque foundation for later torque-based dynamics.
+  // Current scalar braking still uses maxBrakeForceNewtons through the longitudinal force pipeline.
+  maxServiceBrakeTorqueNewtonMeters: 1200,
+
   // Resistance forces.
   rollingResistanceCoefficient: 0.015,
   dragCoefficient: 0.35,

@@ -460,7 +460,8 @@ export function createVehicleController(config = {}) {
     }
 
     function calculatePerWheelLongitudinalForces() {
-        resetWheelLongitudinalForceRequests()
+        resetWheelForceAndBrakeTorqueRequests()
+        updateServiceBrakeTorqueStates()
 
         const speedDirection = getSignWithDeadzone(
             state.speedScalar,
@@ -484,7 +485,7 @@ export function createVehicleController(config = {}) {
         applyWheelTractionLimits()
     }
 
-    function resetWheelLongitudinalForceRequests() {
+    function resetWheelForceAndBrakeTorqueRequests() {
         for (const wheelState of state.wheelStates) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
@@ -493,6 +494,30 @@ export function createVehicleController(config = {}) {
             wheelState.isSlipping = false
             wheelState.longitudinalSlip = 0
             wheelState.lateralSlip = 0
+            resetWheelServiceBrakeTorqueState(wheelState)
+        }
+    }
+
+    function updateServiceBrakeTorqueStates() {
+        const serviceBrakePressure01 = THREE.MathUtils.clamp(
+            state.brakeInput,
+            0,
+            1
+        )
+
+        const requestedBrakeTorqueNewtonMeters =
+            spec.maxServiceBrakeTorqueNewtonMeters * serviceBrakePressure01
+
+        // These are non-negative service brake command magnitudes. ABS, wheel lock,
+        // and torque-based angular deceleration are intentionally future work.
+        for (const wheelState of state.wheelStates) {
+            wheelState.serviceBrakePressure01 = serviceBrakePressure01
+            wheelState.requestedBrakeTorqueNewtonMeters =
+                requestedBrakeTorqueNewtonMeters
+            wheelState.appliedBrakeTorqueNewtonMeters =
+                requestedBrakeTorqueNewtonMeters
+            wheelState.brakeTorqueNewtonMeters =
+                wheelState.appliedBrakeTorqueNewtonMeters
         }
     }
 
@@ -581,10 +606,9 @@ export function createVehicleController(config = {}) {
     }
 
     function synchronizeWheelRotationToRollingConstraint(wheelState, dt) {
-        // Torque and lock fields are explicit state seams only on this branch;
-        // the scalar force pipeline still determines vehicle motion.
+        // Torque and lock fields are explicit state seams only for now.
+        // Service brake torque is telemetry until angular dynamics consume it.
         wheelState.driveTorqueNewtonMeters = 0
-        wheelState.brakeTorqueNewtonMeters = 0
         wheelState.netTorqueNewtonMeters = 0
         wheelState.isWheelLocked = false
 
@@ -592,9 +616,10 @@ export function createVehicleController(config = {}) {
             wheelState.angularVelocityRadiansPerSecond
 
         if (wheelState.isGrounded) {
-            // Temporary rolling constraint: until torque-based wheel dynamics and slip ratio are
-            // implemented, grounded wheels are synchronized to the kinematic rolling speed.
-            // Later brake/drive torque and tire slip will replace this direct synchronization.
+            // Temporary rolling constraint: brake torque fields now exist, but until torque-based
+            // wheel dynamics and slip ratio are implemented, grounded wheels are synchronized to
+            // the kinematic rolling speed. Later brake/drive torque and tire slip will replace
+            // this direct synchronization.
             wheelState.rollingSurfaceSpeedMetersPerSecond = state.speedScalar
             wheelState.targetRollingAngularVelocityRadiansPerSecond =
                 calculateTargetRollingAngularVelocity(wheelState)
@@ -759,6 +784,10 @@ function createWheelRuntimeStates(vehicle, spec) {
             angularAccelerationRadiansPerSecondSquared: 0,
             spinAngleRadians: 0,
             wheelInertiaKgMeterSquared: spec.wheelInertiaKgMeterSquared,
+            // Service brake torque values are command-state magnitudes only for now.
+            serviceBrakePressure01: 0,
+            requestedBrakeTorqueNewtonMeters: 0,
+            appliedBrakeTorqueNewtonMeters: 0,
             driveTorqueNewtonMeters: 0,
             brakeTorqueNewtonMeters: 0,
             netTorqueNewtonMeters: 0,
@@ -793,10 +822,17 @@ function resetWheelRotationalState(wheelState) {
     wheelState.angularVelocityRadiansPerSecond = 0
     wheelState.angularAccelerationRadiansPerSecondSquared = 0
     wheelState.spinAngleRadians = 0
+    resetWheelServiceBrakeTorqueState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
-    wheelState.brakeTorqueNewtonMeters = 0
     wheelState.netTorqueNewtonMeters = 0
     wheelState.isWheelLocked = false
+}
+
+function resetWheelServiceBrakeTorqueState(wheelState) {
+    wheelState.serviceBrakePressure01 = 0
+    wheelState.requestedBrakeTorqueNewtonMeters = 0
+    wheelState.appliedBrakeTorqueNewtonMeters = 0
+    wheelState.brakeTorqueNewtonMeters = 0
 }
 
 function applyWheelVisualState(wheelState) {
