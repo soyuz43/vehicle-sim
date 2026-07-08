@@ -30,6 +30,11 @@ Wheels now carry explicit rotational state used by visual wheel spin. Grounded w
 Each wheel now records service brake pressure and placeholder brake torque state. Current vehicle braking still uses the existing per-wheel longitudinal force pipeline and scalar acceleration model; brake torque does not yet drive wheel angular deceleration. This state prepares later torque-based wheel dynamics, wheel lock, slip ratio, ABS, and tire curves.
 
 
+## Longitudinal Slip Ratio Telemetry
+
+Each wheel now records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. The current contact patch velocity is approximated from scalar vehicle speed until planar chassis dynamics exist, and the grounded temporary rolling constraint means normal driving slip should remain near zero. Slip ratio is not yet used to compute tire forces; future branches can use it for wheel lock detection, ABS, and tire curves.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake requests are generated per wheel, then each wheel independently applies the current clamp-based placeholder traction limit. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, tire slip models, and load transfer without implementing those systems yet.

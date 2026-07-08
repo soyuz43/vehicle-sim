@@ -148,6 +148,7 @@ export function createDebugHud(config = {}) {
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
       `Wheel angular velocity: ${formatWheelAngularVelocities(wheelStates)} rad/s`,
+      `Longitudinal slip ratio: ${formatLongitudinalSlipTelemetry(wheelStates)}`,
       `Wheel lock placeholder: ${countLockedWheels(wheelStates)} / ${wheelStates.length}`,
       '',
       `Terrain size: ${snapshot.terrainSize} x ${snapshot.terrainSize}`,
@@ -235,6 +236,25 @@ function countLockedWheels(wheelStates) {
   }
 
   return lockedWheelCount
+}
+
+function formatLongitudinalSlipTelemetry(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  let maxLongitudinalSlipRatioAbs = 0
+
+  for (const wheelState of wheelStates) {
+    const longitudinalSlipRatioAbs = Number.isFinite(wheelState.longitudinalSlipRatioAbs)
+      ? wheelState.longitudinalSlipRatioAbs
+      : 0
+
+    maxLongitudinalSlipRatioAbs = Math.max(
+      maxLongitudinalSlipRatioAbs,
+      longitudinalSlipRatioAbs
+    )
+  }
+
+  return `max ${formatNumber(maxLongitudinalSlipRatioAbs, 3)}`
 }
 
 function formatServiceBrakeTelemetry(wheelStates) {
