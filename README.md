@@ -22,17 +22,22 @@ The bottom-right driver panel shows speed, the R/N/D selector, and compact per-w
 
 ## Wheel Rotational State
 
-Wheels now carry explicit rotational state used by visual wheel spin. Grounded wheel rotation is still temporarily synchronized to rolling speed, so this does not yet implement torque-based wheel dynamics. Brake torque, wheel lock, longitudinal slip ratio, ABS, and tire curves remain future work.
+Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel lock, ABS, and tire curves remain future work.
 
 
 ## Service Brake Torque State
 
-Each wheel now records service brake pressure and placeholder brake torque state. Current vehicle braking still uses the existing per-wheel longitudinal force pipeline and scalar acceleration model; brake torque does not yet drive wheel angular deceleration. This state prepares later torque-based wheel dynamics, wheel lock, slip ratio, ABS, and tire curves.
+Each wheel records service brake pressure and brake torque command state. Brake torque now contributes to wheel angular dynamics, while current vehicle braking still uses the existing per-wheel longitudinal force pipeline and scalar acceleration model. This state prepares later wheel lock, ABS, and tire curves.
 
 
 ## Longitudinal Slip Ratio Telemetry
 
-Each wheel now records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. The current contact patch velocity is approximated from scalar vehicle speed until planar chassis dynamics exist, and the grounded temporary rolling constraint means normal driving slip should remain near zero. Slip ratio is not yet used to compute tire forces; future branches can use it for wheel lock detection, ABS, and tire curves.
+Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. The current contact patch velocity is approximated from scalar vehicle speed until planar chassis dynamics exist. Slip ratio is not yet used to compute tire forces; future branches can use it for wheel lock detection, ABS, and tire curves.
+
+
+## Torque-Coupled Wheel Dynamics
+
+Wheel angular velocity now integrates from simple net torque and wheel inertia. The scalar vehicle acceleration model still uses the existing force pipeline, and clamp-based traction limiting remains in place. A temporary rolling constraint correction limits runaway wheel spin while tire force is still clamp-based; a future basic linear longitudinal tire model should remove or reduce that correction and derive tire force from slip.
 
 
 ## Longitudinal Force Pipeline
