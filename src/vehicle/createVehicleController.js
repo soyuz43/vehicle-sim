@@ -39,6 +39,7 @@ const DEFAULT_CONTROLLER_PARAMS = {
 const LOCAL_FORWARD = new THREE.Vector3(0, 0, 1)
 const CONTACT_EPSILON_METERS = 0.001
 const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
+const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = 0.1
 
 const BRAKE_LIGHT_OFF_COLOR = 0x330000
 const BRAKE_LIGHT_ON_COLOR = 0xff1111
@@ -103,6 +104,7 @@ export function createVehicleController(config = {}) {
         updatePosition(safeDt)
         updateVelocityVector()
         updateWheelRotationalStates(safeDt)
+        updateLongitudinalSlipTelemetry()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -129,7 +131,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
             wheelState.appliedLongitudinalForceNewtons = 0
-            wheelState.longitudinalSlip = 0
+            resetWheelLongitudinalSlipState(wheelState)
             wheelState.lateralSlip = 0
             wheelState.frictionCoefficient = spec.defaultSurfaceFrictionCoefficient
             wheelState.surfaceKind = 'flat-asphalt-placeholder'
@@ -145,6 +147,7 @@ export function createVehicleController(config = {}) {
         calculatePerWheelLongitudinalForces()
         state.forces = calculateLongitudinalForcesFromWheelState()
         updateWheelRotationalStates(0)
+        updateLongitudinalSlipTelemetry()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -492,7 +495,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedLongitudinalForceNewtons = 0
             wheelState.appliedLongitudinalForceNewtons = 0
             wheelState.isSlipping = false
-            wheelState.longitudinalSlip = 0
+            resetWheelLongitudinalSlipState(wheelState)
             wheelState.lateralSlip = 0
             resetWheelServiceBrakeTorqueState(wheelState)
         }
@@ -579,7 +582,6 @@ export function createVehicleController(config = {}) {
                 wheelState.isSlipping =
                     Math.abs(wheelState.requestedLongitudinalForceNewtons) >
                     TRACTION_LIMIT_EPSILON_NEWTONS
-                wheelState.longitudinalSlip = 0
                 continue
             }
 
@@ -595,7 +597,6 @@ export function createVehicleController(config = {}) {
                 Math.abs(wheelState.requestedLongitudinalForceNewtons) >
                 wheelState.tractionLimitNewtons + TRACTION_LIMIT_EPSILON_NEWTONS
 
-            wheelState.longitudinalSlip = wheelState.isSlipping ? 1 : 0
         }
     }
 
@@ -653,6 +654,87 @@ export function createVehicleController(config = {}) {
         if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
 
         return wheelState.angularVelocityRadiansPerSecond * wheelState.radius
+    }
+
+    function updateLongitudinalSlipTelemetry() {
+        for (const wheelState of state.wheelStates) {
+            updateWheelLongitudinalSlipState(wheelState)
+        }
+    }
+
+    function updateWheelLongitudinalSlipState(wheelState) {
+        const longitudinalGroundSpeedMetersPerSecond = state.speedScalar
+        const wheelSurfaceSpeedMetersPerSecond =
+            calculateRollingSurfaceSpeedMetersPerSecond(wheelState)
+
+        wheelState.longitudinalGroundSpeedMetersPerSecond =
+            longitudinalGroundSpeedMetersPerSecond
+        wheelState.wheelSurfaceSpeedMetersPerSecond =
+            wheelSurfaceSpeedMetersPerSecond
+
+        if (!wheelState.isGrounded) {
+            resetWheelLongitudinalSlipRatioFields(wheelState)
+            return
+        }
+
+        const groundSpeedAbs = Math.abs(longitudinalGroundSpeedMetersPerSecond)
+        const wheelSurfaceSpeedAbs = Math.abs(wheelSurfaceSpeedMetersPerSecond)
+        const hasLongitudinalSlipSample =
+            Math.max(groundSpeedAbs, wheelSurfaceSpeedAbs) >=
+            SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND
+
+        wheelState.hasLongitudinalSlipSample = hasLongitudinalSlipSample
+
+        if (!hasLongitudinalSlipSample) {
+            wheelState.longitudinalSlipRatio = 0
+            wheelState.longitudinalSlipRatioAbs = 0
+            wheelState.longitudinalSlip = 0
+            return
+        }
+
+        const slipDenominatorMetersPerSecond = Math.max(
+            groundSpeedAbs,
+            wheelSurfaceSpeedAbs,
+            SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND
+        )
+
+        const longitudinalDirection = getSlipDirection(
+            longitudinalGroundSpeedMetersPerSecond,
+            wheelSurfaceSpeedMetersPerSecond
+        )
+
+        // Positive slip means wheel surface speed exceeds ground speed in the
+        // current longitudinal direction; negative slip means the wheel surface
+        // is slower, as in braking or incipient lock. Current ground speed is
+        // scalar until per-wheel contact patch velocity exists.
+        const longitudinalSlipRatio =
+            (
+                wheelSurfaceSpeedMetersPerSecond -
+                longitudinalGroundSpeedMetersPerSecond
+            ) * longitudinalDirection / slipDenominatorMetersPerSecond
+
+        wheelState.longitudinalSlipRatio = longitudinalSlipRatio
+        wheelState.longitudinalSlipRatioAbs = Math.abs(longitudinalSlipRatio)
+        wheelState.longitudinalSlip = longitudinalSlipRatio
+    }
+
+    function getSlipDirection(
+        longitudinalGroundSpeedMetersPerSecond,
+        wheelSurfaceSpeedMetersPerSecond
+    ) {
+        const groundSpeedDirection = getSignWithDeadzone(
+            longitudinalGroundSpeedMetersPerSecond,
+            SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND
+        )
+
+        if (groundSpeedDirection !== 0) return groundSpeedDirection
+
+        const wheelSurfaceSpeedDirection = getSignWithDeadzone(
+            wheelSurfaceSpeedMetersPerSecond,
+            SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND
+        )
+
+        return wheelSurfaceSpeedDirection !== 0 ? wheelSurfaceSpeedDirection : 1
     }
 
     function updateWheelVisualStates() {
@@ -802,6 +884,11 @@ function createWheelRuntimeStates(vehicle, spec) {
             requestedBrakeForceNewtons: 0,
             requestedLongitudinalForceNewtons: 0,
             appliedLongitudinalForceNewtons: 0,
+            longitudinalGroundSpeedMetersPerSecond: 0,
+            wheelSurfaceSpeedMetersPerSecond: 0,
+            longitudinalSlipRatio: 0,
+            longitudinalSlipRatioAbs: 0,
+            hasLongitudinalSlipSample: false,
             longitudinalSlip: 0,
             lateralSlip: 0,
             visual: {
@@ -822,10 +909,24 @@ function resetWheelRotationalState(wheelState) {
     wheelState.angularVelocityRadiansPerSecond = 0
     wheelState.angularAccelerationRadiansPerSecondSquared = 0
     wheelState.spinAngleRadians = 0
+    resetWheelLongitudinalSlipState(wheelState)
     resetWheelServiceBrakeTorqueState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
     wheelState.netTorqueNewtonMeters = 0
     wheelState.isWheelLocked = false
+}
+
+function resetWheelLongitudinalSlipState(wheelState) {
+    wheelState.longitudinalGroundSpeedMetersPerSecond = 0
+    wheelState.wheelSurfaceSpeedMetersPerSecond = 0
+    resetWheelLongitudinalSlipRatioFields(wheelState)
+}
+
+function resetWheelLongitudinalSlipRatioFields(wheelState) {
+    wheelState.longitudinalSlipRatio = 0
+    wheelState.longitudinalSlipRatioAbs = 0
+    wheelState.hasLongitudinalSlipSample = false
+    wheelState.longitudinalSlip = 0
 }
 
 function resetWheelServiceBrakeTorqueState(wheelState) {
