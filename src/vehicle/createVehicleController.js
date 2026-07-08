@@ -102,7 +102,8 @@ export function createVehicleController(config = {}) {
         updateSteering(safeDt)
         updatePosition(safeDt)
         updateVelocityVector()
-        updateWheelVisualStates(safeDt)
+        updateWheelRotationalStates(safeDt)
+        updateWheelVisualStates()
 
         return getSnapshot()
     }
@@ -120,8 +121,7 @@ export function createVehicleController(config = {}) {
         velocity.set(0, 0, 0)
 
         for (const wheelState of state.wheelStates) {
-            wheelState.angularVelocityRadiansPerSecond = 0
-            wheelState.spinAngleRadians = 0
+            resetWheelRotationalState(wheelState)
             wheelState.steeringAngleRadians = 0
             wheelState.normalForceNewtons = 0
             wheelState.tractionLimitNewtons = 0
@@ -144,7 +144,8 @@ export function createVehicleController(config = {}) {
         updateWheelLoadPlaceholderValues()
         calculatePerWheelLongitudinalForces()
         state.forces = calculateLongitudinalForcesFromWheelState()
-        updateWheelVisualStates(0)
+        updateWheelRotationalStates(0)
+        updateWheelVisualStates()
 
         return getSnapshot()
     }
@@ -573,16 +574,64 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function updateWheelVisualStates(dt) {
+    function updateWheelRotationalStates(dt) {
         for (const wheelState of state.wheelStates) {
+            synchronizeWheelRotationToRollingConstraint(wheelState, dt)
+        }
+    }
+
+    function synchronizeWheelRotationToRollingConstraint(wheelState, dt) {
+        // Torque and lock fields are explicit state seams only on this branch;
+        // the scalar force pipeline still determines vehicle motion.
+        wheelState.driveTorqueNewtonMeters = 0
+        wheelState.brakeTorqueNewtonMeters = 0
+        wheelState.netTorqueNewtonMeters = 0
+        wheelState.isWheelLocked = false
+
+        const previousAngularVelocityRadiansPerSecond =
+            wheelState.angularVelocityRadiansPerSecond
+
+        if (wheelState.isGrounded) {
+            // Temporary rolling constraint: until torque-based wheel dynamics and slip ratio are
+            // implemented, grounded wheels are synchronized to the kinematic rolling speed.
+            // Later brake/drive torque and tire slip will replace this direct synchronization.
+            wheelState.rollingSurfaceSpeedMetersPerSecond = state.speedScalar
+            wheelState.targetRollingAngularVelocityRadiansPerSecond =
+                calculateTargetRollingAngularVelocity(wheelState)
             wheelState.angularVelocityRadiansPerSecond =
-                wheelState.radius > 0
-                    ? state.speedScalar / wheelState.radius
-                    : 0
+                wheelState.targetRollingAngularVelocityRadiansPerSecond
+            wheelState.angularAccelerationRadiansPerSecondSquared = dt > 0
+                ? (
+                    wheelState.angularVelocityRadiansPerSecond -
+                    previousAngularVelocityRadiansPerSecond
+                ) / dt
+                : 0
+        } else {
+            wheelState.rollingSurfaceSpeedMetersPerSecond =
+                calculateRollingSurfaceSpeedMetersPerSecond(wheelState)
+            wheelState.targetRollingAngularVelocityRadiansPerSecond =
+                wheelState.angularVelocityRadiansPerSecond
+            wheelState.angularAccelerationRadiansPerSecondSquared = 0
+        }
 
-            wheelState.spinAngleRadians +=
-                wheelState.angularVelocityRadiansPerSecond * dt
+        wheelState.spinAngleRadians +=
+            wheelState.angularVelocityRadiansPerSecond * dt
+    }
 
+    function calculateTargetRollingAngularVelocity(wheelState) {
+        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+
+        return wheelState.rollingSurfaceSpeedMetersPerSecond / wheelState.radius
+    }
+
+    function calculateRollingSurfaceSpeedMetersPerSecond(wheelState) {
+        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+
+        return wheelState.angularVelocityRadiansPerSecond * wheelState.radius
+    }
+
+    function updateWheelVisualStates() {
+        for (const wheelState of state.wheelStates) {
             wheelState.steeringAngleRadians = wheelState.steerable
                 ? params.maxVisualSteeringAngleRadians * state.steeringInput
                 : 0
@@ -702,8 +751,18 @@ function createWheelRuntimeStates(vehicle, spec) {
             tirePenetrationMeters: 0,
             isInsideTerrainBounds: true,
             steeringAngleRadians: 0,
-            spinAngleRadians: 0,
+            // Rotational dynamics fields are explicit state only for now.
+            // Torque-based integration and wheel lock remain future work.
+            rollingSurfaceSpeedMetersPerSecond: 0,
+            targetRollingAngularVelocityRadiansPerSecond: 0,
             angularVelocityRadiansPerSecond: 0,
+            angularAccelerationRadiansPerSecondSquared: 0,
+            spinAngleRadians: 0,
+            wheelInertiaKgMeterSquared: spec.wheelInertiaKgMeterSquared,
+            driveTorqueNewtonMeters: 0,
+            brakeTorqueNewtonMeters: 0,
+            netTorqueNewtonMeters: 0,
+            isWheelLocked: false,
             isGrounded: true,
             isSlipping: false,
             surfaceKind: 'flat-asphalt-placeholder',
@@ -726,6 +785,18 @@ function createWheelRuntimeStates(vehicle, spec) {
             },
         }
     })
+}
+
+function resetWheelRotationalState(wheelState) {
+    wheelState.rollingSurfaceSpeedMetersPerSecond = 0
+    wheelState.targetRollingAngularVelocityRadiansPerSecond = 0
+    wheelState.angularVelocityRadiansPerSecond = 0
+    wheelState.angularAccelerationRadiansPerSecondSquared = 0
+    wheelState.spinAngleRadians = 0
+    wheelState.driveTorqueNewtonMeters = 0
+    wheelState.brakeTorqueNewtonMeters = 0
+    wheelState.netTorqueNewtonMeters = 0
+    wheelState.isWheelLocked = false
 }
 
 function applyWheelVisualState(wheelState) {

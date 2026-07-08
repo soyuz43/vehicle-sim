@@ -20,6 +20,11 @@ The simulation tracks finite per-wheel contact state against the current flat te
 The bottom-right driver panel shows speed, the R/N/D selector, and compact per-wheel contact/placeholder available-traction status.
 
 
+## Wheel Rotational State
+
+Wheels now carry explicit rotational state used by visual wheel spin. Grounded wheel rotation is still temporarily synchronized to rolling speed, so this does not yet implement torque-based wheel dynamics. Brake torque, wheel lock, longitudinal slip ratio, ABS, and tire curves remain future work.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake requests are generated per wheel, then each wheel independently applies the current clamp-based placeholder traction limit. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, tire slip models, and load transfer without implementing those systems yet.

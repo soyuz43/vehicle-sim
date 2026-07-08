@@ -17,6 +17,10 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   maxReverseDriveForceNewtons: 2500,
   maxBrakeForceNewtons: 12000,
 
+  // Foundation value for later torque-based wheel dynamics.
+  // Current longitudinal motion is still force-based and does not tune behavior from this value.
+  wheelInertiaKgMeterSquared: 1.2,
+
   // Resistance forces.
   rollingResistanceCoefficient: 0.015,
   dragCoefficient: 0.35,
