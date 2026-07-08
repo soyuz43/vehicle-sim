@@ -25,6 +25,11 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Current scalar braking still uses maxBrakeForceNewtons through the longitudinal force pipeline.
   maxServiceBrakeTorqueNewtonMeters: 1200,
 
+  // Basic linear/saturated longitudinal tire model coefficient.
+  // Tire force is still capped by frictionCoefficient * normalForceNewtons;
+  // this is not a Pacejka or combined-slip tire model.
+  longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
+
   // Resistance forces.
   rollingResistanceCoefficient: 0.015,
   dragCoefficient: 0.35,

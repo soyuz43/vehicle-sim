@@ -102,7 +102,7 @@ We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
   ```
 - **Validation Checklist** (Before Pushing):
   1. `npm run build` passes.
-  2. `rg` confirms no forbidden terms (e.g., "ABS" implementation) exist unless intended.
+  2. `rg` confirms no prohibited feature implementation was introduced. Future-work mentions in README, AGENTS.md, skill docs, or comments are allowed; executable-code matches must be inspected and explained.
   3. Manual check: Driving, Braking, Reset, and HUD updates work.
   4. No unintended behavior regression.
 
