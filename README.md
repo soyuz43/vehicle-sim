@@ -25,6 +25,11 @@ The bottom-right driver panel shows speed, the R/N/D selector, and compact per-w
 Wheels now carry explicit rotational state used by visual wheel spin. Grounded wheel rotation is still temporarily synchronized to rolling speed, so this does not yet implement torque-based wheel dynamics. Brake torque, wheel lock, longitudinal slip ratio, ABS, and tire curves remain future work.
 
 
+## Service Brake Torque State
+
+Each wheel now records service brake pressure and placeholder brake torque state. Current vehicle braking still uses the existing per-wheel longitudinal force pipeline and scalar acceleration model; brake torque does not yet drive wheel angular deceleration. This state prepares later torque-based wheel dynamics, wheel lock, slip ratio, ABS, and tire curves.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake requests are generated per wheel, then each wheel independently applies the current clamp-based placeholder traction limit. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, tire slip models, and load transfer without implementing those systems yet.

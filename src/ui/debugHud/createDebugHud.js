@@ -138,6 +138,7 @@ export function createDebugHud(config = {}) {
       '',
       `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
       `Brake force: ${formatNumber(forces.brakeForceNewtons)} N`,
+      `Service brake torque: ${formatServiceBrakeTelemetry(wheelStates)}`,
       `Rolling resistance: ${formatNumber(forces.rollingResistanceForceNewtons)} N`,
       `Aero drag: ${formatNumber(forces.aerodynamicDragForceNewtons)} N`,
       `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
@@ -234,6 +235,35 @@ function countLockedWheels(wheelStates) {
   }
 
   return lockedWheelCount
+}
+
+function formatServiceBrakeTelemetry(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  let maxServiceBrakePressure01 = 0
+  let maxBrakeTorqueNewtonMeters = 0
+
+  for (const wheelState of wheelStates) {
+    const serviceBrakePressure01 = Number.isFinite(wheelState.serviceBrakePressure01)
+      ? wheelState.serviceBrakePressure01
+      : 0
+
+    const brakeTorqueNewtonMeters = Number.isFinite(wheelState.brakeTorqueNewtonMeters)
+      ? wheelState.brakeTorqueNewtonMeters
+      : 0
+
+    maxServiceBrakePressure01 = Math.max(
+      maxServiceBrakePressure01,
+      serviceBrakePressure01
+    )
+
+    maxBrakeTorqueNewtonMeters = Math.max(
+      maxBrakeTorqueNewtonMeters,
+      brakeTorqueNewtonMeters
+    )
+  }
+
+  return `${formatNumber(maxServiceBrakePressure01)} p / ${formatNumber(maxBrakeTorqueNewtonMeters, 0)} N*m`
 }
 
 function formatWheelId(wheelState) {
