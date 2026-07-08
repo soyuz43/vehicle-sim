@@ -201,6 +201,16 @@ function getVehicleInput() {
   }
 }
 
+function createDriverTelemetrySnapshot(vehicleSnapshot) {
+  return {
+    gear: vehicleSnapshot.gear,
+    gearLabel: vehicleSnapshot.gearLabel,
+    speedMetersPerSecond:
+      vehicleSnapshot.speedMetersPerSecond ?? vehicleSnapshot.speedScalar ?? 0,
+    wheelStates: vehicleSnapshot.wheelStates,
+  }
+}
+
 /* =========================
    Debug HUD
 ========================= */
@@ -236,12 +246,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
 function updateGearIndicator() {
   const vehicleSnapshot = vehicleController.getSnapshot()
 
-  gearIndicator.update({
-    gear: vehicleSnapshot.gear,
-    gearLabel: vehicleSnapshot.gearLabel,
-    speedMetersPerSecond: vehicleSnapshot.speedScalar,
-    wheelStates: vehicleSnapshot.wheelStates,
-  })
+  gearIndicator.update(createDriverTelemetrySnapshot(vehicleSnapshot))
 }
 
 /* =========================
