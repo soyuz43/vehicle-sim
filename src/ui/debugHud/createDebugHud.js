@@ -148,6 +148,7 @@ export function createDebugHud(config = {}) {
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
       `Wheel angular velocity: ${formatWheelAngularVelocities(wheelStates)} rad/s`,
+      `Wheel net torque: ${formatWheelNetTorqueTelemetry(wheelStates)}`,
       `Longitudinal slip ratio: ${formatLongitudinalSlipTelemetry(wheelStates)}`,
       `Wheel lock placeholder: ${countLockedWheels(wheelStates)} / ${wheelStates.length}`,
       '',
@@ -226,6 +227,25 @@ function formatWheelAngularVelocities(wheelStates) {
     .join(' ')
 }
 
+function formatWheelNetTorqueTelemetry(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  let maxNetTorqueNewtonMetersAbs = 0
+
+  for (const wheelState of wheelStates) {
+    const netTorqueNewtonMeters = Number.isFinite(wheelState.netTorqueNewtonMeters)
+      ? wheelState.netTorqueNewtonMeters
+      : 0
+
+    maxNetTorqueNewtonMetersAbs = Math.max(
+      maxNetTorqueNewtonMetersAbs,
+      Math.abs(netTorqueNewtonMeters)
+    )
+  }
+
+  return `max ${formatNumber(maxNetTorqueNewtonMetersAbs, 0)} N*m`
+}
+
 function countLockedWheels(wheelStates) {
   let lockedWheelCount = 0
 
@@ -268,8 +288,8 @@ function formatServiceBrakeTelemetry(wheelStates) {
       ? wheelState.serviceBrakePressure01
       : 0
 
-    const brakeTorqueNewtonMeters = Number.isFinite(wheelState.brakeTorqueNewtonMeters)
-      ? wheelState.brakeTorqueNewtonMeters
+    const brakeTorqueNewtonMeters = Number.isFinite(wheelState.appliedBrakeTorqueNewtonMeters)
+      ? wheelState.appliedBrakeTorqueNewtonMeters
       : 0
 
     maxServiceBrakePressure01 = Math.max(

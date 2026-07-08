@@ -40,6 +40,8 @@ const LOCAL_FORWARD = new THREE.Vector3(0, 0, 1)
 const CONTACT_EPSILON_METERS = 0.001
 const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
 const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = 0.1
+const WHEEL_ANGULAR_SPEED_EPSILON_RADIANS_PER_SECOND = 0.001
+const TEMPORARY_ROLLING_CONSTRAINT_CORRECTION_TIME_SECONDS = 0.12
 
 const BRAKE_LIGHT_OFF_COLOR = 0x330000
 const BRAKE_LIGHT_ON_COLOR = 0xff1111
@@ -602,52 +604,113 @@ export function createVehicleController(config = {}) {
 
     function updateWheelRotationalStates(dt) {
         for (const wheelState of state.wheelStates) {
-            synchronizeWheelRotationToRollingConstraint(wheelState, dt)
+            updateWheelTorqueCoupledRotationalState(wheelState, dt)
         }
     }
 
-    function synchronizeWheelRotationToRollingConstraint(wheelState, dt) {
-        // Torque and lock fields are explicit state seams only for now.
-        // Service brake torque is telemetry until angular dynamics consume it.
-        wheelState.driveTorqueNewtonMeters = 0
-        wheelState.netTorqueNewtonMeters = 0
-        wheelState.isWheelLocked = false
+    function updateWheelTorqueCoupledRotationalState(wheelState, dt) {
+        wheelState.driveTorqueNewtonMeters = calculateWheelDriveTorqueNewtonMeters(wheelState)
+        wheelState.brakeTorqueNewtonMeters = calculateWheelBrakeTorqueNewtonMeters(
+            wheelState,
+            dt
+        )
+        wheelState.contactReactionTorqueNewtonMeters =
+            calculateWheelContactReactionTorqueNewtonMeters(wheelState)
+        wheelState.targetRollingAngularVelocityRadiansPerSecond =
+            calculateTargetRollingAngularVelocity(wheelState)
+        wheelState.rollingConstraintCorrectionTorqueNewtonMeters =
+            calculateTemporaryRollingConstraintCorrectionTorqueNewtonMeters(wheelState)
 
-        const previousAngularVelocityRadiansPerSecond =
-            wheelState.angularVelocityRadiansPerSecond
+        wheelState.netTorqueNewtonMeters =
+            wheelState.driveTorqueNewtonMeters +
+            wheelState.brakeTorqueNewtonMeters +
+            wheelState.contactReactionTorqueNewtonMeters +
+            wheelState.rollingConstraintCorrectionTorqueNewtonMeters
 
-        if (wheelState.isGrounded) {
-            // Temporary rolling constraint: brake torque fields now exist, but until torque-based
-            // wheel dynamics and slip ratio are implemented, grounded wheels are synchronized to
-            // the kinematic rolling speed. Later brake/drive torque and tire slip will replace
-            // this direct synchronization.
-            wheelState.rollingSurfaceSpeedMetersPerSecond = state.speedScalar
-            wheelState.targetRollingAngularVelocityRadiansPerSecond =
-                calculateTargetRollingAngularVelocity(wheelState)
-            wheelState.angularVelocityRadiansPerSecond =
-                wheelState.targetRollingAngularVelocityRadiansPerSecond
-            wheelState.angularAccelerationRadiansPerSecondSquared = dt > 0
-                ? (
-                    wheelState.angularVelocityRadiansPerSecond -
-                    previousAngularVelocityRadiansPerSecond
-                ) / dt
-                : 0
-        } else {
+        if (dt <= 0 || !Number.isFinite(wheelState.wheelInertiaKgMeterSquared) ||
+            wheelState.wheelInertiaKgMeterSquared <= 0) {
+            wheelState.angularAccelerationRadiansPerSecondSquared = 0
             wheelState.rollingSurfaceSpeedMetersPerSecond =
                 calculateRollingSurfaceSpeedMetersPerSecond(wheelState)
-            wheelState.targetRollingAngularVelocityRadiansPerSecond =
-                wheelState.angularVelocityRadiansPerSecond
+            return
+        }
+
+        wheelState.angularAccelerationRadiansPerSecondSquared =
+            wheelState.netTorqueNewtonMeters / wheelState.wheelInertiaKgMeterSquared
+        wheelState.angularVelocityRadiansPerSecond +=
+            wheelState.angularAccelerationRadiansPerSecondSquared * dt
+
+        if (!Number.isFinite(wheelState.angularVelocityRadiansPerSecond)) {
+            wheelState.angularVelocityRadiansPerSecond = 0
             wheelState.angularAccelerationRadiansPerSecondSquared = 0
         }
 
+        wheelState.rollingSurfaceSpeedMetersPerSecond =
+            calculateRollingSurfaceSpeedMetersPerSecond(wheelState)
         wheelState.spinAngleRadians +=
             wheelState.angularVelocityRadiansPerSecond * dt
+        wheelState.isWheelLocked = false
+    }
+
+    function calculateWheelDriveTorqueNewtonMeters(wheelState) {
+        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+
+        return wheelState.requestedDriveForceNewtons * wheelState.radius
+    }
+
+    function calculateWheelBrakeTorqueNewtonMeters(wheelState, dt) {
+        const brakeTorqueMagnitudeNewtonMeters =
+            wheelState.appliedBrakeTorqueNewtonMeters
+
+        if (brakeTorqueMagnitudeNewtonMeters <= 0 || dt <= 0) return 0
+
+        const angularVelocityDirection = getSignWithDeadzone(
+            wheelState.angularVelocityRadiansPerSecond,
+            WHEEL_ANGULAR_SPEED_EPSILON_RADIANS_PER_SECOND
+        )
+
+        if (angularVelocityDirection === 0) return 0
+
+        const maximumStoppingTorqueNewtonMeters =
+            Math.abs(wheelState.angularVelocityRadiansPerSecond) *
+            wheelState.wheelInertiaKgMeterSquared /
+            dt
+
+        return -angularVelocityDirection * Math.min(
+            brakeTorqueMagnitudeNewtonMeters,
+            maximumStoppingTorqueNewtonMeters
+        )
+    }
+
+    function calculateWheelContactReactionTorqueNewtonMeters(wheelState) {
+        if (!wheelState.isGrounded) return 0
+        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+
+        return -wheelState.appliedLongitudinalForceNewtons * wheelState.radius
+    }
+
+    function calculateTemporaryRollingConstraintCorrectionTorqueNewtonMeters(wheelState) {
+        if (!wheelState.isGrounded) return 0
+
+        const angularVelocityErrorRadiansPerSecond =
+            wheelState.targetRollingAngularVelocityRadiansPerSecond -
+            wheelState.angularVelocityRadiansPerSecond
+
+        // Temporary bridge: until a tire model consumes slip ratio to produce
+        // longitudinal force, this correction prevents runaway wheel spin while
+        // preserving explicit torque/inertia integration. The basic tire model
+        // branch should remove or reduce this correction.
+        return (
+            angularVelocityErrorRadiansPerSecond *
+            wheelState.wheelInertiaKgMeterSquared /
+            TEMPORARY_ROLLING_CONSTRAINT_CORRECTION_TIME_SECONDS
+        )
     }
 
     function calculateTargetRollingAngularVelocity(wheelState) {
         if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
 
-        return wheelState.rollingSurfaceSpeedMetersPerSecond / wheelState.radius
+        return state.speedScalar / wheelState.radius
     }
 
     function calculateRollingSurfaceSpeedMetersPerSecond(wheelState) {
@@ -858,8 +921,8 @@ function createWheelRuntimeStates(vehicle, spec) {
             tirePenetrationMeters: 0,
             isInsideTerrainBounds: true,
             steeringAngleRadians: 0,
-            // Rotational dynamics fields are explicit state only for now.
-            // Torque-based integration and wheel lock remain future work.
+            // Wheel angular dynamics are torque-coupled, while tire forces remain clamp-based.
+            // Wheel lock behavior remains future work.
             rollingSurfaceSpeedMetersPerSecond: 0,
             targetRollingAngularVelocityRadiansPerSecond: 0,
             angularVelocityRadiansPerSecond: 0,
@@ -872,6 +935,8 @@ function createWheelRuntimeStates(vehicle, spec) {
             appliedBrakeTorqueNewtonMeters: 0,
             driveTorqueNewtonMeters: 0,
             brakeTorqueNewtonMeters: 0,
+            contactReactionTorqueNewtonMeters: 0,
+            rollingConstraintCorrectionTorqueNewtonMeters: 0,
             netTorqueNewtonMeters: 0,
             isWheelLocked: false,
             isGrounded: true,
@@ -912,6 +977,9 @@ function resetWheelRotationalState(wheelState) {
     resetWheelLongitudinalSlipState(wheelState)
     resetWheelServiceBrakeTorqueState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
+    wheelState.brakeTorqueNewtonMeters = 0
+    wheelState.contactReactionTorqueNewtonMeters = 0
+    wheelState.rollingConstraintCorrectionTorqueNewtonMeters = 0
     wheelState.netTorqueNewtonMeters = 0
     wheelState.isWheelLocked = false
 }
