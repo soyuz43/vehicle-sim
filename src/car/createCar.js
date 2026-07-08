@@ -8,6 +8,9 @@ const BODY_HEIGHT = 0.65
 
 const WHEEL_RADIUS = 0.48
 const WHEEL_WIDTH = 0.38
+const WHEEL_ROTATION_WITNESS_WIDTH = WHEEL_WIDTH * 1.08
+const WHEEL_ROTATION_WITNESS_HEIGHT = 0.028
+const WHEEL_ROTATION_WITNESS_DEPTH = WHEEL_RADIUS * 0.28
 
 const FRONT_AXLE_Z = 1.45
 const REAR_AXLE_Z = -1.45
@@ -168,6 +171,13 @@ function createMaterials() {
       color: 0x777777,
       metalness: 0.8,
       roughness: 0.25,
+    }),
+    wheelRotationWitness: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.15,
+      metalness: 0,
+      roughness: 0.35,
     }),
     frame: new THREE.MeshStandardMaterial({
       color: 0x202020,
@@ -359,8 +369,14 @@ function createWheel(id, x, z, materials) {
   hub.castShadow = true
   hub.rotation.z = Math.PI / 2
 
+  const rotationWitness = createWheelRotationWitness(
+    id,
+    materials.wheelRotationWitness
+  )
+
   rollingAssembly.add(tire)
   rollingAssembly.add(hub)
+  rollingAssembly.add(rotationWitness)
 
   wheelPivot.add(rollingAssembly)
   wheelPivot.position.set(x, WHEEL_Y, z)
@@ -382,10 +398,26 @@ function createWheel(id, x, z, materials) {
       rollingAssembly: rollingAssembly.name,
       tire: tire.name,
       hub: hub.name,
+      rotationWitness: rotationWitness.name,
     },
   }
 
   return wheelPivot
+}
+
+function createWheelRotationWitness(id, material) {
+  const geometry = new THREE.BoxGeometry(
+    WHEEL_ROTATION_WITNESS_WIDTH,
+    WHEEL_ROTATION_WITNESS_HEIGHT,
+    WHEEL_ROTATION_WITNESS_DEPTH
+  )
+
+  const marker = new THREE.Mesh(geometry, material)
+  marker.name = `wheel-rotation-witness-${id}`
+  marker.castShadow = false
+  marker.position.y = WHEEL_RADIUS + WHEEL_ROTATION_WITNESS_HEIGHT / 2
+
+  return marker
 }
 
 function createContactPatch(wheelInfo, material) {
