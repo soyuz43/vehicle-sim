@@ -2,6 +2,7 @@
 
 import * as THREE from 'three'
 import { createTerrain } from './terrain/createTerrain.js'
+import { createFlatTerrainContactQuery } from './terrain/createFlatTerrainContactQuery.js'
 import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
@@ -66,6 +67,9 @@ const terrain = createTerrain()
 scene.add(terrain)
 
 const terrainInfo = terrain.userData.terrain
+const terrainContactQuery = createFlatTerrainContactQuery({
+  terrain,
+})
 
 const terrainGrid = new THREE.GridHelper(
   terrainInfo.size,
@@ -94,6 +98,7 @@ scene.add(car)
 ========================= */
 const vehicleController = createVehicleController({
   vehicle: car,
+  terrainContactQuery,
 })
 
 /* =========================
@@ -222,6 +227,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     longitudinalAcceleration:
       vehicleSnapshot.longitudinalAcceleration,
     forces: vehicleSnapshot.forces,
+    wheelStates: vehicleSnapshot.wheelStates,
     terrainSize: terrainInfo.size,
     outsideTerrain,
   })
@@ -233,6 +239,8 @@ function updateGearIndicator() {
   gearIndicator.update({
     gear: vehicleSnapshot.gear,
     gearLabel: vehicleSnapshot.gearLabel,
+    speedMetersPerSecond: vehicleSnapshot.speedScalar,
+    wheelStates: vehicleSnapshot.wheelStates,
   })
 }
 
