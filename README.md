@@ -24,6 +24,8 @@ The bottom-right driver panel shows speed, the R/N/D selector, and compact per-w
 
 Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel lock, ABS, and tire curves remain future work.
 
+Each tire includes a high-contrast visual witness mark attached to the rotating wheel assembly. The mark is a debugging aid for inspecting wheel spin, rolling, braking, and skating artifacts; it does not affect physics.
+
 
 ## Service Brake Torque State
 
