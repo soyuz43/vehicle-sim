@@ -38,6 +38,7 @@ const DEFAULT_CONTROLLER_PARAMS = {
 
 const LOCAL_FORWARD = new THREE.Vector3(0, 0, 1)
 const CONTACT_EPSILON_METERS = 0.001
+const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
 
 const BRAKE_LIGHT_OFF_COLOR = 0x330000
 const BRAKE_LIGHT_ON_COLOR = 0xff1111
@@ -93,11 +94,15 @@ export function createVehicleController(config = {}) {
 
         readInput(input)
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
+        updateWheelContactStates()
+        updateWheelLoadPlaceholderValues()
+        calculatePerWheelLongitudinalForces()
+        state.forces = calculateLongitudinalForcesFromWheelState()
         updateLongitudinalMotion(safeDt)
         updateSteering(safeDt)
         updatePosition(safeDt)
         updateVelocityVector()
-        updateWheelRuntimeState(safeDt)
+        updateWheelVisualStates(safeDt)
 
         return getSnapshot()
     }
@@ -108,7 +113,7 @@ export function createVehicleController(config = {}) {
         state.throttleInput = 0
         state.brakeInput = 0
         state.steeringInput = 0
-        state.forces = calculateLongitudinalForces()
+        state.forces = createEmptyForceSnapshot()
 
         vehicle.position.copy(startPosition)
         vehicle.rotation.copy(startRotation)
@@ -120,6 +125,8 @@ export function createVehicleController(config = {}) {
             wheelState.steeringAngleRadians = 0
             wheelState.normalForceNewtons = 0
             wheelState.tractionLimitNewtons = 0
+            wheelState.requestedDriveForceNewtons = 0
+            wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
             wheelState.appliedLongitudinalForceNewtons = 0
             wheelState.longitudinalSlip = 0
@@ -133,7 +140,11 @@ export function createVehicleController(config = {}) {
         }
 
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
-        updateWheelRuntimeState(0)
+        updateWheelContactStates()
+        updateWheelLoadPlaceholderValues()
+        calculatePerWheelLongitudinalForces()
+        state.forces = calculateLongitudinalForcesFromWheelState()
+        updateWheelVisualStates(0)
 
         return getSnapshot()
     }
@@ -204,7 +215,7 @@ export function createVehicleController(config = {}) {
 
     function updateLongitudinalMotion(dt) {
         const oldSpeed = state.speedScalar
-        const forces = calculateLongitudinalForces()
+        const forces = state.forces
 
         let nextSpeed =
             oldSpeed +
@@ -228,32 +239,37 @@ export function createVehicleController(config = {}) {
         }
 
         state.speedScalar = nextSpeed
-        state.forces = forces
     }
 
-    function calculateLongitudinalForces() {
+    function calculateLongitudinalForcesFromWheelState() {
         const speed = state.speedScalar
         const speedDirection = getSignWithDeadzone(
             speed,
             params.stopEpsilonMetersPerSecond
         )
 
-        const normalForceNewtons =
-            spec.massKg * spec.gravityMetersPerSecondSquared
+        const normalForceNewtons = sumWheelForceNewtons(
+            'normalForceNewtons'
+        )
 
-        const tractionLimitLongitudinalNewtons =
-            spec.defaultSurfaceFrictionCoefficient * normalForceNewtons
+        const tractionLimitLongitudinalNewtons = sumWheelForceNewtons(
+            'tractionLimitNewtons'
+        )
 
-        const { driveForceNewtons, brakeForceNewtons } =
-            calculateRequestedTireForces(speed, speedDirection)
+        const driveForceNewtons = sumWheelForceNewtons(
+            'requestedDriveForceNewtons'
+        )
 
-        const requestedTireForceNewtons =
-            driveForceNewtons + brakeForceNewtons
+        const brakeForceNewtons = sumWheelForceNewtons(
+            'requestedBrakeForceNewtons'
+        )
 
-        const appliedTireForceNewtons = THREE.MathUtils.clamp(
-            requestedTireForceNewtons,
-            -tractionLimitLongitudinalNewtons,
-            tractionLimitLongitudinalNewtons
+        const requestedTireForceNewtons = sumWheelForceNewtons(
+            'requestedLongitudinalForceNewtons'
+        )
+
+        const appliedTireForceNewtons = sumWheelForceNewtons(
+            'appliedLongitudinalForceNewtons'
         )
 
         const rollingResistanceForceNewtons =
@@ -267,6 +283,8 @@ export function createVehicleController(config = {}) {
             rollingResistanceForceNewtons +
             aerodynamicDragForceNewtons
 
+        const tractionLimitedWheelCount = countTractionLimitedWheels()
+
         return {
             normalForceNewtons,
             tractionLimitLongitudinalNewtons,
@@ -279,51 +297,8 @@ export function createVehicleController(config = {}) {
             netLongitudinalForceNewtons,
             longitudinalAccelerationMetersPerSecondSquared:
                 netLongitudinalForceNewtons / spec.massKg,
-            isTractionLimited:
-                Math.abs(requestedTireForceNewtons) >
-                tractionLimitLongitudinalNewtons,
-        }
-    }
-
-    function calculateRequestedTireForces(speed, speedDirection) {
-        let driveForceNewtons = 0
-        let brakeForceNewtons = 0
-
-        if (state.brakeInput > 0) {
-            if (speedDirection !== 0) {
-                brakeForceNewtons =
-                    -speedDirection * spec.maxBrakeForceNewtons * state.brakeInput
-            }
-
-            return {
-                driveForceNewtons,
-                brakeForceNewtons,
-            }
-        }
-
-        const gearDirection = getGearDirection(state.gear)
-
-        if (state.throttleInput > 0 && gearDirection !== 0) {
-            const speedAlongSelectedGear = speed * gearDirection
-            const maxGearSpeed =
-                gearDirection > 0
-                    ? spec.maxForwardSpeedMetersPerSecond
-                    : spec.maxReverseSpeedMetersPerSecond
-
-            if (speedAlongSelectedGear < maxGearSpeed) {
-                const maxDriveForce =
-                    gearDirection > 0
-                        ? spec.maxDriveForceNewtons
-                        : spec.maxReverseDriveForceNewtons
-
-                driveForceNewtons =
-                    gearDirection * maxDriveForce * state.throttleInput
-            }
-        }
-
-        return {
-            driveForceNewtons,
-            brakeForceNewtons,
+            isTractionLimited: tractionLimitedWheelCount > 0,
+            tractionLimitedWheelCount,
         }
     }
 
@@ -356,7 +331,7 @@ export function createVehicleController(config = {}) {
 
         const tireForceDirection = getSignWithDeadzone(
             forces.appliedTireForceNewtons,
-            0.001
+            TRACTION_LIMIT_EPSILON_NEWTONS
         )
 
         const oldSpeedDirection = getSignWithDeadzone(
@@ -370,7 +345,8 @@ export function createVehicleController(config = {}) {
             tireForceDirection !== oldSpeedDirection
 
         const resistanceOnly =
-            Math.abs(forces.appliedTireForceNewtons) < 0.001
+            Math.abs(forces.appliedTireForceNewtons) <
+            TRACTION_LIMIT_EPSILON_NEWTONS
 
         return tireForceOpposesMotion || resistanceOnly
     }
@@ -408,72 +384,11 @@ export function createVehicleController(config = {}) {
         velocity.multiplyScalar(state.speedScalar)
     }
 
-    function updateWheelRuntimeState(dt) {
+    function updateWheelContactStates() {
         vehicle.updateMatrixWorld(true)
-
-        let groundedWheelCount = 0
 
         for (const wheelState of state.wheelStates) {
             updateWheelContactState(wheelState)
-
-            if (wheelState.isGrounded) {
-                groundedWheelCount += 1
-            }
-        }
-
-        const normalForcePerGroundedWheel =
-            groundedWheelCount > 0
-                ? state.forces.normalForceNewtons / groundedWheelCount
-                : 0
-
-        const requestedForceDistribution = distributeLongitudinalTireForce(
-            state.forces.requestedTireForceNewtons
-        )
-
-        const appliedForceDistribution = distributeLongitudinalTireForce(
-            state.forces.appliedTireForceNewtons
-        )
-
-        for (const wheelState of state.wheelStates) {
-            const requestedForce = wheelState.isGrounded
-                ? requestedForceDistribution.get(wheelState.id) ?? 0
-                : 0
-
-            const appliedForce = wheelState.isGrounded
-                ? appliedForceDistribution.get(wheelState.id) ?? 0
-                : 0
-
-            wheelState.normalForceNewtons = wheelState.isGrounded
-                ? normalForcePerGroundedWheel
-                : 0
-
-            wheelState.tractionLimitNewtons = wheelState.isGrounded
-                ? wheelState.frictionCoefficient * wheelState.normalForceNewtons
-                : 0
-
-            wheelState.requestedLongitudinalForceNewtons = requestedForce
-            wheelState.appliedLongitudinalForceNewtons = appliedForce
-            wheelState.isSlipping =
-                wheelState.isGrounded &&
-                Math.abs(requestedForce) >
-                    wheelState.tractionLimitNewtons + 0.001
-
-            wheelState.longitudinalSlip = wheelState.isSlipping ? 1 : 0
-            wheelState.lateralSlip = 0
-
-            wheelState.angularVelocityRadiansPerSecond =
-                wheelState.radius > 0
-                    ? state.speedScalar / wheelState.radius
-                    : 0
-
-            wheelState.spinAngleRadians +=
-                wheelState.angularVelocityRadiansPerSecond * dt
-
-            wheelState.steeringAngleRadians = wheelState.steerable
-                ? params.maxVisualSteeringAngleRadians * state.steeringInput
-                : 0
-
-            applyWheelVisualState(wheelState)
         }
     }
 
@@ -524,35 +439,214 @@ export function createVehicleController(config = {}) {
             wheelState.terrainContactQueryResult.isInsideTerrainBounds
     }
 
-    function distributeLongitudinalTireForce(totalForceNewtons) {
-        const forceByWheelId = new Map()
+    function updateWheelLoadPlaceholderValues() {
+        const groundedWheelCount = countGroundedWheels()
+        const normalForcePerGroundedWheelNewtons =
+            groundedWheelCount > 0
+                ? spec.massKg * spec.gravityMetersPerSecondSquared /
+                    groundedWheelCount
+                : 0
 
-        if (state.wheelStates.length === 0) {
-            return forceByWheelId
+        for (const wheelState of state.wheelStates) {
+            wheelState.normalForceNewtons = wheelState.isGrounded
+                ? normalForcePerGroundedWheelNewtons
+                : 0
+
+            wheelState.tractionLimitNewtons = wheelState.isGrounded
+                ? wheelState.frictionCoefficient * wheelState.normalForceNewtons
+                : 0
         }
-
-        const isDriveForce =
-            Math.abs(state.forces.driveForceNewtons) > 0.001
-
-        const activeWheels = isDriveForce
-            ? state.wheelStates.filter((wheelState) => wheelState.driven)
-            : state.wheelStates
-
-        const fallbackWheels =
-            activeWheels.length > 0 ? activeWheels : state.wheelStates
-
-        const forcePerWheel = totalForceNewtons / fallbackWheels.length
-
-        for (const wheelState of fallbackWheels) {
-            forceByWheelId.set(wheelState.id, forcePerWheel)
-        }
-
-        return forceByWheelId
     }
 
-    state.forces = calculateLongitudinalForces()
+    function calculatePerWheelLongitudinalForces() {
+        resetWheelLongitudinalForceRequests()
+
+        const speedDirection = getSignWithDeadzone(
+            state.speedScalar,
+            params.stopEpsilonMetersPerSecond
+        )
+
+        if (state.brakeInput > 0) {
+            if (speedDirection !== 0) {
+                distributeBrakeForceRequestToWheels(
+                    -speedDirection *
+                    spec.maxBrakeForceNewtons *
+                    state.brakeInput
+                )
+            }
+        } else {
+            distributeDriveForceRequestToWheels(
+                calculateDriveForceRequestNewtons()
+            )
+        }
+
+        applyWheelTractionLimits()
+    }
+
+    function resetWheelLongitudinalForceRequests() {
+        for (const wheelState of state.wheelStates) {
+            wheelState.requestedDriveForceNewtons = 0
+            wheelState.requestedBrakeForceNewtons = 0
+            wheelState.requestedLongitudinalForceNewtons = 0
+            wheelState.appliedLongitudinalForceNewtons = 0
+            wheelState.isSlipping = false
+            wheelState.longitudinalSlip = 0
+            wheelState.lateralSlip = 0
+        }
+    }
+
+    function calculateDriveForceRequestNewtons() {
+        const gearDirection = getGearDirection(state.gear)
+
+        if (state.throttleInput <= 0 || gearDirection === 0) return 0
+
+        const speedAlongSelectedGear = state.speedScalar * gearDirection
+        const maxGearSpeed = gearDirection > 0
+            ? spec.maxForwardSpeedMetersPerSecond
+            : spec.maxReverseSpeedMetersPerSecond
+
+        if (speedAlongSelectedGear >= maxGearSpeed) return 0
+
+        const maxDriveForce = gearDirection > 0
+            ? spec.maxDriveForceNewtons
+            : spec.maxReverseDriveForceNewtons
+
+        return gearDirection * maxDriveForce * state.throttleInput
+    }
+
+    function distributeDriveForceRequestToWheels(totalDriveForceNewtons) {
+        if (totalDriveForceNewtons === 0) return
+
+        const drivenWheelCount = countDrivenWheels()
+        if (drivenWheelCount === 0) return
+
+        const driveForcePerWheelNewtons =
+            totalDriveForceNewtons / drivenWheelCount
+
+        for (const wheelState of state.wheelStates) {
+            if (!wheelState.driven) continue
+
+            wheelState.requestedDriveForceNewtons = driveForcePerWheelNewtons
+            wheelState.requestedLongitudinalForceNewtons +=
+                driveForcePerWheelNewtons
+        }
+    }
+
+    function distributeBrakeForceRequestToWheels(totalBrakeForceNewtons) {
+        if (totalBrakeForceNewtons === 0) return
+        if (state.wheelStates.length === 0) return
+
+        const brakeForcePerWheelNewtons =
+            totalBrakeForceNewtons / state.wheelStates.length
+
+        for (const wheelState of state.wheelStates) {
+            wheelState.requestedBrakeForceNewtons = brakeForcePerWheelNewtons
+            wheelState.requestedLongitudinalForceNewtons +=
+                brakeForcePerWheelNewtons
+        }
+    }
+
+    function applyWheelTractionLimits() {
+        for (const wheelState of state.wheelStates) {
+            if (wheelState.tractionLimitNewtons <= 0) {
+                wheelState.appliedLongitudinalForceNewtons = 0
+                wheelState.isSlipping =
+                    Math.abs(wheelState.requestedLongitudinalForceNewtons) >
+                    TRACTION_LIMIT_EPSILON_NEWTONS
+                wheelState.longitudinalSlip = 0
+                continue
+            }
+
+            wheelState.appliedLongitudinalForceNewtons = THREE.MathUtils.clamp(
+                wheelState.requestedLongitudinalForceNewtons,
+                -wheelState.tractionLimitNewtons,
+                wheelState.tractionLimitNewtons
+            )
+
+            // Placeholder traction-limit indicator until tire slip curves
+            // replace clamp-based limiting in a later branch.
+            wheelState.isSlipping =
+                Math.abs(wheelState.requestedLongitudinalForceNewtons) >
+                wheelState.tractionLimitNewtons + TRACTION_LIMIT_EPSILON_NEWTONS
+
+            wheelState.longitudinalSlip = wheelState.isSlipping ? 1 : 0
+        }
+    }
+
+    function updateWheelVisualStates(dt) {
+        for (const wheelState of state.wheelStates) {
+            wheelState.angularVelocityRadiansPerSecond =
+                wheelState.radius > 0
+                    ? state.speedScalar / wheelState.radius
+                    : 0
+
+            wheelState.spinAngleRadians +=
+                wheelState.angularVelocityRadiansPerSecond * dt
+
+            wheelState.steeringAngleRadians = wheelState.steerable
+                ? params.maxVisualSteeringAngleRadians * state.steeringInput
+                : 0
+
+            applyWheelVisualState(wheelState)
+        }
+    }
+
+    function countGroundedWheels() {
+        let groundedWheelCount = 0
+
+        for (const wheelState of state.wheelStates) {
+            if (wheelState.isGrounded) {
+                groundedWheelCount += 1
+            }
+        }
+
+        return groundedWheelCount
+    }
+
+    function countDrivenWheels() {
+        let drivenWheelCount = 0
+
+        for (const wheelState of state.wheelStates) {
+            if (wheelState.driven) {
+                drivenWheelCount += 1
+            }
+        }
+
+        return drivenWheelCount
+    }
+
+    function countTractionLimitedWheels() {
+        let tractionLimitedWheelCount = 0
+
+        for (const wheelState of state.wheelStates) {
+            if (wheelState.isSlipping) {
+                tractionLimitedWheelCount += 1
+            }
+        }
+
+        return tractionLimitedWheelCount
+    }
+
+    function sumWheelForceNewtons(fieldName) {
+        let forceNewtons = 0
+
+        for (const wheelState of state.wheelStates) {
+            const wheelForceNewtons = wheelState[fieldName]
+
+            if (Number.isFinite(wheelForceNewtons)) {
+                forceNewtons += wheelForceNewtons
+            }
+        }
+
+        return forceNewtons
+    }
+
+    updateWheelContactStates()
+    updateWheelLoadPlaceholderValues()
+    calculatePerWheelLongitudinalForces()
+    state.forces = calculateLongitudinalForcesFromWheelState()
     updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
-    updateWheelRuntimeState(0)
+    updateWheelVisualStates(0)
 
     return {
         update,
@@ -616,6 +710,8 @@ function createWheelRuntimeStates(vehicle, spec) {
             frictionCoefficient: spec.defaultSurfaceFrictionCoefficient,
             normalForceNewtons: 0,
             tractionLimitNewtons: 0,
+            requestedDriveForceNewtons: 0,
+            requestedBrakeForceNewtons: 0,
             requestedLongitudinalForceNewtons: 0,
             appliedLongitudinalForceNewtons: 0,
             longitudinalSlip: 0,
@@ -694,6 +790,7 @@ function createEmptyForceSnapshot() {
         netLongitudinalForceNewtons: 0,
         longitudinalAccelerationMetersPerSecondSquared: 0,
         isTractionLimited: false,
+        tractionLimitedWheelCount: 0,
     }
 }
 

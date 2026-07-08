@@ -216,15 +216,15 @@ export function createGearIndicator(config = {}) {
       return
     }
 
-    if (wheelState.isSlipping) {
-      nodes.value.textContent = 'SLIP'
-      setPatchSlipStyle(nodes.patch, nodes.value)
-      return
-    }
-
     if (!wheelState.isGrounded) {
       nodes.value.textContent = 'AIR'
       setPatchAirStyle(nodes.patch, nodes.value)
+      return
+    }
+
+    if (wheelState.isSlipping) {
+      nodes.value.textContent = 'SLIP'
+      setPatchSlipStyle(nodes.patch, nodes.value)
       return
     }
 
