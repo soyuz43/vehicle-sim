@@ -47,6 +47,13 @@ Wheel angular velocity now integrates from simple net torque and wheel inertia. 
 Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. This is not Pacejka, combined slip, ABS, load transfer, suspension, or lateral dynamics.
 
 
+## Planar Chassis Motion
+
+Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, and planar acceleration telemetry. Longitudinal tire force still drives acceleration along the vehicle's forward axis, and `speedScalar` remains a compatibility alias for signed local-forward velocity.
+
+Local lateral velocity can now be measured when the vehicle yaws while moving, but lateral tire forces are not implemented yet. A small `temporaryLateralVelocityDampingPerSecond` placeholder keeps sideways skating bounded; it is not a real lateral tire model. Any sideways motion at this stage is foundation telemetry for later lateral slip angle, lateral tire forces, oversteer/understeer, and combined slip work, not a full drift or grip model.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, richer tire models, and load transfer without implementing those systems yet.

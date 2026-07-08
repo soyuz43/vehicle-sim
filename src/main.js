@@ -233,6 +233,30 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     fixedSimulation: fixedSimulationSnapshot,
     position: pos,
     speedScalar: vehicleSnapshot.speedScalar,
+    speedMetersPerSecond: vehicleSnapshot.speedMetersPerSecond,
+    worldVelocityMetersPerSecond:
+      vehicleSnapshot.worldVelocityMetersPerSecond,
+    localForwardVelocityMetersPerSecond:
+      vehicleSnapshot.localForwardVelocityMetersPerSecond,
+    localLateralVelocityMetersPerSecond:
+      vehicleSnapshot.localLateralVelocityMetersPerSecond,
+    signedForwardSpeedMetersPerSecond:
+      vehicleSnapshot.signedForwardSpeedMetersPerSecond,
+    lateralSpeedMetersPerSecond:
+      vehicleSnapshot.lateralSpeedMetersPerSecond,
+    worldSpeedMetersPerSecond:
+      vehicleSnapshot.worldSpeedMetersPerSecond,
+    yawRadians: vehicleSnapshot.yawRadians,
+    yawRateRadiansPerSecond:
+      vehicleSnapshot.yawRateRadiansPerSecond,
+    yawAccelerationRadiansPerSecondSquared:
+      vehicleSnapshot.yawAccelerationRadiansPerSecondSquared,
+    planarAccelerationWorldMetersPerSecondSquared:
+      vehicleSnapshot.planarAccelerationWorldMetersPerSecondSquared,
+    planarAccelerationLocalForwardMetersPerSecondSquared:
+      vehicleSnapshot.planarAccelerationLocalForwardMetersPerSecondSquared,
+    planarAccelerationLocalLateralMetersPerSecondSquared:
+      vehicleSnapshot.planarAccelerationLocalLateralMetersPerSecondSquared,
     velocity: vehicleSnapshot.velocity,
     longitudinalAcceleration:
       vehicleSnapshot.longitudinalAcceleration,

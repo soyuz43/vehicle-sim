@@ -30,6 +30,10 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // this is not a Pacejka or combined-slip tire model.
   longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
 
+  // Temporary planar stabilization until lateral tire forces exist.
+  // This damps local lateral velocity only; it is not a lateral tire model.
+  temporaryLateralVelocityDampingPerSecond: 1.2,
+
   // Resistance forces.
   rollingResistanceCoefficient: 0.015,
   dragCoefficient: 0.35,
