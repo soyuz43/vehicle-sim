@@ -1,114 +1,112 @@
 # AGENTS.md
 
-## Repository identity
+## 1. Repository Identity & Scope
+- **Project**: `vehicle-sim` – A fidelity-first Three.js vehicle simulation learning lab.
+- **Runtime**: Browser-based Vite + Three.js application.
+- **Language**: JavaScript ES Modules.
+- **Core Philosophy**: "Simulation is the source of truth; Rendering is the visualization."
+- **Scope Boundary**: This is a physics sandbox, **not** a game.
+  - **DO NOT** implement: Timers, checkpoints, lap systems, scoring, AI racers, menus, or arcade objectives.
+  - **DO** implement: Deterministic physics, per-wheel state, contact patches, force accumulation, and telemetry.
 
-- Repository: vehicle-sim.
-- Runtime: browser-based Vite + Three.js app.
-- Language: JavaScript ES modules.
-- Project type: vehicle simulation learning lab, not a finished game.
-- Direction: fidelity-first vehicle simulation sandbox.
-- Do not steer work toward timers, checkpoints, lap systems, collectibles, scoring, AI racers, menus, or arcade-game objectives unless explicitly requested.
+## 2. Environment & Tooling Constraints (Critical)
+*Failure to adhere to these causes significant friction in this specific Windows/MINGW64 sandbox.*
 
-## Current architectural direction
+- **OS**: Windows (MINGW64/PowerShell).
+- **Line Endings**: All source files use **LF**.
+  - *Action*: When using text replacement scripts, ensure anchors match LF. Do not assume CRLF.
+- **Patch Strategy**:
+  - If `apply_patch` fails on an existing file, **switch immediately** to PowerShell text replacement (`[System.IO.File]::ReadAllText` → `.Replace()` → `WriteAllText`).
+  - **Do not** retry `apply_patch` more than once on the same file.
+- **Search Tools**:
+  - **PREFER**: `rg` (ripgrep).
+  - **AVOID**: `grep`. It frequently fails with permission/mapping errors in this sandbox.
+- **Git Commands**:
+  - **DO NOT** use custom aliases (`bet`, `yeet`, `slay`). They are not available in this shell context.
+  - **USE**: Raw commands (`git add`, `git commit`, `git push`, `gh pr create`).
+- **Build Validation**:
+  - Always run `npm run build` before reporting completion.
+  - Ignore the existing Vite chunk-size warning unless it blocks compilation.
 
-- Simulation should gradually become the source of truth.
-- Rendering should visualize simulation state.
-- Camera may read rendered transforms or simulation state, but should not own vehicle physics.
-- Input should represent driver controls: throttle, brake, steering, gear selector.
-- Terrain should eventually provide surface/contact information, not only visuals.
-- Future systems should support:
-  - explicit units
-  - fixed timestep
-  - vehicle mass
-  - force accumulation
-  - drivetrain force
-  - per-wheel state
-  - per-wheel contact patches
-  - surface friction coefficients
-  - longitudinal slip
-  - lateral slip
-  - traction limits
-  - suspension and weight transfer later
+## 3. Architectural Direction & Staging
+We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
 
-## Hard simulation conventions
+### Current Progression Roadmap
+1.  [x] Visual chassis & Debug HUD
+2.  [x] Extracted Vehicle Controller & Units/Gravity
+3.  [x] Force-based flat-ground longitudinal motion
+4.  [x] Simple R/N/D Gear Selector
+5.  [x] Fixed Timestep Simulation Loop
+6.  [x] Surface Queries (Flat Terrain)
+7.  [x] Per-Wheel Contact State (Finite Grounded/Airborne)
+8.  [x] Per-Wheel Longitudinal Force Pipeline
+9.  [x] Wheel Rotational State Foundation (Visual Sync)
+10. [x] Per-Wheel Brake Torque Foundation (Telemetry/Seams)
+11. [ ] **Next**: Torque-Based Wheel Dynamics (Slip Ratio, Lockup)
+12. [ ] Lateral Dynamics & Tire Curves
+13. [ ] Suspension & Weight Transfer
 
-- 1 world unit = 1 meter.
-- Time unit = second.
-- Velocity = meters per second.
-- Acceleration = meters per second squared.
-- Force = newtons.
-- Mass = kilograms.
-- Torque = newton-meters.
-- Y axis is vertical/up.
-- Gravity points negative Y.
-- Standard gravity is 9.80665 m/s^2.
-- Vehicle local forward is positive Z unless code explicitly changes it.
+### Design Prohibitions (Unless Explicitly Requested)
+- **No Premature Physics**: Do not implement ABS, Parking Brake, Brake Bias, or Load Transfer before the underlying torque/slip models exist. Create *seams* for them, but do not implement the logic.
+- **No Gameplay Creep**: No laps, scores, or AI.
+- **No "Magic" Numbers**: Do not tune mass, drag, or friction to "feel good" if it breaks physical consistency. Tune for realism first.
+- **No Dependency Bloat**: Use only Three.js and standard JS APIs. Ask before adding any new package.
 
-## Current branch progression
+## 4. Hard Simulation Conventions
+- **Units**:
+  - Distance: Meters (`m`)
+  - Time: Seconds (`s`)
+  - Mass: Kilograms (`kg`)
+  - Force: Newtons (`N`)
+  - Torque: Newton-Meters (`Nm`)
+  - Velocity: `m/s`
+  - Acceleration: `m/s²`
+- **Coordinate System**:
+  - Y-Up.
+  - Gravity: `-9.80665 m/s²` (Standard Earth Gravity).
+  - Vehicle Forward: Positive Z (unless explicitly overridden).
+- **Naming Convention**:
+  - Identifiers **must** include units if the value is physical.
+    - ✅ `speedMetersPerSecond`, `torqueNewtonMeters`, `massKg`
+    - ❌ `speed`, `power`, `value`, `amount`
+- **Memory Management**:
+  - Avoid per-frame allocations in hot loops (e.g., `updateWheelState`).
+  - Reuse `THREE.Vector3` objects stored in state.
 
-Expected high-level progression:
-1. visual chassis and debug HUD
-2. extracted vehicle controller and units/gravity constants
-3. force-based flat-ground longitudinal motion
-4. simple R/N/D gear selector
-5. fixed timestep
-6. surface queries
-7. per-wheel contact state
-8. simplified tire grip/slip
-9. lateral dynamics
-10. suspension/weight transfer
+## 5. Code Style & Module Structure
+- **Orchestration**: `src/main.js` is for wiring only. It should not contain physics logic.
+- **Modularity**: Prefer narrow, single-responsibility modules (e.g., `createFixedTimestepRunner.js`, `createFlatTerrainContactQuery.js`).
+- **Comments**:
+  - Preserve file path headers: `// src/vehicle/createVehicleController.js`
+  - **Honesty Policy**: Clearly label placeholders.
+    - ✅ `// Placeholder: Until tire slip curves are implemented, we clamp force.`
+    - ❌ `// Realistic tire grip model.`
+- **UI Separation**:
+  - **Debug HUD**: Developer telemetry only (forces, slips, accumulator).
+  - **Driver Panel**: Driver-facing info only (Speed, Gear, Contact Status). Do not clutter with raw Newton values.
 
-## Code style
+## 6. Git & PR Workflow
+- **Branching**: Create descriptive feature branches (e.g., `per-wheel-brake-torque-foundation`).
+- **Commit Messages**: Imperative, concise (e.g., "Add per-wheel brake torque foundation").
+- **PR Body Structure**:
+  ```markdown
+  Summary:
+  - [What changed]
+  - [Why it matters]
 
-- Preserve file path comments at the top of source files, e.g. `// src/main.js`.
-- Prefer focused modules over expanding `src/main.js`.
-- Avoid turning `main.js` into a simulation junk drawer.
-- Prefer clear names with physical units in identifiers:
-  - `massKg`
-  - `speedMetersPerSecond`
-  - `forceNewtons`
-  - `gravityMetersPerSecondSquared`
-  - `angleRadians`
-- Do not hide unit-bearing values behind vague names like `value`, `amount`, `power`, or `speed` when a precise physical quantity is known.
-- Avoid per-frame allocations in hot update loops when practical.
-- Use scratch vectors or persistent state for repeated vector math.
-- Do not add dependencies without asking first.
+  Changes:
+  - [List key files and architectural shifts]
 
-## Git/workflow expectations
+  Bugs:
+  - None (or list fixes)
+  ```
+- **Validation Checklist** (Before Pushing):
+  1. `npm run build` passes.
+  2. `rg` confirms no forbidden terms (e.g., "ABS" implementation) exist unless intended.
+  3. Manual check: Driving, Braking, Reset, and HUD updates work.
+  4. No unintended behavior regression.
 
-- User workflow is normally:
-  - `new <branch>`
-  - edit
-  - `bet`
-  - `yeet`
-  - `gh pr create`
-  - merge
-  - `slay`
-- Do not suggest `git add`, `git commit -m`, or `git push` unless explicitly asked; use the user's aliases/workflow.
-- Before PR work, expect `npm run build` to pass.
-- Generated source dumps, diff files, and temporary text snapshots should not be treated as application source.
-
-## Testing/build commands
-
-- Install dependencies: `npm install`
-- Dev server: `npm run dev`
-- Production build: `npm run build`
-- Preview build: `npm run preview`
-- No test framework is currently established unless package scripts later show one.
-
-## Design prohibitions unless explicitly requested
-
-- Do not add gameplay objectives.
-- Do not add timers/checkpoints/laps/scoring.
-- Do not add full transmission/RPM/clutch/gear-ratio simulation yet.
-- Do not jump directly to complex suspension or rock-crawling terrain before fixed timestep, contact state, and surface queries exist.
-- Do not treat the visual car mesh as proof that physical vehicle dynamics are implemented.
-- Do not overstate realism in comments, README, PR text, or summaries.
-
-## Review posture
-
-- Prioritize correctness, behavior changes, physical meaning, and architecture seams.
-- Flag fake physics when it is presented as real physics.
-- Placeholder systems are allowed if named honestly as placeholders.
-- Prefer minimal, staged PRs with clear conceptual boundaries.
-
+## 7. Review Posture
+- **Correctness > Features**: A broken realistic system is worse than a working simple one.
+- **Flag Fake Physics**: If code claims to be "realistic" but uses hardcoded multipliers, flag it.
+- **Seams Over Solutions**: If a request requires a complex system (e.g., ABS) that isn't ready, implement the *interface* (seam) and leave the logic empty/commented.
