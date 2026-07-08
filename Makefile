@@ -22,4 +22,4 @@ build:
 	npm run build
 
 gs:
-	git status --short --branch
+	git status --short --branchs
