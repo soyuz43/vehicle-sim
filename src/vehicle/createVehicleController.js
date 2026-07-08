@@ -3,6 +3,14 @@
 import * as THREE from 'three'
 import { DEFAULT_VEHICLE_SPEC } from './defaultVehicleSpec.js'
 import { createFlatTerrainContactQuery } from '../terrain/createFlatTerrainContactQuery.js'
+import {
+    createPlanarMotionState,
+    integratePlanarPosition,
+    integratePlanarVelocityFromLocalAcceleration,
+    integrateYawRate,
+    resetPlanarMotionState,
+    setPlanarLocalVelocity,
+} from './dynamics/planarMotion.js'
 
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
@@ -36,7 +44,6 @@ const DEFAULT_CONTROLLER_PARAMS = {
     maxSimulationDeltaSeconds: 0.1,
 }
 
-const LOCAL_FORWARD = new THREE.Vector3(0, 0, 1)
 const CONTACT_EPSILON_METERS = 0.001
 const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
 const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = 0.1
@@ -78,16 +85,21 @@ export function createVehicleController(config = {}) {
     const startRotation = (config.startRotation ?? vehicle.rotation).clone()
 
     const velocity = ensureVelocityVector(vehicle)
+    const planarMotion = createPlanarMotionState({
+        yawRadians: startRotation.y,
+        worldVelocityMetersPerSecond: velocity,
+    })
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'flat-ground-force-longitudinal',
+        controllerKind: 'planar-yaw-longitudinal-foundation',
         gear: initialGear,
         speedScalar: 0,
         throttleInput: 0,
         brakeInput: 0,
         steeringInput: 0,
+        planarMotion,
         wheelStates,
         forces: createEmptyForceSnapshot(),
     }
@@ -106,10 +118,12 @@ export function createVehicleController(config = {}) {
         calculatePerWheelLongitudinalTireForces()
         state.forces = calculateLongitudinalForcesFromWheelState()
         updateWheelRotationalStates(safeDt)
-        updateLongitudinalMotion(safeDt)
-        updateSteering(safeDt)
+        updateYawState(safeDt)
+        updatePlanarMotion(safeDt)
         updatePosition(safeDt)
-        updateVelocityVector()
+        syncVehicleYawFromPlanarState()
+        updateWheelContactStates()
+        updateWheelLoadPlaceholderValues()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -122,10 +136,13 @@ export function createVehicleController(config = {}) {
         state.brakeInput = 0
         state.steeringInput = 0
         state.forces = createEmptyForceSnapshot()
+        resetPlanarMotionState(state.planarMotion, {
+            yawRadians: startRotation.y,
+        })
 
         vehicle.position.copy(startPosition)
         vehicle.rotation.copy(startRotation)
-        velocity.set(0, 0, 0)
+        syncVehicleYawFromPlanarState()
 
         for (const wheelState of state.wheelStates) {
             resetWheelRotationalState(wheelState)
@@ -156,6 +173,8 @@ export function createVehicleController(config = {}) {
         calculatePerWheelLongitudinalTireForces()
         state.forces = calculateLongitudinalForcesFromWheelState()
         updateWheelRotationalStates(0)
+        updateYawState(0)
+        updatePlanarMotion(0)
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -199,6 +218,30 @@ export function createVehicleController(config = {}) {
             gearLabel: getGearLabel(state.gear),
             gearDirection: getGearDirection(state.gear),
             speedScalar: state.speedScalar,
+            speedMetersPerSecond: state.planarMotion.worldSpeedMetersPerSecond,
+            worldVelocityMetersPerSecond:
+                state.planarMotion.worldVelocityMetersPerSecond,
+            localForwardVelocityMetersPerSecond:
+                state.planarMotion.localForwardVelocityMetersPerSecond,
+            localLateralVelocityMetersPerSecond:
+                state.planarMotion.localLateralVelocityMetersPerSecond,
+            signedForwardSpeedMetersPerSecond:
+                state.planarMotion.signedForwardSpeedMetersPerSecond,
+            lateralSpeedMetersPerSecond:
+                state.planarMotion.lateralSpeedMetersPerSecond,
+            worldSpeedMetersPerSecond:
+                state.planarMotion.worldSpeedMetersPerSecond,
+            yawRadians: state.planarMotion.yawRadians,
+            yawRateRadiansPerSecond:
+                state.planarMotion.yawRateRadiansPerSecond,
+            yawAccelerationRadiansPerSecondSquared:
+                state.planarMotion.yawAccelerationRadiansPerSecondSquared,
+            planarAccelerationWorldMetersPerSecondSquared:
+                state.planarMotion.planarAccelerationWorldMetersPerSecondSquared,
+            planarAccelerationLocalForwardMetersPerSecondSquared:
+                state.planarMotion.planarAccelerationLocalForwardMetersPerSecondSquared,
+            planarAccelerationLocalLateralMetersPerSecondSquared:
+                state.planarMotion.planarAccelerationLocalLateralMetersPerSecondSquared,
             throttleInput: state.throttleInput,
             brakeInput: state.brakeInput,
             steeringInput: state.steeringInput,
@@ -225,32 +268,52 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function updateLongitudinalMotion(dt) {
-        const oldSpeed = state.speedScalar
+    function updatePlanarMotion(dt) {
+        const oldForwardSpeedMetersPerSecond = state.speedScalar
         const forces = state.forces
 
-        let nextSpeed =
-            oldSpeed +
-            forces.longitudinalAccelerationMetersPerSecondSquared * dt
+        integratePlanarVelocityFromLocalAcceleration(
+            state.planarMotion,
+            forces.longitudinalAccelerationMetersPerSecondSquared,
+            calculateTemporaryLateralVelocityDampingAcceleration(),
+            dt
+        )
 
-        if (shouldClampToStop(oldSpeed, nextSpeed, forces)) {
-            nextSpeed = 0
+        let nextForwardSpeedMetersPerSecond =
+            state.planarMotion.localForwardVelocityMetersPerSecond
+        const nextLateralSpeedMetersPerSecond =
+            state.planarMotion.localLateralVelocityMetersPerSecond
+
+        if (
+            shouldClampToStop(
+                oldForwardSpeedMetersPerSecond,
+                nextForwardSpeedMetersPerSecond,
+                forces
+            )
+        ) {
+            nextForwardSpeedMetersPerSecond = 0
         }
 
-        nextSpeed = THREE.MathUtils.clamp(
-            nextSpeed,
+        nextForwardSpeedMetersPerSecond = THREE.MathUtils.clamp(
+            nextForwardSpeedMetersPerSecond,
             -spec.maxReverseSpeedMetersPerSecond,
             spec.maxForwardSpeedMetersPerSecond
         )
 
         if (
-            Math.abs(nextSpeed) < params.stopEpsilonMetersPerSecond &&
+            Math.abs(nextForwardSpeedMetersPerSecond) <
+                params.stopEpsilonMetersPerSecond &&
             !isDriveTryingToMoveFromStop()
         ) {
-            nextSpeed = 0
+            nextForwardSpeedMetersPerSecond = 0
         }
 
-        state.speedScalar = nextSpeed
+        setPlanarLocalVelocity(
+            state.planarMotion,
+            nextForwardSpeedMetersPerSecond,
+            nextLateralSpeedMetersPerSecond
+        )
+        syncSpeedScalarFromPlanarState()
     }
 
     function calculateLongitudinalForcesFromWheelState() {
@@ -371,29 +434,41 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function updateSteering(dt) {
+    function calculateTemporaryLateralVelocityDampingAcceleration() {
+        // Temporary stabilization only: a future lateral tire model should
+        // replace this placeholder damping with contact-patch lateral force.
+        return (
+            -state.planarMotion.localLateralVelocityMetersPerSecond *
+            spec.temporaryLateralVelocityDampingPerSecond
+        )
+    }
+
+    function updateYawState(dt) {
         const speedDirection = getSignWithDeadzone(
-            state.speedScalar,
+            state.planarMotion.localForwardVelocityMetersPerSecond,
             params.steeringDeadSpeedMetersPerSecond
         )
 
-        if (speedDirection === 0) return
+        const yawRateRadiansPerSecond = speedDirection === 0
+            ? 0
+            : params.turnSpeedRadiansPerSecond *
+                state.steeringInput *
+                speedDirection
 
-        vehicle.rotation.y +=
-            params.turnSpeedRadiansPerSecond *
-            state.steeringInput *
-            speedDirection *
-            dt
+        integrateYawRate(state.planarMotion, yawRateRadiansPerSecond, dt)
     }
 
     function updatePosition(dt) {
-        vehicle.translateZ(state.speedScalar * dt)
+        integratePlanarPosition(vehicle.position, state.planarMotion, dt)
     }
 
-    function updateVelocityVector() {
-        velocity.copy(LOCAL_FORWARD)
-        velocity.applyQuaternion(vehicle.quaternion)
-        velocity.multiplyScalar(state.speedScalar)
+    function syncVehicleYawFromPlanarState() {
+        vehicle.rotation.y = state.planarMotion.yawRadians
+    }
+
+    function syncSpeedScalarFromPlanarState() {
+        state.speedScalar =
+            state.planarMotion.localForwardVelocityMetersPerSecond
     }
 
     function updateWheelContactStates() {
@@ -814,7 +889,8 @@ export function createVehicleController(config = {}) {
         // Positive slip means wheel surface speed exceeds ground speed in the
         // current longitudinal direction; negative slip means the wheel surface
         // is slower, as in braking or incipient lock. Current ground speed is
-        // scalar until per-wheel contact patch velocity exists.
+        // approximated from local forward speed until per-wheel contact
+        // patch velocity exists.
         const longitudinalSlipRatio =
             (
                 wheelSurfaceSpeedMetersPerSecond -
@@ -913,6 +989,9 @@ export function createVehicleController(config = {}) {
     state.forces = calculateLongitudinalForcesFromWheelState()
     updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
     updateWheelRotationalStates(0)
+    updateYawState(0)
+    updatePlanarMotion(0)
+    syncVehicleYawFromPlanarState()
     updateWheelVisualStates()
 
     return {
