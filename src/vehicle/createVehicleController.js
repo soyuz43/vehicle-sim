@@ -2,6 +2,7 @@
 
 import * as THREE from 'three'
 import { DEFAULT_VEHICLE_SPEC } from './defaultVehicleSpec.js'
+import { createFlatTerrainContactQuery } from '../terrain/createFlatTerrainContactQuery.js'
 
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
@@ -36,6 +37,7 @@ const DEFAULT_CONTROLLER_PARAMS = {
 }
 
 const LOCAL_FORWARD = new THREE.Vector3(0, 0, 1)
+const CONTACT_EPSILON_METERS = 0.001
 
 const BRAKE_LIGHT_OFF_COLOR = 0x330000
 const BRAKE_LIGHT_ON_COLOR = 0xff1111
@@ -60,6 +62,12 @@ export function createVehicleController(config = {}) {
         ...DEFAULT_CONTROLLER_PARAMS,
         ...(config.params ?? {}),
     }
+
+    const terrainContactQuery =
+        config.terrainContactQuery ??
+        createFlatTerrainContactQuery({
+            frictionCoefficient: spec.defaultSurfaceFrictionCoefficient,
+        })
 
     const initialGear = normalizeGear(config.initialGear ?? GEARS.DRIVE)
     const startPosition = (config.startPosition ?? vehicle.position).clone()
@@ -403,9 +411,20 @@ export function createVehicleController(config = {}) {
     function updateWheelRuntimeState(dt) {
         vehicle.updateMatrixWorld(true)
 
-        const wheelCount = Math.max(1, state.wheelStates.length)
-        const normalForcePerWheel =
-            state.forces.normalForceNewtons / wheelCount
+        let groundedWheelCount = 0
+
+        for (const wheelState of state.wheelStates) {
+            updateWheelContactState(wheelState)
+
+            if (wheelState.isGrounded) {
+                groundedWheelCount += 1
+            }
+        }
+
+        const normalForcePerGroundedWheel =
+            groundedWheelCount > 0
+                ? state.forces.normalForceNewtons / groundedWheelCount
+                : 0
 
         const requestedForceDistribution = distributeLongitudinalTireForce(
             state.forces.requestedTireForceNewtons
@@ -416,29 +435,28 @@ export function createVehicleController(config = {}) {
         )
 
         for (const wheelState of state.wheelStates) {
-            const requestedForce =
-                requestedForceDistribution.get(wheelState.id) ?? 0
+            const requestedForce = wheelState.isGrounded
+                ? requestedForceDistribution.get(wheelState.id) ?? 0
+                : 0
 
-            const appliedForce =
-                appliedForceDistribution.get(wheelState.id) ?? 0
+            const appliedForce = wheelState.isGrounded
+                ? appliedForceDistribution.get(wheelState.id) ?? 0
+                : 0
 
-            wheelState.contactPatchWorldPosition
-                .copy(wheelState.contactPatchLocal)
-                .applyMatrix4(vehicle.matrixWorld)
+            wheelState.normalForceNewtons = wheelState.isGrounded
+                ? normalForcePerGroundedWheel
+                : 0
 
-            wheelState.isGrounded = true
-            wheelState.surfaceKind = 'flat-asphalt-placeholder'
-            wheelState.frictionCoefficient =
-                spec.defaultSurfaceFrictionCoefficient
-            wheelState.normalForceNewtons = normalForcePerWheel
-            wheelState.tractionLimitNewtons =
-                wheelState.frictionCoefficient * normalForcePerWheel
+            wheelState.tractionLimitNewtons = wheelState.isGrounded
+                ? wheelState.frictionCoefficient * wheelState.normalForceNewtons
+                : 0
 
             wheelState.requestedLongitudinalForceNewtons = requestedForce
             wheelState.appliedLongitudinalForceNewtons = appliedForce
             wheelState.isSlipping =
+                wheelState.isGrounded &&
                 Math.abs(requestedForce) >
-                wheelState.tractionLimitNewtons + 0.001
+                    wheelState.tractionLimitNewtons + 0.001
 
             wheelState.longitudinalSlip = wheelState.isSlipping ? 1 : 0
             wheelState.lateralSlip = 0
@@ -457,6 +475,53 @@ export function createVehicleController(config = {}) {
 
             applyWheelVisualState(wheelState)
         }
+    }
+
+    function updateWheelContactState(wheelState) {
+        wheelState.wheelCenterWorldPosition
+            .copy(wheelState.localPosition)
+            .applyMatrix4(vehicle.matrixWorld)
+
+        terrainContactQuery.queryAtWorldXZ(
+            wheelState.wheelCenterWorldPosition.x,
+            wheelState.wheelCenterWorldPosition.z,
+            wheelState.terrainContactQueryResult
+        )
+
+        wheelState.groundHeightMeters =
+            wheelState.terrainContactQueryResult.groundHeightMeters
+
+        wheelState.distanceToGroundMeters =
+            wheelState.wheelCenterWorldPosition.y - wheelState.groundHeightMeters
+
+        wheelState.tirePenetrationMeters = Math.max(
+            0,
+            wheelState.radius - wheelState.distanceToGroundMeters
+        )
+
+        wheelState.isGrounded =
+            wheelState.distanceToGroundMeters <=
+            wheelState.radius + CONTACT_EPSILON_METERS
+
+        wheelState.contactPointWorldPosition.set(
+            wheelState.wheelCenterWorldPosition.x,
+            wheelState.groundHeightMeters,
+            wheelState.wheelCenterWorldPosition.z
+        )
+
+        wheelState.contactPatchWorldPosition.copy(
+            wheelState.contactPointWorldPosition
+        )
+
+        wheelState.contactNormalWorld.copy(
+            wheelState.terrainContactQueryResult.normalWorld
+        )
+
+        wheelState.surfaceKind = wheelState.terrainContactQueryResult.surfaceKind
+        wheelState.frictionCoefficient =
+            wheelState.terrainContactQueryResult.frictionCoefficient
+        wheelState.isInsideTerrainBounds =
+            wheelState.terrainContactQueryResult.isInsideTerrainBounds
     }
 
     function distributeLongitudinalTireForce(totalForceNewtons) {
@@ -531,7 +596,17 @@ function createWheelRuntimeStates(vehicle, spec) {
             width: wheel.width,
             localPosition: cloneVector3(wheel.localPosition),
             contactPatchLocal: cloneVector3(wheel.contactPatchLocal),
+            wheelCenterWorldPosition: new THREE.Vector3(),
+            contactPointWorldPosition: new THREE.Vector3(),
             contactPatchWorldPosition: new THREE.Vector3(),
+            contactNormalWorld: new THREE.Vector3(0, 1, 0),
+            terrainContactQueryResult: {
+                normalWorld: new THREE.Vector3(0, 1, 0),
+            },
+            groundHeightMeters: 0,
+            distanceToGroundMeters: 0,
+            tirePenetrationMeters: 0,
+            isInsideTerrainBounds: true,
             steeringAngleRadians: 0,
             spinAngleRadians: 0,
             angularVelocityRadiansPerSecond: 0,

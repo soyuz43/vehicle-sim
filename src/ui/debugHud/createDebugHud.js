@@ -115,6 +115,7 @@ export function createDebugHud(config = {}) {
   function update(snapshot) {
     const forces = snapshot.forces ?? {}
     const fixedSimulation = snapshot.fixedSimulation ?? {}
+    const wheelStates = snapshot.wheelStates ?? []
 
     debugHudText.textContent = [
       'Vehicle Sim Debug',
@@ -142,6 +143,9 @@ export function createDebugHud(config = {}) {
       `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
       `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
+      '',
+      `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
+      `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
       '',
       `Terrain size: ${snapshot.terrainSize} x ${snapshot.terrainSize}`,
       `Outside terrain: ${snapshot.outsideTerrain ? 'YES' : 'no'}`,
@@ -181,6 +185,35 @@ function formatVector3(vector, digits = 2) {
     formatNumber(vector.y, digits),
     formatNumber(vector.z, digits),
   ].join(', ')
+}
+
+function countGroundedWheels(wheelStates) {
+  let groundedWheelCount = 0
+
+  for (const wheelState of wheelStates) {
+    if (wheelState.isGrounded) {
+      groundedWheelCount += 1
+    }
+  }
+
+  return groundedWheelCount
+}
+
+function formatWheelGroundedStates(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  return wheelStates
+    .map((wheelState) =>
+      `${formatWheelId(wheelState)}:${wheelState.isGrounded ? 'G' : 'air'}`
+    )
+    .join(' ')
+}
+
+function formatWheelId(wheelState) {
+  const axle = wheelState.axle === 'front' ? 'F' : 'R'
+  const side = wheelState.side === 'left' ? 'L' : 'R'
+
+  return `${axle}${side}`
 }
 
 function vectorMagnitude(vector) {
