@@ -144,6 +144,7 @@ export function createDebugHud(config = {}) {
       `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
       `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
+      `Tire force: ${formatLongitudinalTireForceTelemetry(wheelStates)}`,
       '',
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
@@ -225,6 +226,48 @@ function formatWheelAngularVelocities(wheelStates) {
       return `${formatWheelId(wheelState)}:${formatNumber(angularVelocityRadiansPerSecond)}`
     })
     .join(' ')
+}
+
+function formatLongitudinalTireForceTelemetry(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  let maxUncappedLongitudinalTireForceNewtonsAbs = 0
+  let maxAppliedLongitudinalTireForceNewtonsAbs = 0
+  let saturatedWheelCount = 0
+
+  for (const wheelState of wheelStates) {
+    const uncappedLongitudinalTireForceNewtons = Number.isFinite(
+      wheelState.uncappedLongitudinalTireForceNewtons
+    )
+      ? wheelState.uncappedLongitudinalTireForceNewtons
+      : 0
+
+    const appliedLongitudinalForceNewtons = Number.isFinite(
+      wheelState.appliedLongitudinalForceNewtons
+    )
+      ? wheelState.appliedLongitudinalForceNewtons
+      : 0
+
+    maxUncappedLongitudinalTireForceNewtonsAbs = Math.max(
+      maxUncappedLongitudinalTireForceNewtonsAbs,
+      Math.abs(uncappedLongitudinalTireForceNewtons)
+    )
+
+    maxAppliedLongitudinalTireForceNewtonsAbs = Math.max(
+      maxAppliedLongitudinalTireForceNewtonsAbs,
+      Math.abs(appliedLongitudinalForceNewtons)
+    )
+
+    if (wheelState.isLongitudinalTireForceSaturated) {
+      saturatedWheelCount += 1
+    }
+  }
+
+  return [
+    `u ${formatNumber(maxUncappedLongitudinalTireForceNewtonsAbs, 0)}`,
+    `a ${formatNumber(maxAppliedLongitudinalTireForceNewtonsAbs, 0)} N`,
+    `sat ${saturatedWheelCount}`,
+  ].join(' / ')
 }
 
 function formatWheelNetTorqueTelemetry(wheelStates) {

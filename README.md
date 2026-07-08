@@ -32,17 +32,22 @@ Each wheel records service brake pressure and brake torque command state. Brake 
 
 ## Longitudinal Slip Ratio Telemetry
 
-Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. The current contact patch velocity is approximated from scalar vehicle speed until planar chassis dynamics exist. Slip ratio is not yet used to compute tire forces; future branches can use it for wheel lock detection, ABS, and tire curves.
+Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. The current contact patch velocity is approximated from scalar vehicle speed until planar chassis dynamics exist. Slip ratio now feeds the basic longitudinal tire-force model, and future branches can use it for wheel lock detection, ABS, and more complete tire curves.
 
 
 ## Torque-Coupled Wheel Dynamics
 
-Wheel angular velocity now integrates from simple net torque and wheel inertia. The scalar vehicle acceleration model still uses the existing force pipeline, and clamp-based traction limiting remains in place. A temporary rolling constraint correction limits runaway wheel spin while tire force is still clamp-based; a future basic linear longitudinal tire model should remove or reduce that correction and derive tire force from slip.
+Wheel angular velocity now integrates from simple net torque and wheel inertia. The scalar vehicle acceleration model remains active, while the longitudinal tire force feeding it now comes from the basic linear/saturated slip-ratio model. A weak temporary rolling correction remains as numerical stabilization only; it is not the tire model and should be removed or reduced as tire modeling improves.
+
+
+## Basic Linear Longitudinal Tire Model
+
+Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. This is not Pacejka, combined slip, ABS, load transfer, suspension, or lateral dynamics.
 
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake requests are generated per wheel, then each wheel independently applies the current clamp-based placeholder traction limit. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, tire slip models, and load transfer without implementing those systems yet.
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, richer tire models, and load transfer without implementing those systems yet.
 
 
 ## Controls

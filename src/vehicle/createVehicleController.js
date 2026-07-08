@@ -41,7 +41,7 @@ const CONTACT_EPSILON_METERS = 0.001
 const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
 const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = 0.1
 const WHEEL_ANGULAR_SPEED_EPSILON_RADIANS_PER_SECOND = 0.001
-const TEMPORARY_ROLLING_CONSTRAINT_CORRECTION_TIME_SECONDS = 0.12
+const TEMPORARY_ROLLING_CONSTRAINT_CORRECTION_TIME_SECONDS = 1.5
 
 const BRAKE_LIGHT_OFF_COLOR = 0x330000
 const BRAKE_LIGHT_ON_COLOR = 0xff1111
@@ -100,13 +100,16 @@ export function createVehicleController(config = {}) {
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
         calculatePerWheelLongitudinalForces()
+        // Explicit one-step coupling: tire force uses slip measured before this
+        // frame's wheel torque integration updates angular velocity.
+        updateLongitudinalSlipTelemetry()
+        calculatePerWheelLongitudinalTireForces()
         state.forces = calculateLongitudinalForcesFromWheelState()
+        updateWheelRotationalStates(safeDt)
         updateLongitudinalMotion(safeDt)
         updateSteering(safeDt)
         updatePosition(safeDt)
         updateVelocityVector()
-        updateWheelRotationalStates(safeDt)
-        updateLongitudinalSlipTelemetry()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -132,7 +135,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
-            wheelState.appliedLongitudinalForceNewtons = 0
+            resetWheelLongitudinalTireForceState(wheelState)
             resetWheelLongitudinalSlipState(wheelState)
             wheelState.lateralSlip = 0
             wheelState.frictionCoefficient = spec.defaultSurfaceFrictionCoefficient
@@ -147,9 +150,12 @@ export function createVehicleController(config = {}) {
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
         calculatePerWheelLongitudinalForces()
+        // Explicit one-step coupling: tire force uses slip measured before this
+        // frame's wheel torque integration updates angular velocity.
+        updateLongitudinalSlipTelemetry()
+        calculatePerWheelLongitudinalTireForces()
         state.forces = calculateLongitudinalForcesFromWheelState()
         updateWheelRotationalStates(0)
-        updateLongitudinalSlipTelemetry()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -486,8 +492,6 @@ export function createVehicleController(config = {}) {
                 calculateDriveForceRequestNewtons()
             )
         }
-
-        applyWheelTractionLimits()
     }
 
     function resetWheelForceAndBrakeTorqueRequests() {
@@ -495,7 +499,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
-            wheelState.appliedLongitudinalForceNewtons = 0
+            resetWheelLongitudinalTireForceState(wheelState)
             wheelState.isSlipping = false
             resetWheelLongitudinalSlipState(wheelState)
             wheelState.lateralSlip = 0
@@ -577,29 +581,71 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function applyWheelTractionLimits() {
+    function calculatePerWheelLongitudinalTireForces() {
         for (const wheelState of state.wheelStates) {
-            if (wheelState.tractionLimitNewtons <= 0) {
-                wheelState.appliedLongitudinalForceNewtons = 0
-                wheelState.isSlipping =
-                    Math.abs(wheelState.requestedLongitudinalForceNewtons) >
-                    TRACTION_LIMIT_EPSILON_NEWTONS
-                continue
-            }
-
-            wheelState.appliedLongitudinalForceNewtons = THREE.MathUtils.clamp(
-                wheelState.requestedLongitudinalForceNewtons,
-                -wheelState.tractionLimitNewtons,
-                wheelState.tractionLimitNewtons
-            )
-
-            // Placeholder traction-limit indicator until tire slip curves
-            // replace clamp-based limiting in a later branch.
-            wheelState.isSlipping =
-                Math.abs(wheelState.requestedLongitudinalForceNewtons) >
-                wheelState.tractionLimitNewtons + TRACTION_LIMIT_EPSILON_NEWTONS
-
+            calculateWheelLongitudinalTireForce(wheelState)
         }
+    }
+
+    function calculateWheelLongitudinalTireForce(wheelState) {
+        if (!wheelState.isGrounded || wheelState.tractionLimitNewtons <= 0) {
+            resetWheelLongitudinalTireForceState(wheelState)
+            return
+        }
+
+        // The stored longitudinalSlipRatio is direction-aware for telemetry;
+        // tire force needs the vehicle local-forward sign convention.
+        const localForwardLongitudinalSlipRatio =
+            calculateLocalForwardLongitudinalSlipRatio(wheelState)
+
+        wheelState.linearLongitudinalTireForceNewtons =
+            spec.longitudinalTireStiffnessNewtonsPerSlipRatio *
+            localForwardLongitudinalSlipRatio
+        wheelState.uncappedLongitudinalTireForceNewtons =
+            wheelState.linearLongitudinalTireForceNewtons
+        wheelState.appliedLongitudinalForceNewtons = THREE.MathUtils.clamp(
+            wheelState.linearLongitudinalTireForceNewtons,
+            -wheelState.tractionLimitNewtons,
+            wheelState.tractionLimitNewtons
+        )
+
+        const uncappedForceMagnitudeNewtons = Math.abs(
+            wheelState.uncappedLongitudinalTireForceNewtons
+        )
+
+        wheelState.longitudinalTireForceSaturationRatio =
+            wheelState.tractionLimitNewtons > 0
+                ? Math.min(
+                    uncappedForceMagnitudeNewtons / wheelState.tractionLimitNewtons,
+                    1
+                )
+                : 0
+        wheelState.isLongitudinalTireForceSaturated =
+            uncappedForceMagnitudeNewtons >
+            wheelState.tractionLimitNewtons + TRACTION_LIMIT_EPSILON_NEWTONS
+
+        // Compatibility alias for the driver panel: this now means the simple
+        // longitudinal tire force is friction-saturated, not full tire slip.
+        wheelState.isSlipping = wheelState.isLongitudinalTireForceSaturated
+    }
+
+    function calculateLocalForwardLongitudinalSlipRatio(wheelState) {
+        const groundSpeedAbs = Math.abs(
+            wheelState.longitudinalGroundSpeedMetersPerSecond
+        )
+        const wheelSurfaceSpeedAbs = Math.abs(
+            wheelState.wheelSurfaceSpeedMetersPerSecond
+        )
+        const slipDenominatorMetersPerSecond = Math.max(
+            groundSpeedAbs,
+            wheelSurfaceSpeedAbs,
+            SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND
+        )
+
+        return (
+            wheelState.wheelSurfaceSpeedMetersPerSecond -
+            wheelState.longitudinalGroundSpeedMetersPerSecond
+        ) / slipDenominatorMetersPerSecond
     }
 
     function updateWheelRotationalStates(dt) {
@@ -696,10 +742,9 @@ export function createVehicleController(config = {}) {
             wheelState.targetRollingAngularVelocityRadiansPerSecond -
             wheelState.angularVelocityRadiansPerSecond
 
-        // Temporary bridge: until a tire model consumes slip ratio to produce
-        // longitudinal force, this correction prevents runaway wheel spin while
-        // preserving explicit torque/inertia integration. The basic tire model
-        // branch should remove or reduce this correction.
+        // Temporary numerical damping: tire force now comes from slip ratio, so
+        // this correction is intentionally weak and should not be treated as the
+        // tire model. Later tire model work can remove or further reduce it.
         return (
             angularVelocityErrorRadiansPerSecond *
             wheelState.wheelInertiaKgMeterSquared /
@@ -863,9 +908,12 @@ export function createVehicleController(config = {}) {
     updateWheelContactStates()
     updateWheelLoadPlaceholderValues()
     calculatePerWheelLongitudinalForces()
+    updateLongitudinalSlipTelemetry()
+    calculatePerWheelLongitudinalTireForces()
     state.forces = calculateLongitudinalForcesFromWheelState()
     updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
-    updateWheelVisualStates(0)
+    updateWheelRotationalStates(0)
+    updateWheelVisualStates()
 
     return {
         update,
@@ -921,8 +969,8 @@ function createWheelRuntimeStates(vehicle, spec) {
             tirePenetrationMeters: 0,
             isInsideTerrainBounds: true,
             steeringAngleRadians: 0,
-            // Wheel angular dynamics are torque-coupled, while tire forces remain clamp-based.
-            // Wheel lock behavior remains future work.
+            // Wheel angular dynamics are torque-coupled, while tire forces use a basic
+            // linear/saturated longitudinal slip model. Wheel lock behavior remains future work.
             rollingSurfaceSpeedMetersPerSecond: 0,
             targetRollingAngularVelocityRadiansPerSecond: 0,
             angularVelocityRadiansPerSecond: 0,
@@ -948,7 +996,11 @@ function createWheelRuntimeStates(vehicle, spec) {
             requestedDriveForceNewtons: 0,
             requestedBrakeForceNewtons: 0,
             requestedLongitudinalForceNewtons: 0,
+            uncappedLongitudinalTireForceNewtons: 0,
+            linearLongitudinalTireForceNewtons: 0,
             appliedLongitudinalForceNewtons: 0,
+            longitudinalTireForceSaturationRatio: 0,
+            isLongitudinalTireForceSaturated: false,
             longitudinalGroundSpeedMetersPerSecond: 0,
             wheelSurfaceSpeedMetersPerSecond: 0,
             longitudinalSlipRatio: 0,
@@ -974,6 +1026,7 @@ function resetWheelRotationalState(wheelState) {
     wheelState.angularVelocityRadiansPerSecond = 0
     wheelState.angularAccelerationRadiansPerSecondSquared = 0
     wheelState.spinAngleRadians = 0
+    resetWheelLongitudinalTireForceState(wheelState)
     resetWheelLongitudinalSlipState(wheelState)
     resetWheelServiceBrakeTorqueState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
@@ -982,6 +1035,15 @@ function resetWheelRotationalState(wheelState) {
     wheelState.rollingConstraintCorrectionTorqueNewtonMeters = 0
     wheelState.netTorqueNewtonMeters = 0
     wheelState.isWheelLocked = false
+}
+
+function resetWheelLongitudinalTireForceState(wheelState) {
+    wheelState.uncappedLongitudinalTireForceNewtons = 0
+    wheelState.linearLongitudinalTireForceNewtons = 0
+    wheelState.appliedLongitudinalForceNewtons = 0
+    wheelState.longitudinalTireForceSaturationRatio = 0
+    wheelState.isLongitudinalTireForceSaturated = false
+    wheelState.isSlipping = false
 }
 
 function resetWheelLongitudinalSlipState(wheelState) {
