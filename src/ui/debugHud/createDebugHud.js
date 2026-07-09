@@ -116,6 +116,7 @@ export function createDebugHud(config = {}) {
     const forces = snapshot.forces ?? {}
     const fixedSimulation = snapshot.fixedSimulation ?? {}
     const wheelStates = snapshot.wheelStates ?? []
+    const tractionStateSummary = snapshot.tractionStateSummary ?? {}
 
     debugHudText.textContent = [
       'Vehicle Sim Debug',
@@ -156,6 +157,7 @@ export function createDebugHud(config = {}) {
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
       `Tire force: ${formatLongitudinalTireForceTelemetry(wheelStates)}`,
       `Tire saturation: ${formatTireSaturationTelemetry(wheelStates)}`,
+      `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
       '',
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
@@ -295,6 +297,17 @@ function formatLongitudinalTireForceTelemetry(wheelStates) {
     `u ${formatNumber(maxUncappedLongitudinalTireForceNewtonsAbs, 0)}`,
     `a ${formatNumber(maxAppliedLongitudinalTireForceNewtonsAbs, 0)} N`,
     `sat ${saturatedWheelCount}`,
+  ].join(' / ')
+}
+
+function formatTractionStateSummary(tractionStateSummary = {}) {
+  return [
+    tractionStateSummary.dominantLongitudinalTractionState ?? 'unknown',
+    `spin ${formatNumber(tractionStateSummary.driveSpinningWheelCount, 0)}`,
+    `brake-lock ${formatNumber(tractionStateSummary.brakeLockTendencyWheelCount, 0)}`,
+    `sat ${formatNumber(tractionStateSummary.saturatedWheelCount, 0)}`,
+    `slip ${formatNumber(tractionStateSummary.maxAbsLongitudinalSlipRatio, 3)}`,
+    `cap ${formatNumber(tractionStateSummary.maxLongitudinalTireForceSaturationRatio, 2)}`,
   ].join(' / ')
 }
 
