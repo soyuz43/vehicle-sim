@@ -9,6 +9,7 @@ import { createDebugHud } from './ui/debugHud/createDebugHud.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
 import { createGearIndicator } from './ui/gearIndicator/createGearIndicator.js'
 import { createTireInflationPanel } from './ui/tireInflationPanel/createTireInflationPanel.js'
+import { createDeveloperTuningPanel } from './ui/developerTuningPanel/createDeveloperTuningPanel.js'
 import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
 
 /* =========================
@@ -150,6 +151,19 @@ const tireInflationPanel = createTireInflationPanel({
   },
 })
 
+const developerTuningPanel = createDeveloperTuningPanel({
+  parent: document.body,
+  initialDynamicsTuning: vehicleController.getDynamicsTuning(),
+  onDynamicsTuningChange: (nextDynamicsTuning) => {
+    vehicleController.setDynamicsTuning(nextDynamicsTuning)
+    updateDeveloperTuningPanel()
+  },
+  onReset: () => {
+    vehicleController.resetDynamicsTuning()
+    updateDeveloperTuningPanel()
+  },
+})
+
 /* =========================
    Keyboard Input
 ========================= */
@@ -202,6 +216,7 @@ function resetCar() {
   updateDebugHud(0, fixedSimulationRunner.getSnapshot())
   updateGearIndicator()
   updateTireInflationPanel()
+  updateDeveloperTuningPanel()
 }
 
 /* =========================
@@ -278,6 +293,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     forces: vehicleSnapshot.forces,
     wheelStates: vehicleSnapshot.wheelStates,
     tirePressureState: vehicleSnapshot.tirePressureState,
+    dynamicsTuning: vehicleSnapshot.dynamicsTuning,
     terrainSize: terrainInfo.size,
     outsideTerrain,
   })
@@ -291,6 +307,10 @@ function updateGearIndicator() {
 
 function updateTireInflationPanel() {
   tireInflationPanel.update(vehicleController.getTirePressureState())
+}
+
+function updateDeveloperTuningPanel() {
+  developerTuningPanel.update(vehicleController.getDynamicsTuning())
 }
 
 /* =========================
