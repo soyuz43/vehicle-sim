@@ -10,6 +10,7 @@ import { createVehicleController } from './vehicle/createVehicleController.js'
 import { createGearIndicator } from './ui/gearIndicator/createGearIndicator.js'
 import { createTireInflationPanel } from './ui/tireInflationPanel/createTireInflationPanel.js'
 import { createDeveloperTuningPanel } from './ui/developerTuningPanel/createDeveloperTuningPanel.js'
+import { createTireSlipFeedback } from './effects/tireSlipFeedback/createTireSlipFeedback.js'
 import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
 
 /* =========================
@@ -102,6 +103,11 @@ const vehicleController = createVehicleController({
   vehicle: car,
   terrainContactQuery,
 })
+
+const tireSlipFeedback = createTireSlipFeedback({
+  maxWheelEffects: vehicleController.getSnapshot().wheelStates.length,
+})
+scene.add(tireSlipFeedback.root)
 
 /* =========================
    Fixed Simulation Loop
@@ -212,6 +218,7 @@ const clock = new THREE.Clock()
 function resetCar() {
   vehicleController.reset()
   fixedSimulationRunner.reset()
+  tireSlipFeedback.reset()
   cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
   updateDebugHud(0, fixedSimulationRunner.getSnapshot())
   updateGearIndicator()
@@ -293,6 +300,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     forces: vehicleSnapshot.forces,
     wheelStates: vehicleSnapshot.wheelStates,
     tractionStateSummary: vehicleSnapshot.tractionStateSummary,
+    tireSlipFeedback: tireSlipFeedback.getSnapshot(),
     tirePressureState: vehicleSnapshot.tirePressureState,
     dynamicsTuning: vehicleSnapshot.dynamicsTuning,
     terrainSize: terrainInfo.size,
@@ -337,6 +345,11 @@ function animate() {
   )
 
   cameraManager.update(clampedRenderDeltaSeconds)
+  tireSlipFeedback.update(
+    vehicleController.getSnapshot(),
+    car,
+    clampedRenderDeltaSeconds
+  )
   updateDebugHud(clampedRenderDeltaSeconds, fixedSimulationSnapshot)
   updateGearIndicator()
 

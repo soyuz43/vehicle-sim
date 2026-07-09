@@ -80,6 +80,13 @@ Each wheel now exposes longitudinal traction classification telemetry derived fr
 This is a telemetry/debug foundation only. It does not implement ABS, parking brake behavior, smoke, tire squeal, skid marks, lateral tire forces, combined slip, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, or tire-force calculation.
 
 
+## Tire Slip Visual Feedback
+
+A separate tire slip feedback overlay reads longitudinal traction state telemetry and shows simple ground-oriented visual markers for rolling, saturation, drive spin, and brake-lock tendency. These visuals are independent from tire inflation contact-patch scaling, and they do not rotate with tire tread or affect wheel physics.
+
+The feedback is visual/debug only. It does not change tire force, friction, traction limits, tire pressure behavior, ABS, parking brake behavior, suspension, load transfer, combined slip, or lateral dynamics. Tire squeal audio, richer smoke, and persistent skid marks remain future work.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, richer tire models, and load transfer without implementing those systems yet.

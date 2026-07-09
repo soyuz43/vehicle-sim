@@ -117,6 +117,7 @@ export function createDebugHud(config = {}) {
     const fixedSimulation = snapshot.fixedSimulation ?? {}
     const wheelStates = snapshot.wheelStates ?? []
     const tractionStateSummary = snapshot.tractionStateSummary ?? {}
+    const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     debugHudText.textContent = [
       'Vehicle Sim Debug',
@@ -158,6 +159,7 @@ export function createDebugHud(config = {}) {
       `Tire force: ${formatLongitudinalTireForceTelemetry(wheelStates)}`,
       `Tire saturation: ${formatTireSaturationTelemetry(wheelStates)}`,
       `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
+      `Slip visuals: ${formatTireSlipFeedbackTelemetry(tireSlipFeedback)}`,
       '',
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
@@ -297,6 +299,16 @@ function formatLongitudinalTireForceTelemetry(wheelStates) {
     `u ${formatNumber(maxUncappedLongitudinalTireForceNewtonsAbs, 0)}`,
     `a ${formatNumber(maxAppliedLongitudinalTireForceNewtonsAbs, 0)} N`,
     `sat ${saturatedWheelCount}`,
+  ].join(' / ')
+}
+
+function formatTireSlipFeedbackTelemetry(tireSlipFeedback = {}) {
+  return [
+    `active ${formatNumber(tireSlipFeedback.activeVisualSlipEffectCount ?? 0, 0)}`,
+    `spin ${formatNumber(tireSlipFeedback.driveSpinVisualCount ?? 0, 0)}`,
+    `brake-lock ${formatNumber(tireSlipFeedback.brakeLockVisualCount ?? 0, 0)}`,
+    `sat ${formatNumber(tireSlipFeedback.saturatedVisualCount ?? 0, 0)}`,
+    `intensity ${formatNumber(tireSlipFeedback.maxSlipFeedbackIntensity ?? 0, 2)}`,
   ].join(' / ')
 }
 
