@@ -64,9 +64,16 @@ Vehicle heading and world velocity are now separate planar state. The controller
 Local lateral velocity can now be measured when the vehicle yaws while moving, but lateral tire forces are not implemented yet. A small `temporaryLateralVelocityDampingPerSecond` placeholder keeps sideways skating bounded; it is not a real lateral tire model. Any sideways motion at this stage is foundation telemetry for later lateral slip angle, lateral tire forces, oversteer/understeer, and combined slip work, not a full drift or grip model.
 
 
+## Lateral Slip Angle Telemetry
+
+Each wheel now records telemetry-only lateral slip angle by estimating contact-patch velocity from planar chassis velocity and yaw rate, then projecting that velocity into the wheel's current local forward/right axes. Front steerable wheels use current steering angle telemetry, rear wheels use chassis heading, and the vehicle snapshot now exposes a compact aggregate lateral-slip summary for the debug HUD.
+
+This branch measures lateral slip during steering and turning only. It does not apply lateral tire forces, yaw moments from lateral tire forces, combined slip, suspension, load transfer, stability control, traction control, drift behavior, smoke, squeal, particles, or friction/grip/traction-limit sliders. Straight-line driving should stay near zero lateral slip angle, while turning can now produce meaningful telemetry for future lateral tire-force, understeer, and oversteer work.
+
+
 ## Dynamics Sanity Telemetry
 
-The developer debug HUD includes compact local acceleration, tire-force saturation, service/parking brake torque, service-brake ABS state, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add brake assist, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
+The developer debug HUD includes compact local acceleration, tire-force saturation, service/parking brake torque, service-brake ABS state, yaw-rate, longitudinal slip-ratio, lateral slip-angle, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add brake assist, load transfer, suspension, lateral tire forces, combined slip, or player-facing tuning controls.
 
 
 ## Tire Inflation Visualization

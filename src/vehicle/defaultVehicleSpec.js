@@ -54,6 +54,13 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   brakeLockWheelSurfaceSpeedThresholdMetersPerSecond: 0.25,
   driveSpinSlipRatioThreshold: 0.12,
 
+  // Lateral slip-angle thresholds classify/debug telemetry only.
+  // They do not change tire force, frictionCoefficient, tractionLimitNewtons,
+  // combined slip, stability control, or any lateral tire-force behavior.
+  lateralSlipAngleWarningRadians: 0.08,
+  lateralSlipAngleHighRadians: 0.16,
+  lateralSlipMinGroundSpeedMetersPerSecond: 0.75,
+
   // Tire pressure currently drives visual/debug state only. It does not change
   // frictionCoefficient, tractionLimitNewtons, tire force, or vehicle dynamics.
   // Future tire-pressure physics may consume these fields explicitly.

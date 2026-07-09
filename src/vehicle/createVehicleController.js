@@ -22,6 +22,14 @@ import {
     updateDynamicsTuningState,
 } from './dynamics/dynamicsTuningState.js'
 import {
+    createLateralSlipSummary,
+    LATERAL_SLIP_STATES,
+    resetLateralSlipSummary,
+    resetWheelLateralSlipAngleState,
+    updateLateralSlipSummary,
+    updateWheelLateralSlipAngleState,
+} from './dynamics/lateralSlipAngleState.js'
+import {
     LONGITUDINAL_TRACTION_STATES,
     createTractionStateSummary,
     resetTractionStateSummary,
@@ -117,6 +125,7 @@ export function createVehicleController(config = {}) {
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
     const tirePressureState = createTirePressureState(spec)
     const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
+    const lateralSlipSummary = createLateralSlipSummary()
     const tractionStateSummary = createTractionStateSummary()
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
@@ -133,6 +142,7 @@ export function createVehicleController(config = {}) {
         wheelStates,
         tirePressureState,
         dynamicsTuning,
+        lateralSlipSummary,
         tractionStateSummary,
         serviceBrakeAbsSummary,
         forces: createEmptyForceSnapshot(),
@@ -156,9 +166,11 @@ export function createVehicleController(config = {}) {
         updatePlanarMotion(safeDt)
         updatePosition(safeDt)
         syncVehicleYawFromPlanarState()
+        updateWheelSteeringAngles()
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
         updateLongitudinalSlipTelemetry()
+        updateLateralSlipTelemetry()
         updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
@@ -175,6 +187,7 @@ export function createVehicleController(config = {}) {
         state.forces = createEmptyForceSnapshot()
         resetTractionStateSummary(state.tractionStateSummary)
         resetServiceBrakeAbsSummary(state.serviceBrakeAbsSummary)
+        resetLateralSlipSummary(state.lateralSlipSummary)
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
         })
@@ -215,7 +228,9 @@ export function createVehicleController(config = {}) {
         updateWheelRotationalStates(0)
         updateYawState(0)
         updatePlanarMotion(0)
+        updateWheelSteeringAngles()
         updateLongitudinalSlipTelemetry()
+        updateLateralSlipTelemetry()
         updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
@@ -307,6 +322,7 @@ export function createVehicleController(config = {}) {
             dynamicsTuning: state.dynamicsTuning,
             tractionStateSummary: state.tractionStateSummary,
             serviceBrakeAbsSummary: state.serviceBrakeAbsSummary,
+            lateralSlipSummary: state.lateralSlipSummary,
         }
     }
 
@@ -697,10 +713,6 @@ export function createVehicleController(config = {}) {
             wheelState.requestedLongitudinalForceNewtons = 0
             resetWheelLongitudinalTireForceState(wheelState)
             wheelState.isSlipping = false
-            // Preserve the prior fixed step's slip telemetry here so the
-            // service-brake ABS layer can read it before this step recomputes
-            // longitudinal slip from the current wheel/body state.
-            wheelState.lateralSlip = 0
             resetWheelBrakeTorqueState(wheelState)
         }
     }
@@ -1103,6 +1115,18 @@ export function createVehicleController(config = {}) {
         return wheelSurfaceSpeedDirection !== 0 ? wheelSurfaceSpeedDirection : 1
     }
 
+    function updateLateralSlipTelemetry() {
+        for (const wheelState of state.wheelStates) {
+            updateWheelLateralSlipAngleState(
+                wheelState,
+                state.planarMotion,
+                spec
+            )
+        }
+
+        updateLateralSlipSummary(state.lateralSlipSummary, state.wheelStates)
+    }
+
     function updateLongitudinalTractionStates() {
         for (const wheelState of state.wheelStates) {
             updateWheelLongitudinalTractionState(wheelState, spec)
@@ -1118,12 +1142,16 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function updateWheelVisualStates() {
+    function updateWheelSteeringAngles() {
         for (const wheelState of state.wheelStates) {
             wheelState.steeringAngleRadians = wheelState.steerable
                 ? params.maxVisualSteeringAngleRadians * state.steeringInput
                 : 0
+        }
+    }
 
+    function updateWheelVisualStates() {
+        for (const wheelState of state.wheelStates) {
             applyWheelVisualState(wheelState)
         }
     }
@@ -1191,7 +1219,9 @@ export function createVehicleController(config = {}) {
     updateYawState(0)
     updatePlanarMotion(0)
     syncVehicleYawFromPlanarState()
+    updateWheelSteeringAngles()
     updateLongitudinalSlipTelemetry()
+    updateLateralSlipTelemetry()
     updateLongitudinalTractionStates()
     updateWheelVisualStates()
 
@@ -1321,6 +1351,15 @@ function createWheelRuntimeStates(vehicle, spec) {
             longitudinalSlipRatioAbs: 0,
             hasLongitudinalSlipSample: false,
             longitudinalSlip: 0,
+            lateralSlipAngleRadians: 0,
+            lateralSlipAngleDegrees: 0,
+            lateralSlipAngleAbsRadians: 0,
+            hasLateralSlipAngleSample: false,
+            wheelLocalForwardVelocityMetersPerSecond: 0,
+            wheelLocalLateralVelocityMetersPerSecond: 0,
+            lateralSlipState: LATERAL_SLIP_STATES.UNAVAILABLE,
+            lateralSlipStateReason: 'initial unavailable state',
+            isLateralSlipAngleHigh: false,
             lateralSlip: 0,
             tirePressureKpa: spec.defaultTirePressureKpa,
             defaultTirePressureKpa: spec.defaultTirePressureKpa,
@@ -1359,6 +1398,7 @@ function resetWheelRotationalState(wheelState) {
     wheelState.spinAngleRadians = 0
     resetWheelLongitudinalTireForceState(wheelState)
     resetWheelLongitudinalSlipState(wheelState)
+    resetWheelLateralSlipAngleState(wheelState)
     resetWheelBrakeTorqueState(wheelState)
     resetWheelServiceBrakeAbsState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0

@@ -118,6 +118,7 @@ export function createDebugHud(config = {}) {
     const wheelStates = snapshot.wheelStates ?? []
     const tractionStateSummary = snapshot.tractionStateSummary ?? {}
     const serviceBrakeAbsSummary = snapshot.serviceBrakeAbsSummary ?? {}
+    const lateralSlipSummary = snapshot.lateralSlipSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     debugHudText.textContent = [
@@ -169,6 +170,7 @@ export function createDebugHud(config = {}) {
       `Wheel angular velocity: ${formatWheelAngularVelocities(wheelStates)} rad/s`,
       `Wheel net torque: ${formatWheelNetTorqueTelemetry(wheelStates)}`,
       `Longitudinal slip ratio: ${formatLongitudinalSlipTelemetry(wheelStates)}`,
+      `Lateral slip angle: ${formatLateralSlipTelemetry(lateralSlipSummary)}`,
       `Wheel lock placeholder: ${countLockedWheels(wheelStates)} / ${wheelStates.length}`,
       '',
       `Terrain size: ${snapshot.terrainSize} x ${snapshot.terrainSize}`,
@@ -413,6 +415,18 @@ function formatLongitudinalSlipTelemetry(wheelStates) {
   }
 
   return `max ${formatNumber(maxLongitudinalSlipRatioAbs, 3)}`
+}
+
+function formatLateralSlipTelemetry(lateralSlipSummary = {}) {
+  return [
+    lateralSlipSummary.dominantLateralSlipState ?? 'unavailable',
+    `max ${formatNumber(lateralSlipSummary.maxAbsLateralSlipAngleDegrees ?? 0, 1)} deg`,
+    `high ${formatNumber(lateralSlipSummary.highLateralSlipWheelCount ?? 0, 0)}`,
+    `warn ${formatNumber(lateralSlipSummary.lateralSlipWarningWheelCount ?? 0, 0)}`,
+    `sampled ${formatNumber(lateralSlipSummary.sampledLateralSlipWheelCount ?? 0, 0)}`,
+    `front ${formatNumber(lateralSlipSummary.frontAxleMaxAbsLateralSlipAngleDegrees ?? 0, 1)}`,
+    `rear ${formatNumber(lateralSlipSummary.rearAxleMaxAbsLateralSlipAngleDegrees ?? 0, 1)}`,
+  ].join(' / ')
 }
 
 function formatBrakeTorqueTelemetry(wheelStates) {
