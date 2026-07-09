@@ -122,6 +122,7 @@ export function createDebugHud(config = {}) {
       '',
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
       `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
+      `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
       `Brake: ${formatNumber(snapshot.brakeInput)}`,
       `Steering: ${formatNumber(snapshot.steeringInput)}`,
@@ -185,6 +186,15 @@ export function createDebugHud(config = {}) {
     setCollapsed,
     destroy,
   }
+}
+
+function formatTirePressureTelemetry(tirePressureState = {}) {
+  const tirePressureKpa = Number.isFinite(tirePressureState.tirePressureKpa)
+    ? tirePressureState.tirePressureKpa
+    : NaN
+  const inflationVisualLabel = tirePressureState.inflationVisualLabel ?? 'unknown'
+
+  return `${formatNumber(tirePressureKpa, 0)} kPa / ${inflationVisualLabel}`
 }
 
 function formatNumber(value, digits = 2) {

@@ -83,6 +83,11 @@ export function createCar() {
     createContactPatch(wheel.userData.wheel, materials.contactPatch)
   )
 
+  for (let index = 0; index < wheels.length; index += 1) {
+    wheels[index].userData.wheel.visualNodes.contactPatch =
+      contactPatches[index].name
+  }
+
   car.add(body)
   car.add(nose)
 
@@ -145,7 +150,21 @@ export function createCar() {
     wheels: wheels.map((wheel) => ({
       ...wheel.userData.wheel,
     })),
+    tireInflationVisuals: {
+      contactPatchNodes: contactPatches.map((patch) => patch.name),
+    },
+    setTireInflationVisualState: (tireInflationVisualState) => {
+      applyTireInflationVisualState(contactPatches, tireInflationVisualState)
+    },
   }
+
+  applyTireInflationVisualState(contactPatches, {
+    visualContactPatchScale: {
+      width: 1,
+      length: 1,
+    },
+    visualTireDeflectionRatio: 0,
+  })
 
   return car
 }
@@ -418,6 +437,34 @@ function createWheelRotationWitness(id, material) {
   marker.position.y = WHEEL_RADIUS + WHEEL_ROTATION_WITNESS_HEIGHT / 2
 
   return marker
+}
+
+function applyTireInflationVisualState(contactPatches, tireInflationVisualState = {}) {
+  const visualContactPatchScale = tireInflationVisualState.visualContactPatchScale ?? {}
+  const contactPatchWidthScale = Number.isFinite(visualContactPatchScale.width)
+    ? visualContactPatchScale.width
+    : 1
+  const contactPatchLengthScale = Number.isFinite(visualContactPatchScale.length)
+    ? visualContactPatchScale.length
+    : 1
+  const visualTireDeflectionRatio = Number.isFinite(
+    tireInflationVisualState.visualTireDeflectionRatio
+  )
+    ? tireInflationVisualState.visualTireDeflectionRatio
+    : 0
+  const opacity = THREE.MathUtils.clamp(
+    0.55 + visualTireDeflectionRatio * 0.55,
+    0.36,
+    0.78
+  )
+
+  for (const patch of contactPatches) {
+    patch.scale.set(contactPatchWidthScale, 1, contactPatchLengthScale)
+
+    if (patch.material) {
+      patch.material.opacity = opacity
+    }
+  }
 }
 
 function createContactPatch(wheelInfo, material) {
