@@ -120,6 +120,7 @@ export function createDebugHud(config = {}) {
     const serviceBrakeAbsSummary = snapshot.serviceBrakeAbsSummary ?? {}
     const lateralSlipSummary = snapshot.lateralSlipSummary ?? {}
     const lateralTireForceSummary = snapshot.lateralTireForceSummary ?? {}
+    const loadTransferSummary = snapshot.loadTransferSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     debugHudText.textContent = [
@@ -167,6 +168,9 @@ export function createDebugHud(config = {}) {
       `Lateral tire force: ${formatLateralTireForceTelemetry(lateralTireForceSummary)}`,
       `Combined cap: ${formatCombinedTireForceTelemetry(lateralTireForceSummary)}`,
       `Yaw moment: ${formatYawMomentTelemetry(lateralTireForceSummary)}`,
+      `Load transfer: ${formatLoadTransferTelemetry(loadTransferSummary)}`,
+      `Normal force bias: ${formatLoadTransferBiasTelemetry(loadTransferSummary)}`,
+      `Wheel normal force: ${formatWheelNormalForceTelemetry(loadTransferSummary)}`,
       `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
       `Slip visuals: ${formatTireSlipFeedbackTelemetry(tireSlipFeedback)}`,
       '',
@@ -391,6 +395,31 @@ function formatYawMomentTelemetry(lateralTireForceSummary = {}) {
   return [
     `${formatNumber(lateralTireForceSummary.yawMomentNewtonMeters ?? 0, 0)} N*m`,
     `${formatNumber(lateralTireForceSummary.yawAccelerationRadiansPerSecondSquared ?? 0, 3)} rad/s²`,
+  ].join(' / ')
+}
+
+function formatLoadTransferTelemetry(loadTransferSummary = {}) {
+  return [
+    `long ${formatNumber(loadTransferSummary.totalLongitudinalTransferAbsNewtons ?? 0, 0)} N`,
+    `lat ${formatNumber(loadTransferSummary.totalLateralTransferAbsNewtons ?? 0, 0)} N`,
+    `unloaded ${formatNumber(loadTransferSummary.unloadedWheelCount ?? 0, 0)}`,
+  ].join(' / ')
+}
+
+function formatLoadTransferBiasTelemetry(loadTransferSummary = {}) {
+  return [
+    `front ${formatNumber(loadTransferSummary.frontAxleNormalForceNewtons ?? 0, 0)} N`,
+    `rear ${formatNumber(loadTransferSummary.rearAxleNormalForceNewtons ?? 0, 0)} N`,
+    `left ${formatNumber(loadTransferSummary.leftSideNormalForceNewtons ?? 0, 0)} N`,
+    `right ${formatNumber(loadTransferSummary.rightSideNormalForceNewtons ?? 0, 0)} N`,
+  ].join(' / ')
+}
+
+function formatWheelNormalForceTelemetry(loadTransferSummary = {}) {
+  return [
+    `max ${formatNumber(loadTransferSummary.maxWheelNormalForceNewtons ?? 0, 0)} N`,
+    `min ${formatNumber(loadTransferSummary.minGroundedWheelNormalForceNewtons ?? 0, 0)} N`,
+    `total ${formatNumber(loadTransferSummary.totalDynamicNormalForceNewtons ?? 0, 0)} N`,
   ].join(' / ')
 }
 
