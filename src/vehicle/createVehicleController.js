@@ -592,8 +592,9 @@ export function createVehicleController(config = {}) {
         const requestedBrakeTorqueNewtonMeters =
             spec.maxServiceBrakeTorqueNewtonMeters * serviceBrakePressure01
 
-        // These are non-negative service brake command magnitudes. ABS, wheel lock,
-        // and torque-based angular deceleration are intentionally future work.
+        // These are non-negative service brake command magnitudes. The current
+        // wheel angular dynamics consume them directly; ABS and real wheel lock
+        // behavior remain future work.
         for (const wheelState of state.wheelStates) {
             wheelState.serviceBrakePressure01 = serviceBrakePressure01
             wheelState.requestedBrakeTorqueNewtonMeters =
@@ -888,9 +889,9 @@ export function createVehicleController(config = {}) {
 
         // Positive slip means wheel surface speed exceeds ground speed in the
         // current longitudinal direction; negative slip means the wheel surface
-        // is slower, as in braking or incipient lock. Current ground speed is
-        // approximated from local forward speed until per-wheel contact
-        // patch velocity exists.
+        // is slower, as in braking or incipient lock. Ground speed is currently
+        // approximated from planar local-forward velocity until per-wheel
+        // contact patch velocity exists.
         const longitudinalSlipRatio =
             (
                 wheelSurfaceSpeedMetersPerSecond -

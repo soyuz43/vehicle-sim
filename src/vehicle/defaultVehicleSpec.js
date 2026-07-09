@@ -12,17 +12,18 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   maxForwardSpeedMetersPerSecond: 60,
   maxReverseSpeedMetersPerSecond: 12,
 
-  // Longitudinal tire/drive/brake force budgets.
+  // Longitudinal driver request budgets. Tire force now comes from slip ratio;
+  // these requests remain command telemetry and torque inputs, not direct body force.
   maxDriveForceNewtons: 6500,
   maxReverseDriveForceNewtons: 2500,
   maxBrakeForceNewtons: 12000,
 
-  // Foundation value for later torque-based wheel dynamics.
-  // Current longitudinal motion is still force-based and does not tune behavior from this value.
+  // Wheel inertia used by the current simple wheel angular dynamics.
+  // This is not drivetrain inertia or a full rotating assembly model.
   wheelInertiaKgMeterSquared: 1.2,
 
-  // Per-wheel service brake torque foundation for later torque-based dynamics.
-  // Current scalar braking still uses maxBrakeForceNewtons through the longitudinal force pipeline.
+  // Per-wheel service brake torque used by the current simple wheel angular dynamics.
+  // ABS and real lockup behavior remain future work.
   maxServiceBrakeTorqueNewtonMeters: 1200,
 
   // Basic linear/saturated longitudinal tire model coefficient.
