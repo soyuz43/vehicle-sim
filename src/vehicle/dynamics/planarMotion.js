@@ -2,6 +2,9 @@
 
 import * as THREE from 'three'
 
+const YAW_RATE_EPSILON_RADIANS_PER_SECOND = 0.0001
+const YAW_ACCELERATION_EPSILON_RADIANS_PER_SECOND_SQUARED = 0.0001
+
 export function createPlanarMotionState(config = {}) {
   const state = {
     yawRadians: config.yawRadians ?? 0,
@@ -111,6 +114,33 @@ export function integratePlanarVelocityFromLocalAcceleration(
   updatePlanarVelocityTelemetry(state)
 }
 
+export function integratePlanarVelocityFromWorldAcceleration(
+  state,
+  worldAccelerationXMetersPerSecondSquared,
+  worldAccelerationZMetersPerSecondSquared,
+  dt
+) {
+  state.planarAccelerationWorldMetersPerSecondSquared.set(
+    sanitizeNumber(worldAccelerationXMetersPerSecondSquared),
+    0,
+    sanitizeNumber(worldAccelerationZMetersPerSecondSquared)
+  )
+  state.planarAccelerationLocalForwardMetersPerSecondSquared =
+    state.planarAccelerationWorldMetersPerSecondSquared.dot(state.forwardWorld)
+  state.planarAccelerationLocalLateralMetersPerSecondSquared =
+    state.planarAccelerationWorldMetersPerSecondSquared.dot(state.rightWorld)
+
+  if (dt > 0) {
+    state.worldVelocityMetersPerSecond.addScaledVector(
+      state.planarAccelerationWorldMetersPerSecondSquared,
+      dt
+    )
+    state.worldVelocityMetersPerSecond.y = 0
+  }
+
+  updatePlanarVelocityTelemetry(state)
+}
+
 export function integrateYawRate(state, yawRateRadiansPerSecond, dt) {
   const previousYawRateRadiansPerSecond = state.yawRateRadiansPerSecond
 
@@ -128,8 +158,58 @@ export function integrateYawRate(state, yawRateRadiansPerSecond, dt) {
   updatePlanarVelocityTelemetry(state)
 }
 
+export function integrateYawAcceleration(
+  state,
+  yawAccelerationRadiansPerSecondSquared,
+  yawRateDampingPerSecond,
+  maxYawRateRadiansPerSecond,
+  dt
+) {
+  state.yawAccelerationRadiansPerSecondSquared = sanitizeNumber(
+    yawAccelerationRadiansPerSecondSquared
+  )
+
+  if (dt > 0) {
+    state.yawRateRadiansPerSecond +=
+      state.yawAccelerationRadiansPerSecondSquared * dt
+
+    if (Number.isFinite(yawRateDampingPerSecond) && yawRateDampingPerSecond > 0) {
+      state.yawRateRadiansPerSecond *= Math.max(
+        0,
+        1 - yawRateDampingPerSecond * dt
+      )
+    }
+
+    if (Number.isFinite(maxYawRateRadiansPerSecond) && maxYawRateRadiansPerSecond > 0) {
+      state.yawRateRadiansPerSecond = THREE.MathUtils.clamp(
+        state.yawRateRadiansPerSecond,
+        -maxYawRateRadiansPerSecond,
+        maxYawRateRadiansPerSecond
+      )
+    }
+
+    if (
+      Math.abs(state.yawRateRadiansPerSecond) <
+        YAW_RATE_EPSILON_RADIANS_PER_SECOND &&
+      Math.abs(state.yawAccelerationRadiansPerSecondSquared) <
+        YAW_ACCELERATION_EPSILON_RADIANS_PER_SECOND_SQUARED
+    ) {
+      state.yawRateRadiansPerSecond = 0
+    }
+
+    state.yawRadians += state.yawRateRadiansPerSecond * dt
+  }
+
+  updatePlanarBasisFromYaw(state)
+  updatePlanarVelocityTelemetry(state)
+}
+
 export function integratePlanarPosition(position, state, dt) {
   if (dt <= 0) return
 
   position.addScaledVector(state.worldVelocityMetersPerSecond, dt)
+}
+
+function sanitizeNumber(value) {
+  return Number.isFinite(value) ? value : 0
 }
