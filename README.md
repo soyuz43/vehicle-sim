@@ -34,7 +34,7 @@ Each wheel records service brake pressure and brake torque command state. Brake 
 
 ## Longitudinal Slip Ratio Telemetry
 
-Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. The current contact patch velocity is approximated from scalar vehicle speed until planar chassis dynamics exist. Slip ratio now feeds the basic longitudinal tire-force model, and future branches can use it for wheel lock detection, ABS, and more complete tire curves.
+Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Current ground speed is approximated from planar local-forward velocity until per-wheel contact patch velocity exists. Slip ratio now feeds the basic longitudinal tire-force model, and future branches can use it for wheel lock detection, ABS, and more complete tire curves.
 
 
 ## Torque-Coupled Wheel Dynamics
@@ -52,6 +52,11 @@ Longitudinal tire force now comes from a simple linear/saturated slip-ratio mode
 Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, and planar acceleration telemetry. Longitudinal tire force still drives acceleration along the vehicle's forward axis, and `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
 Local lateral velocity can now be measured when the vehicle yaws while moving, but lateral tire forces are not implemented yet. A small `temporaryLateralVelocityDampingPerSecond` placeholder keeps sideways skating bounded; it is not a real lateral tire model. Any sideways motion at this stage is foundation telemetry for later lateral slip angle, lateral tire forces, oversteer/understeer, and combined slip work, not a full drift or grip model.
+
+
+## Dynamics Sanity Telemetry
+
+The developer debug HUD includes compact local acceleration, tire-force saturation, service brake torque, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add ABS, parking brake, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
 
 
 ## Longitudinal Force Pipeline

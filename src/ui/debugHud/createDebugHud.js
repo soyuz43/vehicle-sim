@@ -140,6 +140,8 @@ export function createDebugHud(config = {}) {
       `Velocity XYZ: ${formatVector3(snapshot.velocity)} m/s`,
       `Velocity mag: ${formatNumber(vectorMagnitude(snapshot.velocity))} m/s`,
       `Acceleration: ${formatNumber(snapshot.longitudinalAcceleration)} m/s²`,
+      `Local accel forward: ${formatNumber(snapshot.planarAccelerationLocalForwardMetersPerSecondSquared)} m/s²`,
+      `Local accel lateral: ${formatNumber(snapshot.planarAccelerationLocalLateralMetersPerSecondSquared)} m/s²`,
       `Planar accel XYZ: ${formatVector3(snapshot.planarAccelerationWorldMetersPerSecondSquared)} m/s²`,
       '',
       `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
@@ -151,6 +153,7 @@ export function createDebugHud(config = {}) {
       `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
       `Tire force: ${formatLongitudinalTireForceTelemetry(wheelStates)}`,
+      `Tire saturation: ${formatTireSaturationTelemetry(wheelStates)}`,
       '',
       `Grounded wheels: ${countGroundedWheels(wheelStates)} / ${wheelStates.length}`,
       `Wheel contact: ${formatWheelGroundedStates(wheelStates)}`,
@@ -274,6 +277,32 @@ function formatLongitudinalTireForceTelemetry(wheelStates) {
     `a ${formatNumber(maxAppliedLongitudinalTireForceNewtonsAbs, 0)} N`,
     `sat ${saturatedWheelCount}`,
   ].join(' / ')
+}
+
+function formatTireSaturationTelemetry(wheelStates) {
+  if (wheelStates.length === 0) return 'none'
+
+  let maxLongitudinalTireForceSaturationRatio = 0
+  let saturatedWheelCount = 0
+
+  for (const wheelState of wheelStates) {
+    const longitudinalTireForceSaturationRatio = Number.isFinite(
+      wheelState.longitudinalTireForceSaturationRatio
+    )
+      ? wheelState.longitudinalTireForceSaturationRatio
+      : 0
+
+    maxLongitudinalTireForceSaturationRatio = Math.max(
+      maxLongitudinalTireForceSaturationRatio,
+      longitudinalTireForceSaturationRatio
+    )
+
+    if (wheelState.isLongitudinalTireForceSaturated) {
+      saturatedWheelCount += 1
+    }
+  }
+
+  return `max ${formatNumber(maxLongitudinalTireForceSaturationRatio, 2)} / sat ${saturatedWheelCount}`
 }
 
 function formatWheelNetTorqueTelemetry(wheelStates) {
