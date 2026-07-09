@@ -22,7 +22,7 @@ The bottom-right driver panel shows speed, the R/N/D selector, and compact per-w
 
 ## Wheel Rotational State
 
-Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel lock, ABS, and tire curves remain future work.
+Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel lock and richer tire curves remain future work.
 
 Each tire includes a high-contrast visual witness mark attached to the rotating wheel assembly. The mark is a debugging aid for inspecting wheel spin, rolling, braking, and skating artifacts; it does not affect physics.
 
@@ -31,14 +31,20 @@ Each tire includes a high-contrast visual witness mark attached to the rotating 
 
 The normal service brake and the parking brake are now separate command paths. The service brake remains the `S` brake-pedal input and applies service brake torque to all wheels through the existing braking path. The parking brake is a separate hold input on `Space`, defaults to rear wheels only, and contributes its own parking-brake torque component.
 
-Per-wheel telemetry records service brake pressure, parking brake pressure, requested/applied service brake torque, requested/applied parking brake torque, and total brake torque command magnitude. The existing `brakeTorqueNewtonMeters` field remains the signed wheel torque component consumed by net wheel torque. Brake lock tendency telemetry can identify service-brake versus parking-brake source, but ABS and real wheel-lock control are still future work.
+Per-wheel telemetry records service brake pressure, parking brake pressure, requested/applied service brake torque, requested/applied parking brake torque, and total brake torque command magnitude. The existing `brakeTorqueNewtonMeters` field remains the signed wheel torque component consumed by net wheel torque. Brake lock tendency telemetry can identify service-brake versus parking-brake source, and service-brake ABS v1 now modulates only the service-brake torque path.
 
 Service brake input continues to drive the brake lights. Parking brake alone is intentionally not treated as the normal brake-light signal in this simulation branch.
 
 
+## Service Brake ABS v1
+
+Service-brake ABS v1 now modulates service brake torque per wheel when service-brake lock tendency or braking slip indicates imminent lock. Each wheel records ABS state, modulation, release intent, and service brake torque before/after ABS so the debug HUD can show which wheels are releasing, holding, or reapplying brake torque.
+
+ABS applies only to the service brake path. Parking brake torque remains a separate rear-wheel-only command path and is explicitly excluded from ABS modulation. This is a staged controller foundation, not a full production ABS model; it does not change friction, traction limits, tire pressure behavior, brake assist, traction control, stability control, suspension, load transfer, lateral tire forces, or combined slip.
+
 ## Longitudinal Slip Ratio Telemetry
 
-Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Current ground speed is approximated from planar local-forward velocity until per-wheel contact patch velocity exists. Slip ratio now feeds the basic longitudinal tire-force model, and future branches can use it for wheel lock detection, ABS, and more complete tire curves.
+Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Current ground speed is approximated from planar local-forward velocity until per-wheel contact patch velocity exists. Slip ratio now feeds the basic longitudinal tire-force model, and the service-brake ABS v1 controller can also read it while richer wheel-lock detection and tire curves remain future work.
 
 
 ## Torque-Coupled Wheel Dynamics
@@ -60,7 +66,7 @@ Local lateral velocity can now be measured when the vehicle yaws while moving, b
 
 ## Dynamics Sanity Telemetry
 
-The developer debug HUD includes compact local acceleration, tire-force saturation, service/parking brake torque, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add ABS, brake assist, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
+The developer debug HUD includes compact local acceleration, tire-force saturation, service/parking brake torque, service-brake ABS state, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add brake assist, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
 
 
 ## Tire Inflation Visualization
@@ -81,7 +87,7 @@ The panel does not expose UI controls for friction coefficient, surface friction
 
 Each wheel now exposes longitudinal traction classification telemetry derived from contact state, slip ratio, tire-force saturation, drive torque, service/parking brake torque, wheel surface speed, and local ground speed. Wheels can classify as `airborne`, `stopped`, `rolling`, `saturated`, `drive_spin`, or `brake_lock_tendency`, and the debug HUD shows a compact aggregate summary including service-brake and parking-brake lock-tendency counts.
 
-This is a telemetry/debug foundation only. It does not implement ABS, brake assist, smoke, tire squeal, skid marks, lateral tire forces, combined slip, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, or tire-force calculation.
+This traction-state layer remains a telemetry/debug foundation. It classifies wheel behavior and now feeds service-brake ABS v1, but it does not implement brake assist, smoke, tire squeal, skid marks, lateral tire forces, combined slip, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, or tire-force calculation beyond the ABS controller reading the telemetry.
 
 
 ## Tire Slip Visual Feedback

@@ -28,6 +28,14 @@ import {
     updateLongitudinalTractionStateSummary,
     updateWheelLongitudinalTractionState,
 } from './dynamics/longitudinalTractionState.js'
+import {
+    createServiceBrakeAbsSummary,
+    resetServiceBrakeAbsSummary,
+    resetWheelServiceBrakeAbsState,
+    SERVICE_BRAKE_ABS_STATES,
+    updateServiceBrakeAbsSummary,
+    updateWheelServiceBrakeAbsState,
+} from './dynamics/serviceBrakeAbsState.js'
 
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
@@ -110,6 +118,7 @@ export function createVehicleController(config = {}) {
     const tirePressureState = createTirePressureState(spec)
     const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
     const tractionStateSummary = createTractionStateSummary()
+    const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
@@ -125,6 +134,7 @@ export function createVehicleController(config = {}) {
         tirePressureState,
         dynamicsTuning,
         tractionStateSummary,
+        serviceBrakeAbsSummary,
         forces: createEmptyForceSnapshot(),
     }
 
@@ -135,7 +145,7 @@ export function createVehicleController(config = {}) {
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
-        calculatePerWheelLongitudinalForces()
+        calculatePerWheelLongitudinalForces(safeDt)
         // Explicit one-step coupling: tire force uses slip measured before this
         // frame's wheel torque integration updates angular velocity.
         updateLongitudinalSlipTelemetry()
@@ -164,6 +174,7 @@ export function createVehicleController(config = {}) {
         state.steeringInput = 0
         state.forces = createEmptyForceSnapshot()
         resetTractionStateSummary(state.tractionStateSummary)
+        resetServiceBrakeAbsSummary(state.serviceBrakeAbsSummary)
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
         })
@@ -195,7 +206,7 @@ export function createVehicleController(config = {}) {
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
-        calculatePerWheelLongitudinalForces()
+        calculatePerWheelLongitudinalForces(0)
         // Explicit one-step coupling: tire force uses slip measured before this
         // frame's wheel torque integration updates angular velocity.
         updateLongitudinalSlipTelemetry()
@@ -295,6 +306,7 @@ export function createVehicleController(config = {}) {
                 state.tirePressureState.visualContactPatchScale,
             dynamicsTuning: state.dynamicsTuning,
             tractionStateSummary: state.tractionStateSummary,
+            serviceBrakeAbsSummary: state.serviceBrakeAbsSummary,
         }
     }
 
@@ -654,9 +666,9 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function calculatePerWheelLongitudinalForces() {
+    function calculatePerWheelLongitudinalForces(dt) {
         resetWheelForceAndBrakeTorqueRequests()
-        updateBrakeTorqueStates()
+        updateBrakeTorqueStates(dt)
 
         const speedDirection = getSignWithDeadzone(
             state.speedScalar,
@@ -685,13 +697,15 @@ export function createVehicleController(config = {}) {
             wheelState.requestedLongitudinalForceNewtons = 0
             resetWheelLongitudinalTireForceState(wheelState)
             wheelState.isSlipping = false
-            resetWheelLongitudinalSlipState(wheelState)
+            // Preserve the prior fixed step's slip telemetry here so the
+            // service-brake ABS layer can read it before this step recomputes
+            // longitudinal slip from the current wheel/body state.
             wheelState.lateralSlip = 0
             resetWheelBrakeTorqueState(wheelState)
         }
     }
 
-    function updateBrakeTorqueStates() {
+    function updateBrakeTorqueStates(dt) {
         const serviceBrakePressure01 = THREE.MathUtils.clamp(
             state.brakeInput,
             0,
@@ -711,41 +725,54 @@ export function createVehicleController(config = {}) {
             spec.maxParkingBrakeTorqueNewtonMeters *
             parkingBrakePressure01
 
-        // These are non-negative command magnitudes. The service brake is the
-        // normal pedal path, while the parking brake is a separate rear-wheel
-        // path. ABS and real wheel-lock control remain future work.
+        // One-step explicit control approximation: service-brake ABS uses slip
+        // and service-brake lock telemetry from the prior fixed step when
+        // modulating this step's service brake torque command.
         for (const wheelState of state.wheelStates) {
             const parkingBrakeAppliesToWheel =
                 !spec.parkingBrakeActsOnRearWheelsOnly ||
                 wheelState.axle === 'rear'
-            const appliedParkingBrakeTorqueNewtonMeters =
+            const requestedParkingBrakeTorquePerWheelNewtonMeters =
                 parkingBrakeAppliesToWheel
                     ? requestedParkingBrakeTorqueNewtonMeters
                     : 0
-            const totalBrakeTorqueNewtonMeters =
-                requestedServiceBrakeTorqueNewtonMeters +
-                appliedParkingBrakeTorqueNewtonMeters
 
             wheelState.serviceBrakePressure01 = serviceBrakePressure01
             wheelState.parkingBrakePressure01 = parkingBrakePressure01
             wheelState.requestedServiceBrakeTorqueNewtonMeters =
                 requestedServiceBrakeTorqueNewtonMeters
             wheelState.requestedParkingBrakeTorqueNewtonMeters =
-                parkingBrakeAppliesToWheel
-                    ? requestedParkingBrakeTorqueNewtonMeters
-                    : 0
+                requestedParkingBrakeTorquePerWheelNewtonMeters
+
+            updateWheelServiceBrakeAbsState(
+                wheelState,
+                spec,
+                serviceBrakePressure01,
+                requestedServiceBrakeTorqueNewtonMeters,
+                dt
+            )
+
+            const appliedServiceBrakeTorqueNewtonMeters =
+                wheelState.serviceBrakeTorqueAfterAbsNewtonMeters
+            const appliedParkingBrakeTorqueNewtonMeters =
+                requestedParkingBrakeTorquePerWheelNewtonMeters
+            const totalBrakeTorqueNewtonMeters =
+                appliedServiceBrakeTorqueNewtonMeters +
+                appliedParkingBrakeTorqueNewtonMeters
+
             wheelState.appliedServiceBrakeTorqueNewtonMeters =
-                requestedServiceBrakeTorqueNewtonMeters
+                appliedServiceBrakeTorqueNewtonMeters
             wheelState.appliedParkingBrakeTorqueNewtonMeters =
                 appliedParkingBrakeTorqueNewtonMeters
             wheelState.totalBrakeTorqueNewtonMeters =
                 totalBrakeTorqueNewtonMeters
             wheelState.requestedBrakeTorqueNewtonMeters =
-                totalBrakeTorqueNewtonMeters
+                requestedServiceBrakeTorqueNewtonMeters +
+                requestedParkingBrakeTorquePerWheelNewtonMeters
             wheelState.appliedBrakeTorqueNewtonMeters =
                 totalBrakeTorqueNewtonMeters
             wheelState.isServiceBraking =
-                requestedServiceBrakeTorqueNewtonMeters > 0
+                appliedServiceBrakeTorqueNewtonMeters > 0
             wheelState.isParkingBraking =
                 appliedParkingBrakeTorqueNewtonMeters > 0
         }
@@ -1085,6 +1112,10 @@ export function createVehicleController(config = {}) {
             state.tractionStateSummary,
             state.wheelStates
         )
+        updateServiceBrakeAbsSummary(
+            state.serviceBrakeAbsSummary,
+            state.wheelStates
+        )
     }
 
     function updateWheelVisualStates() {
@@ -1151,7 +1182,7 @@ export function createVehicleController(config = {}) {
     applyTireInflationVisualState()
     updateWheelContactStates()
     updateWheelLoadPlaceholderValues()
-    calculatePerWheelLongitudinalForces()
+    calculatePerWheelLongitudinalForces(0)
     updateLongitudinalSlipTelemetry()
     calculatePerWheelLongitudinalTireForces()
     state.forces = calculateLongitudinalForcesFromWheelState()
@@ -1240,6 +1271,14 @@ function createWheelRuntimeStates(vehicle, spec) {
             requestedParkingBrakeTorqueNewtonMeters: 0,
             appliedServiceBrakeTorqueNewtonMeters: 0,
             appliedParkingBrakeTorqueNewtonMeters: 0,
+            serviceBrakeAbsState: SERVICE_BRAKE_ABS_STATES.INACTIVE,
+            serviceBrakeAbsActive: false,
+            serviceBrakeAbsModulation01: 1,
+            serviceBrakeAbsReleaseCommand01: 0,
+            serviceBrakeAbsCycleCount: 0,
+            serviceBrakeAbsReason: 'initial inactive state',
+            serviceBrakeTorqueBeforeAbsNewtonMeters: 0,
+            serviceBrakeTorqueAfterAbsNewtonMeters: 0,
             totalBrakeTorqueNewtonMeters: 0,
             requestedBrakeTorqueNewtonMeters: 0,
             appliedBrakeTorqueNewtonMeters: 0,
@@ -1321,6 +1360,7 @@ function resetWheelRotationalState(wheelState) {
     resetWheelLongitudinalTireForceState(wheelState)
     resetWheelLongitudinalSlipState(wheelState)
     resetWheelBrakeTorqueState(wheelState)
+    resetWheelServiceBrakeAbsState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
     wheelState.brakeTorqueNewtonMeters = 0
     wheelState.contactReactionTorqueNewtonMeters = 0
@@ -1359,6 +1399,8 @@ function resetWheelBrakeTorqueState(wheelState) {
     wheelState.requestedParkingBrakeTorqueNewtonMeters = 0
     wheelState.appliedServiceBrakeTorqueNewtonMeters = 0
     wheelState.appliedParkingBrakeTorqueNewtonMeters = 0
+    wheelState.serviceBrakeTorqueBeforeAbsNewtonMeters = 0
+    wheelState.serviceBrakeTorqueAfterAbsNewtonMeters = 0
     wheelState.totalBrakeTorqueNewtonMeters = 0
     wheelState.requestedBrakeTorqueNewtonMeters = 0
     wheelState.appliedBrakeTorqueNewtonMeters = 0

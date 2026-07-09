@@ -311,6 +311,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     forces: vehicleSnapshot.forces,
     wheelStates: vehicleSnapshot.wheelStates,
     tractionStateSummary: vehicleSnapshot.tractionStateSummary,
+    serviceBrakeAbsSummary: vehicleSnapshot.serviceBrakeAbsSummary,
     tireSlipFeedback: tireSlipFeedback.getSnapshot(),
     tirePressureState: vehicleSnapshot.tirePressureState,
     dynamicsTuning: vehicleSnapshot.dynamicsTuning,
