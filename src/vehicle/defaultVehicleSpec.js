@@ -30,6 +30,17 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   maxParkingBrakeTorqueNewtonMeters: 1400,
   parkingBrakeActsOnRearWheelsOnly: true,
 
+  // ABS v1 modulates service brake torque only. It does not change parking brake
+  // torque, frictionCoefficient, tractionLimitNewtons, traction control, or
+  // stability control. This is a staged control foundation, not a full production ABS.
+  serviceBrakeAbsEnabled: true,
+  serviceBrakeAbsMinGroundSpeedMetersPerSecond: 2.5,
+  serviceBrakeAbsSlipRatioTriggerThreshold: 0.18,
+  serviceBrakeAbsSlipRatioRecoveryThreshold: 0.08,
+  serviceBrakeAbsReleaseRatePerSecond: 10,
+  serviceBrakeAbsReapplyRatePerSecond: 4,
+  serviceBrakeAbsMinimumModulation01: 0.2,
+
   // Basic linear/saturated longitudinal tire model coefficient.
   // Tire force is still capped by frictionCoefficient * normalForceNewtons;
   // this is not a Pacejka or combined-slip tire model.

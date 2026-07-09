@@ -117,6 +117,7 @@ export function createDebugHud(config = {}) {
     const fixedSimulation = snapshot.fixedSimulation ?? {}
     const wheelStates = snapshot.wheelStates ?? []
     const tractionStateSummary = snapshot.tractionStateSummary ?? {}
+    const serviceBrakeAbsSummary = snapshot.serviceBrakeAbsSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     debugHudText.textContent = [
@@ -152,6 +153,7 @@ export function createDebugHud(config = {}) {
       `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
       `Brake force: ${formatNumber(forces.brakeForceNewtons)} N`,
       `Brake torque: ${formatBrakeTorqueTelemetry(wheelStates)}`,
+      `Service ABS: ${formatServiceBrakeAbsTelemetry(serviceBrakeAbsSummary)}`,
       `Rolling resistance: ${formatNumber(forces.rollingResistanceForceNewtons)} N`,
       `Aero drag: ${formatNumber(forces.aerodynamicDragForceNewtons)} N`,
       `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
@@ -310,6 +312,17 @@ function formatTireSlipFeedbackTelemetry(tireSlipFeedback = {}) {
     `brake-lock ${formatNumber(tireSlipFeedback.brakeLockVisualCount ?? 0, 0)}`,
     `sat ${formatNumber(tireSlipFeedback.saturatedVisualCount ?? 0, 0)}`,
     `intensity ${formatNumber(tireSlipFeedback.maxSlipFeedbackIntensity ?? 0, 2)}`,
+  ].join(' / ')
+}
+
+function formatServiceBrakeAbsTelemetry(serviceBrakeAbsSummary = {}) {
+  return [
+    serviceBrakeAbsSummary.dominantState ?? 'inactive',
+    `active ${formatNumber(serviceBrakeAbsSummary.activeWheelCount ?? 0, 0)}`,
+    `rel ${formatNumber(serviceBrakeAbsSummary.releasingWheelCount ?? 0, 0)}`,
+    `hold ${formatNumber(serviceBrakeAbsSummary.holdingWheelCount ?? 0, 0)}`,
+    `reapply ${formatNumber(serviceBrakeAbsSummary.reapplyingWheelCount ?? 0, 0)}`,
+    `min ${formatNumber(serviceBrakeAbsSummary.minModulation01 ?? 1, 2)}`,
   ].join(' / ')
 }
 
