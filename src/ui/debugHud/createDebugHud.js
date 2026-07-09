@@ -127,7 +127,8 @@ export function createDebugHud(config = {}) {
       `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
-      `Brake: ${formatNumber(snapshot.brakeInput)}`,
+      `Service brake: ${formatNumber(snapshot.brakeInput)}`,
+      `Parking brake: ${formatNumber(snapshot.parkingBrakeInput)}`,
       `Steering: ${formatNumber(snapshot.steeringInput)}`,
       `dt: ${formatNumber(snapshot.dt, 4)} s`,
       `Physics steps: ${formatNumber(fixedSimulation.stepsRun, 0)}`,
@@ -150,7 +151,7 @@ export function createDebugHud(config = {}) {
       '',
       `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
       `Brake force: ${formatNumber(forces.brakeForceNewtons)} N`,
-      `Service brake torque: ${formatServiceBrakeTelemetry(wheelStates)}`,
+      `Brake torque: ${formatBrakeTorqueTelemetry(wheelStates)}`,
       `Rolling resistance: ${formatNumber(forces.rollingResistanceForceNewtons)} N`,
       `Aero drag: ${formatNumber(forces.aerodynamicDragForceNewtons)} N`,
       `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
@@ -317,6 +318,8 @@ function formatTractionStateSummary(tractionStateSummary = {}) {
     tractionStateSummary.dominantLongitudinalTractionState ?? 'unknown',
     `spin ${formatNumber(tractionStateSummary.driveSpinningWheelCount, 0)}`,
     `brake-lock ${formatNumber(tractionStateSummary.brakeLockTendencyWheelCount, 0)}`,
+    `svc-lock ${formatNumber(tractionStateSummary.serviceBrakeLockTendencyWheelCount, 0)}`,
+    `park-lock ${formatNumber(tractionStateSummary.parkingBrakeLockTendencyWheelCount, 0)}`,
     `sat ${formatNumber(tractionStateSummary.saturatedWheelCount, 0)}`,
     `slip ${formatNumber(tractionStateSummary.maxAbsLongitudinalSlipRatio, 3)}`,
     `cap ${formatNumber(tractionStateSummary.maxLongitudinalTireForceSaturationRatio, 2)}`,
@@ -399,33 +402,65 @@ function formatLongitudinalSlipTelemetry(wheelStates) {
   return `max ${formatNumber(maxLongitudinalSlipRatioAbs, 3)}`
 }
 
-function formatServiceBrakeTelemetry(wheelStates) {
+function formatBrakeTorqueTelemetry(wheelStates) {
   if (wheelStates.length === 0) return 'none'
 
   let maxServiceBrakePressure01 = 0
-  let maxBrakeTorqueNewtonMeters = 0
+  let maxParkingBrakePressure01 = 0
+  let maxServiceBrakeTorqueNewtonMeters = 0
+  let maxParkingBrakeTorqueNewtonMeters = 0
+  let maxTotalBrakeTorqueNewtonMeters = 0
 
   for (const wheelState of wheelStates) {
     const serviceBrakePressure01 = Number.isFinite(wheelState.serviceBrakePressure01)
       ? wheelState.serviceBrakePressure01
       : 0
-
-    const brakeTorqueNewtonMeters = Number.isFinite(wheelState.appliedBrakeTorqueNewtonMeters)
-      ? wheelState.appliedBrakeTorqueNewtonMeters
+    const parkingBrakePressure01 = Number.isFinite(wheelState.parkingBrakePressure01)
+      ? wheelState.parkingBrakePressure01
       : 0
+    const serviceBrakeTorqueNewtonMeters = Number.isFinite(
+      wheelState.appliedServiceBrakeTorqueNewtonMeters
+    )
+      ? wheelState.appliedServiceBrakeTorqueNewtonMeters
+      : 0
+    const parkingBrakeTorqueNewtonMeters = Number.isFinite(
+      wheelState.appliedParkingBrakeTorqueNewtonMeters
+    )
+      ? wheelState.appliedParkingBrakeTorqueNewtonMeters
+      : 0
+    const totalBrakeTorqueNewtonMeters = Number.isFinite(
+      wheelState.totalBrakeTorqueNewtonMeters
+    )
+      ? wheelState.totalBrakeTorqueNewtonMeters
+      : wheelState.appliedBrakeTorqueNewtonMeters ?? 0
 
     maxServiceBrakePressure01 = Math.max(
       maxServiceBrakePressure01,
       serviceBrakePressure01
     )
-
-    maxBrakeTorqueNewtonMeters = Math.max(
-      maxBrakeTorqueNewtonMeters,
-      brakeTorqueNewtonMeters
+    maxParkingBrakePressure01 = Math.max(
+      maxParkingBrakePressure01,
+      parkingBrakePressure01
+    )
+    maxServiceBrakeTorqueNewtonMeters = Math.max(
+      maxServiceBrakeTorqueNewtonMeters,
+      serviceBrakeTorqueNewtonMeters
+    )
+    maxParkingBrakeTorqueNewtonMeters = Math.max(
+      maxParkingBrakeTorqueNewtonMeters,
+      parkingBrakeTorqueNewtonMeters
+    )
+    maxTotalBrakeTorqueNewtonMeters = Math.max(
+      maxTotalBrakeTorqueNewtonMeters,
+      totalBrakeTorqueNewtonMeters
     )
   }
 
-  return `${formatNumber(maxServiceBrakePressure01)} p / ${formatNumber(maxBrakeTorqueNewtonMeters, 0)} N*m`
+  return [
+    `svc ${formatNumber(maxServiceBrakePressure01)} p / ${formatNumber(maxServiceBrakeTorqueNewtonMeters, 0)} N*m`,
+    `park ${formatNumber(maxParkingBrakePressure01)} p / ${formatNumber(maxParkingBrakeTorqueNewtonMeters, 0)} N*m`,
+    `total ${formatNumber(maxTotalBrakeTorqueNewtonMeters, 0)} N*m`,
+  ].join(' / ')
 }
 
 function formatWheelId(wheelState) {

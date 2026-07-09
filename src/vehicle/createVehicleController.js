@@ -118,6 +118,7 @@ export function createVehicleController(config = {}) {
         speedScalar: 0,
         throttleInput: 0,
         brakeInput: 0,
+        parkingBrakeInput: 0,
         steeringInput: 0,
         planarMotion,
         wheelStates,
@@ -148,7 +149,7 @@ export function createVehicleController(config = {}) {
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
         updateLongitudinalSlipTelemetry()
-    updateLongitudinalTractionStates()
+        updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -159,6 +160,7 @@ export function createVehicleController(config = {}) {
         state.speedScalar = 0
         state.throttleInput = 0
         state.brakeInput = 0
+        state.parkingBrakeInput = 0
         state.steeringInput = 0
         state.forces = createEmptyForceSnapshot()
         resetTractionStateSummary(state.tractionStateSummary)
@@ -203,7 +205,7 @@ export function createVehicleController(config = {}) {
         updateYawState(0)
         updatePlanarMotion(0)
         updateLongitudinalSlipTelemetry()
-    updateLongitudinalTractionStates()
+        updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -273,6 +275,8 @@ export function createVehicleController(config = {}) {
                 state.planarMotion.planarAccelerationLocalLateralMetersPerSecondSquared,
             throttleInput: state.throttleInput,
             brakeInput: state.brakeInput,
+            parkingBrakeInput: state.parkingBrakeInput,
+            serviceBrakeInput: state.brakeInput,
             steeringInput: state.steeringInput,
             position: vehicle.position,
             rotation: vehicle.rotation,
@@ -336,6 +340,7 @@ export function createVehicleController(config = {}) {
     function readInput(input) {
         state.throttleInput = Boolean(input.throttle ?? input.forward) ? 1 : 0
         state.brakeInput = Boolean(input.brake ?? input.reverse) ? 1 : 0
+        state.parkingBrakeInput = Boolean(input.parkingBrake) ? 1 : 0
 
         if (input.left && !input.right) {
             state.steeringInput = 1
@@ -651,7 +656,7 @@ export function createVehicleController(config = {}) {
 
     function calculatePerWheelLongitudinalForces() {
         resetWheelForceAndBrakeTorqueRequests()
-        updateServiceBrakeTorqueStates()
+        updateBrakeTorqueStates()
 
         const speedDirection = getSignWithDeadzone(
             state.speedScalar,
@@ -682,33 +687,67 @@ export function createVehicleController(config = {}) {
             wheelState.isSlipping = false
             resetWheelLongitudinalSlipState(wheelState)
             wheelState.lateralSlip = 0
-            resetWheelServiceBrakeTorqueState(wheelState)
+            resetWheelBrakeTorqueState(wheelState)
         }
     }
 
-    function updateServiceBrakeTorqueStates() {
+    function updateBrakeTorqueStates() {
         const serviceBrakePressure01 = THREE.MathUtils.clamp(
             state.brakeInput,
             0,
             1
         )
+        const parkingBrakePressure01 = THREE.MathUtils.clamp(
+            state.parkingBrakeInput,
+            0,
+            1
+        )
 
-        const requestedBrakeTorqueNewtonMeters =
+        const requestedServiceBrakeTorqueNewtonMeters =
             spec.maxServiceBrakeTorqueNewtonMeters *
             state.dynamicsTuning.serviceBrakeTorqueMultiplier *
             serviceBrakePressure01
+        const requestedParkingBrakeTorqueNewtonMeters =
+            spec.maxParkingBrakeTorqueNewtonMeters *
+            parkingBrakePressure01
 
-        // These are non-negative service brake command magnitudes. The current
-        // wheel angular dynamics consume them directly; ABS and real wheel lock
-        // behavior remain future work.
+        // These are non-negative command magnitudes. The service brake is the
+        // normal pedal path, while the parking brake is a separate rear-wheel
+        // path. ABS and real wheel-lock control remain future work.
         for (const wheelState of state.wheelStates) {
+            const parkingBrakeAppliesToWheel =
+                !spec.parkingBrakeActsOnRearWheelsOnly ||
+                wheelState.axle === 'rear'
+            const appliedParkingBrakeTorqueNewtonMeters =
+                parkingBrakeAppliesToWheel
+                    ? requestedParkingBrakeTorqueNewtonMeters
+                    : 0
+            const totalBrakeTorqueNewtonMeters =
+                requestedServiceBrakeTorqueNewtonMeters +
+                appliedParkingBrakeTorqueNewtonMeters
+
             wheelState.serviceBrakePressure01 = serviceBrakePressure01
+            wheelState.parkingBrakePressure01 = parkingBrakePressure01
+            wheelState.requestedServiceBrakeTorqueNewtonMeters =
+                requestedServiceBrakeTorqueNewtonMeters
+            wheelState.requestedParkingBrakeTorqueNewtonMeters =
+                parkingBrakeAppliesToWheel
+                    ? requestedParkingBrakeTorqueNewtonMeters
+                    : 0
+            wheelState.appliedServiceBrakeTorqueNewtonMeters =
+                requestedServiceBrakeTorqueNewtonMeters
+            wheelState.appliedParkingBrakeTorqueNewtonMeters =
+                appliedParkingBrakeTorqueNewtonMeters
+            wheelState.totalBrakeTorqueNewtonMeters =
+                totalBrakeTorqueNewtonMeters
             wheelState.requestedBrakeTorqueNewtonMeters =
-                requestedBrakeTorqueNewtonMeters
+                totalBrakeTorqueNewtonMeters
             wheelState.appliedBrakeTorqueNewtonMeters =
-                requestedBrakeTorqueNewtonMeters
-            wheelState.brakeTorqueNewtonMeters =
-                wheelState.appliedBrakeTorqueNewtonMeters
+                totalBrakeTorqueNewtonMeters
+            wheelState.isServiceBraking =
+                requestedServiceBrakeTorqueNewtonMeters > 0
+            wheelState.isParkingBraking =
+                appliedParkingBrakeTorqueNewtonMeters > 0
         }
     }
 
@@ -893,8 +932,11 @@ export function createVehicleController(config = {}) {
     }
 
     function calculateWheelBrakeTorqueNewtonMeters(wheelState, dt) {
-        const brakeTorqueMagnitudeNewtonMeters =
-            wheelState.appliedBrakeTorqueNewtonMeters
+        const brakeTorqueMagnitudeNewtonMeters = Number.isFinite(
+            wheelState.totalBrakeTorqueNewtonMeters
+        )
+            ? wheelState.totalBrakeTorqueNewtonMeters
+            : wheelState.appliedBrakeTorqueNewtonMeters
 
         if (brakeTorqueMagnitudeNewtonMeters <= 0 || dt <= 0) return 0
 
@@ -1190,12 +1232,21 @@ function createWheelRuntimeStates(vehicle, spec) {
             angularAccelerationRadiansPerSecondSquared: 0,
             spinAngleRadians: 0,
             wheelInertiaKgMeterSquared: spec.wheelInertiaKgMeterSquared,
-            // Service brake torque values are command-state magnitudes only for now.
+            // Service/parking brake fields are command magnitudes. The existing
+            // brakeTorqueNewtonMeters field remains the signed wheel torque component.
             serviceBrakePressure01: 0,
+            parkingBrakePressure01: 0,
+            requestedServiceBrakeTorqueNewtonMeters: 0,
+            requestedParkingBrakeTorqueNewtonMeters: 0,
+            appliedServiceBrakeTorqueNewtonMeters: 0,
+            appliedParkingBrakeTorqueNewtonMeters: 0,
+            totalBrakeTorqueNewtonMeters: 0,
             requestedBrakeTorqueNewtonMeters: 0,
             appliedBrakeTorqueNewtonMeters: 0,
             driveTorqueNewtonMeters: 0,
             brakeTorqueNewtonMeters: 0,
+            isServiceBraking: false,
+            isParkingBraking: false,
             contactReactionTorqueNewtonMeters: 0,
             rollingConstraintCorrectionTorqueNewtonMeters: 0,
             netTorqueNewtonMeters: 0,
@@ -1205,6 +1256,9 @@ function createWheelRuntimeStates(vehicle, spec) {
             isLongitudinalTractionSaturated: false,
             isDriveWheelSpinning: false,
             isBrakeLockTendency: false,
+            brakeLockTendencySource: 'none',
+            isServiceBrakeLockTendency: false,
+            isParkingBrakeLockTendency: false,
             isWheelStopped: true,
             isWheelAirborne: false,
             tractionStateSeverity01: 0,
@@ -1266,7 +1320,7 @@ function resetWheelRotationalState(wheelState) {
     wheelState.spinAngleRadians = 0
     resetWheelLongitudinalTireForceState(wheelState)
     resetWheelLongitudinalSlipState(wheelState)
-    resetWheelServiceBrakeTorqueState(wheelState)
+    resetWheelBrakeTorqueState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
     wheelState.brakeTorqueNewtonMeters = 0
     wheelState.contactReactionTorqueNewtonMeters = 0
@@ -1298,11 +1352,19 @@ function resetWheelLongitudinalSlipRatioFields(wheelState) {
     wheelState.longitudinalSlip = 0
 }
 
-function resetWheelServiceBrakeTorqueState(wheelState) {
+function resetWheelBrakeTorqueState(wheelState) {
     wheelState.serviceBrakePressure01 = 0
+    wheelState.parkingBrakePressure01 = 0
+    wheelState.requestedServiceBrakeTorqueNewtonMeters = 0
+    wheelState.requestedParkingBrakeTorqueNewtonMeters = 0
+    wheelState.appliedServiceBrakeTorqueNewtonMeters = 0
+    wheelState.appliedParkingBrakeTorqueNewtonMeters = 0
+    wheelState.totalBrakeTorqueNewtonMeters = 0
     wheelState.requestedBrakeTorqueNewtonMeters = 0
     wheelState.appliedBrakeTorqueNewtonMeters = 0
     wheelState.brakeTorqueNewtonMeters = 0
+    wheelState.isServiceBraking = false
+    wheelState.isParkingBraking = false
 }
 
 function resetWheelLongitudinalTractionState(wheelState) {
@@ -1312,6 +1374,9 @@ function resetWheelLongitudinalTractionState(wheelState) {
     wheelState.isLongitudinalTractionSaturated = false
     wheelState.isDriveWheelSpinning = false
     wheelState.isBrakeLockTendency = false
+    wheelState.brakeLockTendencySource = 'none'
+    wheelState.isServiceBrakeLockTendency = false
+    wheelState.isParkingBrakeLockTendency = false
     wheelState.isWheelStopped = true
     wheelState.isWheelAirborne = false
     wheelState.tractionStateSeverity01 = 0

@@ -176,6 +176,10 @@ const developerTuningPanel = createDeveloperTuningPanel({
 const keys = {}
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault()
+  }
+
   keys[e.code] = true
 
   if (e.repeat) return
@@ -198,6 +202,10 @@ window.addEventListener('keydown', (e) => {
 })
 
 window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault()
+  }
+
   keys[e.code] = false
 })
 
@@ -233,6 +241,7 @@ function getVehicleInput() {
   return {
     throttle: keys['KeyW'],
     brake: keys['KeyS'],
+    parkingBrake: keys['Space'],
     left: keys['KeyA'],
     right: keys['KeyD'],
   }
@@ -265,6 +274,8 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     controllerKind: vehicleSnapshot.controllerKind,
     throttleInput: vehicleSnapshot.throttleInput,
     brakeInput: vehicleSnapshot.brakeInput,
+    parkingBrakeInput: vehicleSnapshot.parkingBrakeInput,
+    serviceBrakeInput: vehicleSnapshot.serviceBrakeInput,
     steeringInput: vehicleSnapshot.steeringInput,
     dt,
     fixedSimulation: fixedSimulationSnapshot,

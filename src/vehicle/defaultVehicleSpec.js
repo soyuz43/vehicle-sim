@@ -22,9 +22,13 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // This is not drivetrain inertia or a full rotating assembly model.
   wheelInertiaKgMeterSquared: 1.2,
 
-  // Per-wheel service brake torque used by the current simple wheel angular dynamics.
-  // ABS and real lockup behavior remain future work.
+  // Per-wheel brake torque command limits used by the current simple wheel angular dynamics.
+  // The service brake is the normal brake pedal path and remains separate from
+  // the rear-wheel parking brake path. These are not ABS, brake bias, or a full
+  // hydraulic model.
   maxServiceBrakeTorqueNewtonMeters: 1200,
+  maxParkingBrakeTorqueNewtonMeters: 1400,
+  parkingBrakeActsOnRearWheelsOnly: true,
 
   // Basic linear/saturated longitudinal tire model coefficient.
   // Tire force is still capped by frictionCoefficient * normalForceNewtons;
@@ -32,7 +36,7 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
 
   // Longitudinal traction-state thresholds classify/debug wheel behavior only.
-  // They do not change tire force, friction, ABS, parking brake, or traction caps.
+  // They do not change tire force, friction, brake torque, ABS, or traction caps.
   tractionSlipRatioWarningThreshold: 0.08,
   tractionSlipRatioSaturationThreshold: 0.18,
   brakeLockGroundSpeedThresholdMetersPerSecond: 0.5,
