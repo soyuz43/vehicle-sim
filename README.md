@@ -66,6 +66,13 @@ A developer-only tire inflation panel exposes visual tire pressure state in kPa.
 Tire pressure does not alter `frictionCoefficient`, `tractionLimitNewtons`, longitudinal tire force, tire stiffness, rolling resistance, wheel inertia, or vehicle dynamics in this branch. Friction remains a tire/surface/material definition in code/data, not a magic live UI control. Future tire-pressure physics may explicitly affect tire stiffness, effective rolling radius, contact patch behavior, rolling resistance, heat, or deformation.
 
 
+## Developer Dynamics Tuning
+
+A developer dynamics tuning panel exposes live multipliers for drive torque, service brake torque, and longitudinal tire stiffness. This is for calibration, debugging, and deliberately provoking wheel spin, braking changes, or softer/stiffer tire response. The defaults are all `1.0`, which preserves the current baseline behavior.
+
+The panel does not expose UI controls for friction coefficient, surface friction, available-traction caps, tire pressure, player progression, or upgrades. Friction remains a tire/surface/material definition in code/data.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, richer tire models, and load transfer without implementing those systems yet.

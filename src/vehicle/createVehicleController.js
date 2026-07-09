@@ -16,6 +16,11 @@ import {
     createTirePressureState,
     updateTirePressureState,
 } from './dynamics/tireInflationVisualState.js'
+import {
+    createDynamicsTuningState,
+    resetDynamicsTuningState,
+    updateDynamicsTuningState,
+} from './dynamics/dynamicsTuningState.js'
 
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
@@ -96,6 +101,7 @@ export function createVehicleController(config = {}) {
     })
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
     const tirePressureState = createTirePressureState(spec)
+    const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
@@ -108,6 +114,7 @@ export function createVehicleController(config = {}) {
         planarMotion,
         wheelStates,
         tirePressureState,
+        dynamicsTuning,
         forces: createEmptyForceSnapshot(),
     }
 
@@ -267,7 +274,27 @@ export function createVehicleController(config = {}) {
                 state.tirePressureState.visualTireDeflectionRatio,
             visualContactPatchScale:
                 state.tirePressureState.visualContactPatchScale,
+            dynamicsTuning: state.dynamicsTuning,
         }
+    }
+
+    function setDynamicsTuning(nextDynamicsTuning = {}) {
+        updateDynamicsTuningState(state.dynamicsTuning, {
+            ...state.dynamicsTuning,
+            ...nextDynamicsTuning,
+        })
+
+        return getDynamicsTuning()
+    }
+
+    function resetDynamicsTuning() {
+        resetDynamicsTuningState(state.dynamicsTuning)
+
+        return getDynamicsTuning()
+    }
+
+    function getDynamicsTuning() {
+        return state.dynamicsTuning
     }
 
     function setTirePressureKpa(nextTirePressureKpa) {
@@ -651,7 +678,9 @@ export function createVehicleController(config = {}) {
         )
 
         const requestedBrakeTorqueNewtonMeters =
-            spec.maxServiceBrakeTorqueNewtonMeters * serviceBrakePressure01
+            spec.maxServiceBrakeTorqueNewtonMeters *
+            state.dynamicsTuning.serviceBrakeTorqueMultiplier *
+            serviceBrakePressure01
 
         // These are non-negative service brake command magnitudes. The current
         // wheel angular dynamics consume them directly; ABS and real wheel lock
@@ -683,7 +712,12 @@ export function createVehicleController(config = {}) {
             ? spec.maxDriveForceNewtons
             : spec.maxReverseDriveForceNewtons
 
-        return gearDirection * maxDriveForce * state.throttleInput
+        return (
+            gearDirection *
+            maxDriveForce *
+            state.dynamicsTuning.driveTorqueMultiplier *
+            state.throttleInput
+        )
     }
 
     function distributeDriveForceRequestToWheels(totalDriveForceNewtons) {
@@ -737,6 +771,7 @@ export function createVehicleController(config = {}) {
 
         wheelState.linearLongitudinalTireForceNewtons =
             spec.longitudinalTireStiffnessNewtonsPerSlipRatio *
+            state.dynamicsTuning.longitudinalTireStiffnessMultiplier *
             localForwardLongitudinalSlipRatio
         wheelState.uncappedLongitudinalTireForceNewtons =
             wheelState.linearLongitudinalTireForceNewtons
@@ -1064,6 +1099,9 @@ export function createVehicleController(config = {}) {
         shiftGearDown,
         shiftGearUp,
         setGear,
+        setDynamicsTuning,
+        resetDynamicsTuning,
+        getDynamicsTuning,
         setTirePressureKpa,
         resetTirePressure,
         getTirePressureState,
