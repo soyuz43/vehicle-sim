@@ -40,7 +40,7 @@ Service brake input continues to drive the brake lights. Parking brake alone is 
 
 Service-brake ABS v1 now modulates service brake torque per wheel when service-brake lock tendency or braking slip indicates imminent lock. Each wheel records ABS state, modulation, release intent, and service brake torque before/after ABS so the debug HUD can show which wheels are releasing, holding, or reapplying brake torque.
 
-ABS applies only to the service brake path. Parking brake torque remains a separate rear-wheel-only command path and is explicitly excluded from ABS modulation. This is a staged controller foundation, not a full production ABS model; it does not change friction, traction limits, tire pressure behavior, brake assist, traction control, stability control, suspension, load transfer, lateral tire forces, or combined slip.
+ABS applies only to the service brake path. Parking brake torque remains a separate rear-wheel-only command path and is explicitly excluded from ABS modulation. This is a staged controller foundation, not a full production ABS model; it does not change friction, traction limits, tire pressure behavior, brake assist, traction control, stability control, suspension, load transfer, the new lateral tire-force path, or full combined-slip modeling.
 
 ## Longitudinal Slip Ratio Telemetry
 
@@ -49,31 +49,37 @@ Each wheel records longitudinal slip ratio telemetry by comparing wheel surface 
 
 ## Torque-Coupled Wheel Dynamics
 
-Wheel angular velocity now integrates from simple net torque and wheel inertia. The scalar vehicle acceleration model remains active, while the longitudinal tire force feeding it now comes from the basic linear/saturated slip-ratio model. A weak temporary rolling correction remains as numerical stabilization only; it is not the tire model and should be removed or reduced as tire modeling improves.
+Wheel angular velocity now integrates from simple net torque and wheel inertia. The wheel torque path remains staged, while the body now receives world-space planar force and yaw moment from the per-wheel tire-force pipeline. A weak temporary rolling correction remains as numerical stabilization only; it is not the tire model and should be removed or reduced as tire modeling improves.
 
 
 ## Basic Linear Longitudinal Tire Model
 
-Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. This is not Pacejka, combined slip, ABS, load transfer, suspension, or lateral dynamics.
+Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. Longitudinal and lateral components now also share a basic combined friction cap, but this remains a staged foundation: it is not Pacejka, not a professional tire model, not a full combined-slip curve, and not suspension or load transfer.
 
 
 ## Planar Chassis Motion
 
-Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, and planar acceleration telemetry. Longitudinal tire force still drives acceleration along the vehicle's forward axis, and `speedScalar` remains a compatibility alias for signed local-forward velocity.
+Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, yaw acceleration, and planar acceleration telemetry. Per-wheel tire forces now sum into world-space planar body force, while `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
-Local lateral velocity can now be measured when the vehicle yaws while moving, but lateral tire forces are not implemented yet. A small `temporaryLateralVelocityDampingPerSecond` placeholder keeps sideways skating bounded; it is not a real lateral tire model. Any sideways motion at this stage is foundation telemetry for later lateral slip angle, lateral tire forces, oversteer/understeer, and combined slip work, not a full drift or grip model.
+Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is still no suspension, load transfer, center-of-mass height effect, roll, or pitch simulation.
 
 
 ## Lateral Slip Angle Telemetry
 
-Each wheel now records telemetry-only lateral slip angle by estimating contact-patch velocity from planar chassis velocity and yaw rate, then projecting that velocity into the wheel's current local forward/right axes. Front steerable wheels use current steering angle telemetry, rear wheels use chassis heading, and the vehicle snapshot now exposes a compact aggregate lateral-slip summary for the debug HUD.
+Each wheel continues to record lateral slip angle by estimating contact-patch velocity from planar chassis velocity and yaw rate, then projecting that velocity into the wheel's current local forward/right axes. Front steerable wheels use current steering angle telemetry, rear wheels use chassis heading, and the vehicle snapshot exposes a compact aggregate lateral-slip summary for the debug HUD.
 
-This branch measures lateral slip during steering and turning only. It does not apply lateral tire forces, yaw moments from lateral tire forces, combined slip, suspension, load transfer, stability control, traction control, drift behavior, smoke, squeal, particles, or friction/grip/traction-limit sliders. Straight-line driving should stay near zero lateral slip angle, while turning can now produce meaningful telemetry for future lateral tire-force, understeer, and oversteer work.
+That telemetry now feeds the first basic lateral tire-force branch. Straight-line driving should stay near zero lateral slip angle, while turning can now produce meaningful per-wheel slip-angle, lateral-force, and yaw telemetry for future tire-curve, understeer, and oversteer work.
+
+## Basic Lateral Tire Force v1
+
+Each grounded wheel now converts lateral slip angle into a basic linear lateral tire force using `-lateralTireStiffnessNewtonsPerRadian * lateralSlipAngleRadians`. The force is capped by each wheel's existing `frictionCoefficient * normalForceNewtons`, and longitudinal plus lateral components then share a simple combined friction cap so a wheel cannot exceed its current traction limit when both components are active.
+
+The vehicle body now receives summed world-space planar tire force and a basic yaw moment from per-wheel tire forces applied at wheel offsets. This is an inspectable v1 foundation, not Pacejka, not a professional tire model, not a full combined-slip model, and not suspension, load transfer, stability control, traction control, or drift physics.
 
 
 ## Dynamics Sanity Telemetry
 
-The developer debug HUD includes compact local acceleration, tire-force saturation, service/parking brake torque, service-brake ABS state, yaw-rate, longitudinal slip-ratio, lateral slip-angle, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add brake assist, load transfer, suspension, lateral tire forces, combined slip, or player-facing tuning controls.
+The developer debug HUD includes compact local/world acceleration, tire-force saturation, lateral tire-force, combined-cap, service/parking brake torque, service-brake ABS state, yaw-rate, yaw-acceleration, yaw-moment, longitudinal slip-ratio, lateral slip-angle, and planar velocity telemetry for checking longitudinal, lateral, braking, and yaw sign conventions. These diagnostics do not add brake assist, load transfer, suspension, traction control, stability control, or player-facing tuning controls.
 
 
 ## Tire Inflation Visualization
@@ -94,7 +100,7 @@ The panel does not expose UI controls for friction coefficient, surface friction
 
 Each wheel now exposes longitudinal traction classification telemetry derived from contact state, slip ratio, tire-force saturation, drive torque, service/parking brake torque, wheel surface speed, and local ground speed. Wheels can classify as `airborne`, `stopped`, `rolling`, `saturated`, `drive_spin`, or `brake_lock_tendency`, and the debug HUD shows a compact aggregate summary including service-brake and parking-brake lock-tendency counts.
 
-This traction-state layer remains a telemetry/debug foundation. It classifies wheel behavior and now feeds service-brake ABS v1, but it does not implement brake assist, smoke, tire squeal, skid marks, lateral tire forces, combined slip, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, or tire-force calculation beyond the ABS controller reading the telemetry.
+This traction-state layer remains a telemetry/debug foundation. It classifies wheel behavior and now feeds service-brake ABS v1, but it does not implement brake assist, smoke, tire squeal, skid marks, full combined-slip modeling, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, lateral tire-force calculation, or longitudinal tire-force calculation beyond the ABS controller reading the telemetry.
 
 
 ## Tire Slip Visual Feedback
@@ -106,7 +112,7 @@ The feedback is visual/debug only. It does not change tire force, friction, trac
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, richer tire models, and load transfer without implementing those systems yet.
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force now comes from each wheel's capped slip-ratio longitudinal tire force plus the new slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. The controller then sums those per-wheel forces into world-space planar acceleration and yaw moment. This preserves clear seams for later brake bias, richer tire curves, friction-ellipse work, suspension, and load transfer without pretending those systems already exist.
 
 
 ## Controls

@@ -119,6 +119,7 @@ export function createDebugHud(config = {}) {
     const tractionStateSummary = snapshot.tractionStateSummary ?? {}
     const serviceBrakeAbsSummary = snapshot.serviceBrakeAbsSummary ?? {}
     const lateralSlipSummary = snapshot.lateralSlipSummary ?? {}
+    const lateralTireForceSummary = snapshot.lateralTireForceSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     debugHudText.textContent = [
@@ -144,6 +145,7 @@ export function createDebugHud(config = {}) {
       `Local lateral velocity: ${formatNumber(snapshot.localLateralVelocityMetersPerSecond)} m/s`,
       `Yaw: ${formatNumber(snapshot.yawRadians, 3)} rad`,
       `Yaw rate: ${formatNumber(snapshot.yawRateRadiansPerSecond, 3)} rad/s`,
+      `Yaw accel: ${formatNumber(snapshot.yawAccelerationRadiansPerSecondSquared, 3)} rad/s²`,
       `Velocity XYZ: ${formatVector3(snapshot.velocity)} m/s`,
       `Velocity mag: ${formatNumber(vectorMagnitude(snapshot.velocity))} m/s`,
       `Acceleration: ${formatNumber(snapshot.longitudinalAcceleration)} m/s²`,
@@ -157,11 +159,14 @@ export function createDebugHud(config = {}) {
       `Service ABS: ${formatServiceBrakeAbsTelemetry(serviceBrakeAbsSummary)}`,
       `Rolling resistance: ${formatNumber(forces.rollingResistanceForceNewtons)} N`,
       `Aero drag: ${formatNumber(forces.aerodynamicDragForceNewtons)} N`,
-      `Net force: ${formatNumber(forces.netLongitudinalForceNewtons)} N`,
+      `Net force local: ${formatNumber(forces.netLongitudinalForceNewtons)} fwd / ${formatNumber(forces.netLateralForceNewtons)} lat N`,
       `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
       `Tire force: ${formatLongitudinalTireForceTelemetry(wheelStates)}`,
       `Tire saturation: ${formatTireSaturationTelemetry(wheelStates)}`,
+      `Lateral tire force: ${formatLateralTireForceTelemetry(lateralTireForceSummary)}`,
+      `Combined cap: ${formatCombinedTireForceTelemetry(lateralTireForceSummary)}`,
+      `Yaw moment: ${formatYawMomentTelemetry(lateralTireForceSummary)}`,
       `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
       `Slip visuals: ${formatTireSlipFeedbackTelemetry(tireSlipFeedback)}`,
       '',
@@ -365,6 +370,28 @@ function formatTireSaturationTelemetry(wheelStates) {
   }
 
   return `max ${formatNumber(maxLongitudinalTireForceSaturationRatio, 2)} / sat ${saturatedWheelCount}`
+}
+
+function formatLateralTireForceTelemetry(lateralTireForceSummary = {}) {
+  return [
+    `max ${formatNumber(lateralTireForceSummary.maxAbsLateralTireForceNewtons ?? 0, 0)} N`,
+    `total ${formatNumber(lateralTireForceSummary.totalLateralTireForceNewtons ?? 0, 0)} N`,
+    `sat ${formatNumber(lateralTireForceSummary.lateralTireForceSaturatedWheelCount ?? 0, 0)}`,
+  ].join(' / ')
+}
+
+function formatCombinedTireForceTelemetry(lateralTireForceSummary = {}) {
+  return [
+    `sat ${formatNumber(lateralTireForceSummary.combinedTireForceSaturatedWheelCount ?? 0, 0)}`,
+    `max ${formatNumber(lateralTireForceSummary.maxCombinedTireForceSaturationRatio ?? 0, 2)}`,
+  ].join(' / ')
+}
+
+function formatYawMomentTelemetry(lateralTireForceSummary = {}) {
+  return [
+    `${formatNumber(lateralTireForceSummary.yawMomentNewtonMeters ?? 0, 0)} N*m`,
+    `${formatNumber(lateralTireForceSummary.yawAccelerationRadiansPerSecondSquared ?? 0, 3)} rad/s²`,
+  ].join(' / ')
 }
 
 function formatWheelNetTorqueTelemetry(wheelStates) {

@@ -6,8 +6,8 @@ import { createFlatTerrainContactQuery } from '../terrain/createFlatTerrainConta
 import {
     createPlanarMotionState,
     integratePlanarPosition,
-    integratePlanarVelocityFromLocalAcceleration,
-    integrateYawRate,
+    integratePlanarVelocityFromWorldAcceleration,
+    integrateYawAcceleration,
     resetPlanarMotionState,
     setPlanarLocalVelocity,
 } from './dynamics/planarMotion.js'
@@ -29,6 +29,13 @@ import {
     updateLateralSlipSummary,
     updateWheelLateralSlipAngleState,
 } from './dynamics/lateralSlipAngleState.js'
+import {
+    createLateralTireForceSummary,
+    resetLateralTireForceSummary,
+    resetWheelLateralTireForceState,
+    updateLateralTireForceSummary,
+    updateWheelLateralTireForceState,
+} from './dynamics/lateralTireForceState.js'
 import {
     LONGITUDINAL_TRACTION_STATES,
     createTractionStateSummary,
@@ -70,9 +77,7 @@ const GEAR_DIRECTIONS = Object.freeze({
 })
 
 const DEFAULT_CONTROLLER_PARAMS = {
-    turnSpeedRadiansPerSecond: 2.5,
     maxVisualSteeringAngleRadians: Math.PI / 5,
-    steeringDeadSpeedMetersPerSecond: 0.1,
     stopEpsilonMetersPerSecond: 0.03,
     maxSimulationDeltaSeconds: 0.1,
 }
@@ -126,12 +131,13 @@ export function createVehicleController(config = {}) {
     const tirePressureState = createTirePressureState(spec)
     const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
     const lateralSlipSummary = createLateralSlipSummary()
+    const lateralTireForceSummary = createLateralTireForceSummary()
     const tractionStateSummary = createTractionStateSummary()
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'planar-yaw-longitudinal-foundation',
+        controllerKind: 'basic-lateral-tire-force-v1',
         gear: initialGear,
         speedScalar: 0,
         throttleInput: 0,
@@ -143,6 +149,7 @@ export function createVehicleController(config = {}) {
         tirePressureState,
         dynamicsTuning,
         lateralSlipSummary,
+        lateralTireForceSummary,
         tractionStateSummary,
         serviceBrakeAbsSummary,
         forces: createEmptyForceSnapshot(),
@@ -152,25 +159,28 @@ export function createVehicleController(config = {}) {
         const safeDt = sanitizeDeltaTime(dt, params)
 
         readInput(input)
+        updateWheelSteeringAngles()
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
         calculatePerWheelLongitudinalForces(safeDt)
-        // Explicit one-step coupling: tire force uses slip measured before this
-        // frame's wheel torque integration updates angular velocity.
+        // Explicit one-step coupling: tire force still uses slip measured before this
+        // frame's wheel torque and body-state integration updates velocities.
+        updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
         calculatePerWheelLongitudinalTireForces()
-        state.forces = calculateLongitudinalForcesFromWheelState()
+        calculatePerWheelLateralTireForces()
+        state.forces = calculatePlanarForcesFromWheelState()
+        updateLateralTireForceSummaryState()
         updateWheelRotationalStates(safeDt)
         updateYawState(safeDt)
         updatePlanarMotion(safeDt)
         updatePosition(safeDt)
         syncVehicleYawFromPlanarState()
-        updateWheelSteeringAngles()
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
-        updateLongitudinalSlipTelemetry()
         updateLateralSlipTelemetry()
+        updateLongitudinalSlipTelemetry()
         updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
@@ -188,6 +198,7 @@ export function createVehicleController(config = {}) {
         resetTractionStateSummary(state.tractionStateSummary)
         resetServiceBrakeAbsSummary(state.serviceBrakeAbsSummary)
         resetLateralSlipSummary(state.lateralSlipSummary)
+        resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
         })
@@ -206,7 +217,8 @@ export function createVehicleController(config = {}) {
             wheelState.requestedLongitudinalForceNewtons = 0
             resetWheelLongitudinalTireForceState(wheelState)
             resetWheelLongitudinalSlipState(wheelState)
-            wheelState.lateralSlip = 0
+            resetWheelLateralSlipAngleState(wheelState)
+            resetWheelLateralTireForceState(wheelState)
             wheelState.frictionCoefficient = spec.defaultSurfaceFrictionCoefficient
             wheelState.surfaceKind = 'flat-asphalt-placeholder'
             wheelState.isGrounded = true
@@ -217,20 +229,21 @@ export function createVehicleController(config = {}) {
         }
 
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
+        updateWheelSteeringAngles()
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
         calculatePerWheelLongitudinalForces(0)
-        // Explicit one-step coupling: tire force uses slip measured before this
-        // frame's wheel torque integration updates angular velocity.
+        updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
         calculatePerWheelLongitudinalTireForces()
-        state.forces = calculateLongitudinalForcesFromWheelState()
+        calculatePerWheelLateralTireForces()
+        state.forces = calculatePlanarForcesFromWheelState()
+        updateLateralTireForceSummaryState()
         updateWheelRotationalStates(0)
         updateYawState(0)
         updatePlanarMotion(0)
-        updateWheelSteeringAngles()
-        updateLongitudinalSlipTelemetry()
         updateLateralSlipTelemetry()
+        updateLongitudinalSlipTelemetry()
         updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
@@ -323,6 +336,7 @@ export function createVehicleController(config = {}) {
             tractionStateSummary: state.tractionStateSummary,
             serviceBrakeAbsSummary: state.serviceBrakeAbsSummary,
             lateralSlipSummary: state.lateralSlipSummary,
+            lateralTireForceSummary: state.lateralTireForceSummary,
         }
     }
 
@@ -382,17 +396,20 @@ export function createVehicleController(config = {}) {
     function updatePlanarMotion(dt) {
         const oldForwardSpeedMetersPerSecond = state.speedScalar
         const forces = state.forces
+        const safeMassKg = Number.isFinite(spec.massKg) && spec.massKg > 0
+            ? spec.massKg
+            : 1
 
-        integratePlanarVelocityFromLocalAcceleration(
+        integratePlanarVelocityFromWorldAcceleration(
             state.planarMotion,
-            forces.longitudinalAccelerationMetersPerSecondSquared,
-            calculateTemporaryLateralVelocityDampingAcceleration(),
+            forces.netForceWorldXNewtons / safeMassKg,
+            forces.netForceWorldZNewtons / safeMassKg,
             dt
         )
 
         let nextForwardSpeedMetersPerSecond =
             state.planarMotion.localForwardVelocityMetersPerSecond
-        const nextLateralSpeedMetersPerSecond =
+        let nextLateralSpeedMetersPerSecond =
             state.planarMotion.localLateralVelocityMetersPerSecond
 
         if (
@@ -414,9 +431,12 @@ export function createVehicleController(config = {}) {
         if (
             Math.abs(nextForwardSpeedMetersPerSecond) <
                 params.stopEpsilonMetersPerSecond &&
+            Math.abs(nextLateralSpeedMetersPerSecond) <
+                params.stopEpsilonMetersPerSecond &&
             !isDriveTryingToMoveFromStop()
         ) {
             nextForwardSpeedMetersPerSecond = 0
+            nextLateralSpeedMetersPerSecond = 0
         }
 
         setPlanarLocalVelocity(
@@ -427,7 +447,7 @@ export function createVehicleController(config = {}) {
         syncSpeedScalarFromPlanarState()
     }
 
-    function calculateLongitudinalForcesFromWheelState() {
+    function calculatePlanarForcesFromWheelState() {
         const speed = state.speedScalar
         const speedDirection = getSignWithDeadzone(
             speed,
@@ -454,20 +474,85 @@ export function createVehicleController(config = {}) {
             'requestedLongitudinalForceNewtons'
         )
 
-        const appliedTireForceNewtons = sumWheelForceNewtons(
-            'appliedLongitudinalForceNewtons'
-        )
+        let totalLongitudinalTireForceNewtons = 0
+        let totalLateralTireForceNewtons = 0
+        let totalTireForceWorldXNewtons = 0
+        let totalTireForceWorldZNewtons = 0
+        let yawMomentNewtonMeters = 0
+
+        for (const wheelState of state.wheelStates) {
+            if (!wheelState.isGrounded) {
+                continue
+            }
+
+            const {
+                localForwardForceNewtons,
+                localRightForceNewtons,
+            } = calculateWheelChassisLocalTireForces(wheelState)
+
+            totalLongitudinalTireForceNewtons += localForwardForceNewtons
+            totalLateralTireForceNewtons += localRightForceNewtons
+            totalTireForceWorldXNewtons +=
+                localForwardForceNewtons * state.planarMotion.forwardWorld.x +
+                localRightForceNewtons * state.planarMotion.rightWorld.x
+            totalTireForceWorldZNewtons +=
+                localForwardForceNewtons * state.planarMotion.forwardWorld.z +
+                localRightForceNewtons * state.planarMotion.rightWorld.z
+
+            const forceApplicationPointLocal =
+                wheelState.contactPatchLocal ?? wheelState.localPosition
+            const wheelOffsetRightMeters = Number.isFinite(
+                forceApplicationPointLocal?.x
+            )
+                ? forceApplicationPointLocal.x
+                : 0
+            const wheelOffsetForwardMeters = Number.isFinite(
+                forceApplicationPointLocal?.z
+            )
+                ? forceApplicationPointLocal.z
+                : 0
+
+            // Positive yaw in this controller turns the vehicle nose toward +X/right.
+            yawMomentNewtonMeters +=
+                wheelOffsetForwardMeters * localRightForceNewtons -
+                wheelOffsetRightMeters * localForwardForceNewtons
+        }
 
         const rollingResistanceForceNewtons =
             calculateRollingResistanceForce(speedDirection, normalForceNewtons)
+        const rollingResistanceForceWorldXNewtons =
+            rollingResistanceForceNewtons * state.planarMotion.forwardWorld.x
+        const rollingResistanceForceWorldZNewtons =
+            rollingResistanceForceNewtons * state.planarMotion.forwardWorld.z
 
         const aerodynamicDragForceNewtons =
             calculateAerodynamicDragForce(speed, speedDirection)
+        const aerodynamicDragForceWorldXNewtons =
+            aerodynamicDragForceNewtons * state.planarMotion.forwardWorld.x
+        const aerodynamicDragForceWorldZNewtons =
+            aerodynamicDragForceNewtons * state.planarMotion.forwardWorld.z
 
         const netLongitudinalForceNewtons =
-            appliedTireForceNewtons +
+            totalLongitudinalTireForceNewtons +
             rollingResistanceForceNewtons +
             aerodynamicDragForceNewtons
+        const netLateralForceNewtons = totalLateralTireForceNewtons
+        const netForceWorldXNewtons =
+            totalTireForceWorldXNewtons +
+            rollingResistanceForceWorldXNewtons +
+            aerodynamicDragForceWorldXNewtons
+        const netForceWorldZNewtons =
+            totalTireForceWorldZNewtons +
+            rollingResistanceForceWorldZNewtons +
+            aerodynamicDragForceWorldZNewtons
+        const safeMassKg = Number.isFinite(spec.massKg) && spec.massKg > 0
+            ? spec.massKg
+            : 1
+        const yawAccelerationRadiansPerSecondSquared =
+            spec.yawMomentOfInertiaKgMeterSquared > 0
+                ? yawMomentNewtonMeters /
+                    spec.yawMomentOfInertiaKgMeterSquared
+                : 0
 
         const tractionLimitedWheelCount = countTractionLimitedWheels()
 
@@ -477,14 +562,58 @@ export function createVehicleController(config = {}) {
             driveForceNewtons,
             brakeForceNewtons,
             requestedTireForceNewtons,
-            appliedTireForceNewtons,
+            appliedTireForceNewtons: totalLongitudinalTireForceNewtons,
+            totalLongitudinalTireForceNewtons,
+            totalLateralTireForceNewtons,
+            totalTireForceWorldXNewtons,
+            totalTireForceWorldZNewtons,
             rollingResistanceForceNewtons,
+            rollingResistanceForceWorldXNewtons,
+            rollingResistanceForceWorldZNewtons,
             aerodynamicDragForceNewtons,
+            aerodynamicDragForceWorldXNewtons,
+            aerodynamicDragForceWorldZNewtons,
             netLongitudinalForceNewtons,
+            netLateralForceNewtons,
+            netForceWorldXNewtons,
+            netForceWorldZNewtons,
             longitudinalAccelerationMetersPerSecondSquared:
-                netLongitudinalForceNewtons / spec.massKg,
+                netLongitudinalForceNewtons / safeMassKg,
+            lateralAccelerationMetersPerSecondSquared:
+                netLateralForceNewtons / safeMassKg,
+            yawMomentNewtonMeters,
+            yawAccelerationRadiansPerSecondSquared,
             isTractionLimited: tractionLimitedWheelCount > 0,
             tractionLimitedWheelCount,
+        }
+    }
+
+    function calculateWheelChassisLocalTireForces(wheelState) {
+        const steeringAngleRadians = Number.isFinite(
+            wheelState.steeringAngleRadians
+        )
+            ? wheelState.steeringAngleRadians
+            : 0
+        const steeringSin = Math.sin(steeringAngleRadians)
+        const steeringCos = Math.cos(steeringAngleRadians)
+        const wheelLocalForwardForceNewtons = Number.isFinite(
+            wheelState.appliedLongitudinalForceNewtons
+        )
+            ? wheelState.appliedLongitudinalForceNewtons
+            : 0
+        const wheelLocalRightForceNewtons = Number.isFinite(
+            wheelState.appliedLateralTireForceNewtons
+        )
+            ? wheelState.appliedLateralTireForceNewtons
+            : 0
+
+        return {
+            localForwardForceNewtons:
+                wheelLocalForwardForceNewtons * steeringCos -
+                wheelLocalRightForceNewtons * steeringSin,
+            localRightForceNewtons:
+                wheelLocalForwardForceNewtons * steeringSin +
+                wheelLocalRightForceNewtons * steeringCos,
         }
     }
 
@@ -545,30 +674,16 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function calculateTemporaryLateralVelocityDampingAcceleration() {
-        // Temporary stabilization only: a future lateral tire model should
-        // replace this placeholder damping with contact-patch lateral force.
-        return (
-            -state.planarMotion.localLateralVelocityMetersPerSecond *
-            spec.temporaryLateralVelocityDampingPerSecond
-        )
-    }
 
     function updateYawState(dt) {
-        const speedDirection = getSignWithDeadzone(
-            state.planarMotion.localForwardVelocityMetersPerSecond,
-            params.steeringDeadSpeedMetersPerSecond
+        integrateYawAcceleration(
+            state.planarMotion,
+            state.forces.yawAccelerationRadiansPerSecondSquared,
+            spec.yawRateDampingPerSecond,
+            spec.maxYawRateRadiansPerSecond,
+            dt
         )
-
-        const yawRateRadiansPerSecond = speedDirection === 0
-            ? 0
-            : params.turnSpeedRadiansPerSecond *
-                state.steeringInput *
-                speedDirection
-
-        integrateYawRate(state.planarMotion, yawRateRadiansPerSecond, dt)
     }
-
     function updatePosition(dt) {
         integratePlanarPosition(vehicle.position, state.planarMotion, dt)
     }
@@ -712,6 +827,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
             resetWheelLongitudinalTireForceState(wheelState)
+            resetWheelLateralTireForceState(wheelState)
             wheelState.isSlipping = false
             resetWheelBrakeTorqueState(wheelState)
         }
@@ -852,6 +968,12 @@ export function createVehicleController(config = {}) {
         }
     }
 
+    function calculatePerWheelLateralTireForces() {
+        for (const wheelState of state.wheelStates) {
+            calculateWheelLateralTireForce(wheelState)
+        }
+    }
+
     function calculateWheelLongitudinalTireForce(wheelState) {
         if (!wheelState.isGrounded || wheelState.tractionLimitNewtons <= 0) {
             resetWheelLongitudinalTireForceState(wheelState)
@@ -889,10 +1011,17 @@ export function createVehicleController(config = {}) {
         wheelState.isLongitudinalTireForceSaturated =
             uncappedForceMagnitudeNewtons >
             wheelState.tractionLimitNewtons + TRACTION_LIMIT_EPSILON_NEWTONS
+    }
 
-        // Compatibility alias for the driver panel: this now means the simple
-        // longitudinal tire force is friction-saturated, not full tire slip.
-        wheelState.isSlipping = wheelState.isLongitudinalTireForceSaturated
+    function calculateWheelLateralTireForce(wheelState) {
+        updateWheelLateralTireForceState(wheelState, spec)
+
+        // Compatibility alias for the driver panel: this now means the wheel is
+        // saturating in the longitudinal axis, lateral axis, or combined cap.
+        wheelState.isSlipping =
+            wheelState.isLongitudinalTireForceSaturated ||
+            wheelState.isLateralTireForceSaturated ||
+            wheelState.isCombinedTireForceSaturated
     }
 
     function calculateLocalForwardLongitudinalSlipRatio(wheelState) {
@@ -1024,7 +1153,13 @@ export function createVehicleController(config = {}) {
     function calculateTargetRollingAngularVelocity(wheelState) {
         if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
 
-        return state.speedScalar / wheelState.radius
+        const wheelGroundForwardSpeedMetersPerSecond = Number.isFinite(
+            wheelState.wheelLocalForwardVelocityMetersPerSecond
+        )
+            ? wheelState.wheelLocalForwardVelocityMetersPerSecond
+            : state.speedScalar
+
+        return wheelGroundForwardSpeedMetersPerSecond / wheelState.radius
     }
 
     function calculateRollingSurfaceSpeedMetersPerSecond(wheelState) {
@@ -1040,7 +1175,11 @@ export function createVehicleController(config = {}) {
     }
 
     function updateWheelLongitudinalSlipState(wheelState) {
-        const longitudinalGroundSpeedMetersPerSecond = state.speedScalar
+        const longitudinalGroundSpeedMetersPerSecond = Number.isFinite(
+            wheelState.wheelLocalForwardVelocityMetersPerSecond
+        )
+            ? wheelState.wheelLocalForwardVelocityMetersPerSecond
+            : state.speedScalar
         const wheelSurfaceSpeedMetersPerSecond =
             calculateRollingSurfaceSpeedMetersPerSecond(wheelState)
 
@@ -1082,9 +1221,9 @@ export function createVehicleController(config = {}) {
 
         // Positive slip means wheel surface speed exceeds ground speed in the
         // current longitudinal direction; negative slip means the wheel surface
-        // is slower, as in braking or incipient lock. Ground speed is currently
-        // approximated from planar local-forward velocity until per-wheel
-        // contact patch velocity exists.
+        // is slower, as in braking or incipient lock. Ground speed now uses the
+        // wheel contact-patch forward velocity telemetry so steering and yaw do
+        // not collapse every wheel onto the chassis centerline speed.
         const longitudinalSlipRatio =
             (
                 wheelSurfaceSpeedMetersPerSecond -
@@ -1125,6 +1264,19 @@ export function createVehicleController(config = {}) {
         }
 
         updateLateralSlipSummary(state.lateralSlipSummary, state.wheelStates)
+    }
+
+    function updateLateralTireForceSummaryState() {
+        updateLateralTireForceSummary(
+            state.lateralTireForceSummary,
+            state.wheelStates
+        )
+        state.lateralTireForceSummary.totalLateralTireForceNewtons =
+            state.forces.totalLateralTireForceNewtons
+        state.lateralTireForceSummary.yawMomentNewtonMeters =
+            state.forces.yawMomentNewtonMeters
+        state.lateralTireForceSummary.yawAccelerationRadiansPerSecondSquared =
+            state.forces.yawAccelerationRadiansPerSecondSquared
     }
 
     function updateLongitudinalTractionStates() {
@@ -1208,20 +1360,23 @@ export function createVehicleController(config = {}) {
 
     applyTirePressureStateToWheels()
     applyTireInflationVisualState()
+    updateWheelSteeringAngles()
     updateWheelContactStates()
     updateWheelLoadPlaceholderValues()
     calculatePerWheelLongitudinalForces(0)
+    updateLateralSlipTelemetry()
     updateLongitudinalSlipTelemetry()
     calculatePerWheelLongitudinalTireForces()
-    state.forces = calculateLongitudinalForcesFromWheelState()
+    calculatePerWheelLateralTireForces()
+    state.forces = calculatePlanarForcesFromWheelState()
+    updateLateralTireForceSummaryState()
     updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
     updateWheelRotationalStates(0)
     updateYawState(0)
     updatePlanarMotion(0)
     syncVehicleYawFromPlanarState()
-    updateWheelSteeringAngles()
-    updateLongitudinalSlipTelemetry()
     updateLateralSlipTelemetry()
+    updateLongitudinalSlipTelemetry()
     updateLongitudinalTractionStates()
     updateWheelVisualStates()
 
@@ -1361,6 +1516,18 @@ function createWheelRuntimeStates(vehicle, spec) {
             lateralSlipStateReason: 'initial unavailable state',
             isLateralSlipAngleHigh: false,
             lateralSlip: 0,
+            uncappedLateralTireForceNewtons: 0,
+            linearLateralTireForceNewtons: 0,
+            appliedLateralTireForceNewtons: 0,
+            lateralTireForceSaturationRatio: 0,
+            isLateralTireForceSaturated: false,
+            preCombinedAppliedLongitudinalForceNewtons: 0,
+            preCombinedAppliedLateralForceNewtons: 0,
+            combinedTireForceMagnitudeNewtons: 0,
+            combinedTireForceLimitNewtons: 0,
+            combinedTireForceScale01: 1,
+            combinedTireForceSaturationRatio: 0,
+            isCombinedTireForceSaturated: false,
             tirePressureKpa: spec.defaultTirePressureKpa,
             defaultTirePressureKpa: spec.defaultTirePressureKpa,
             minTirePressureKpa: spec.minTirePressureKpa,
@@ -1399,6 +1566,7 @@ function resetWheelRotationalState(wheelState) {
     resetWheelLongitudinalTireForceState(wheelState)
     resetWheelLongitudinalSlipState(wheelState)
     resetWheelLateralSlipAngleState(wheelState)
+    resetWheelLateralTireForceState(wheelState)
     resetWheelBrakeTorqueState(wheelState)
     resetWheelServiceBrakeAbsState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
@@ -1521,10 +1689,24 @@ function createEmptyForceSnapshot() {
         brakeForceNewtons: 0,
         requestedTireForceNewtons: 0,
         appliedTireForceNewtons: 0,
+        totalLongitudinalTireForceNewtons: 0,
+        totalLateralTireForceNewtons: 0,
+        totalTireForceWorldXNewtons: 0,
+        totalTireForceWorldZNewtons: 0,
         rollingResistanceForceNewtons: 0,
+        rollingResistanceForceWorldXNewtons: 0,
+        rollingResistanceForceWorldZNewtons: 0,
         aerodynamicDragForceNewtons: 0,
+        aerodynamicDragForceWorldXNewtons: 0,
+        aerodynamicDragForceWorldZNewtons: 0,
         netLongitudinalForceNewtons: 0,
+        netLateralForceNewtons: 0,
+        netForceWorldXNewtons: 0,
+        netForceWorldZNewtons: 0,
         longitudinalAccelerationMetersPerSecondSquared: 0,
+        lateralAccelerationMetersPerSecondSquared: 0,
+        yawMomentNewtonMeters: 0,
+        yawAccelerationRadiansPerSecondSquared: 0,
         isTractionLimited: false,
         tractionLimitedWheelCount: 0,
     }

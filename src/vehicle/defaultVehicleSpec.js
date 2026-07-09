@@ -61,6 +61,24 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   lateralSlipAngleHighRadians: 0.16,
   lateralSlipMinGroundSpeedMetersPerSecond: 0.75,
 
+  // Basic lateral tire force v1 uses a linear/saturated slip-angle response.
+  // Force is still capped by frictionCoefficient * normalForceNewtons; this is
+  // not Pacejka, a professional tire model, or a full combined-slip curve.
+  lateralTireStiffnessNewtonsPerRadian: 6000,
+  lateralTireForceSaturationEpsilonNewtons: 0.001,
+
+  // Longitudinal and lateral tire force share a simple friction-circle cap.
+  // This respects the existing tractionLimitNewtons only; it does not change
+  // frictionCoefficient, combined-slip curve shape, stability control, or ABS.
+  combinedTireForceCapEnabled: true,
+
+  // Basic yaw-moment foundation from per-wheel tire forces.
+  // This is not a full rigid-body chassis model and still has no suspension or
+  // load transfer.
+  yawMomentOfInertiaKgMeterSquared: 2800,
+  yawRateDampingPerSecond: 1.2,
+  maxYawRateRadiansPerSecond: 3.5,
+
   // Tire pressure currently drives visual/debug state only. It does not change
   // frictionCoefficient, tractionLimitNewtons, tire force, or vehicle dynamics.
   // Future tire-pressure physics may consume these fields explicitly.
@@ -68,8 +86,9 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   minTirePressureKpa: 80,
   maxTirePressureKpa: 340,
 
-  // Temporary planar stabilization until lateral tire forces exist.
-  // This damps local lateral velocity only; it is not a lateral tire model.
+  // Legacy placeholder from the pre-lateral-force stage. Basic lateral tire
+  // force v1 no longer consumes this field, but it remains defined until that
+  // older staging seam is removed explicitly.
   temporaryLateralVelocityDampingPerSecond: 1.2,
 
   // Resistance forces.
