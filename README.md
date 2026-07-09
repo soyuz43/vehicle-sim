@@ -27,9 +27,13 @@ Wheels now carry explicit rotational state used by visual wheel spin. Wheel angu
 Each tire includes a high-contrast visual witness mark attached to the rotating wheel assembly. The mark is a debugging aid for inspecting wheel spin, rolling, braking, and skating artifacts; it does not affect physics.
 
 
-## Service Brake Torque State
+## Brake System Foundation
 
-Each wheel records service brake pressure and brake torque command state. Brake torque now contributes to wheel angular dynamics, while current vehicle braking still uses the existing per-wheel longitudinal force pipeline and scalar acceleration model. This state prepares later wheel lock, ABS, and tire curves.
+The normal service brake and the parking brake are now separate command paths. The service brake remains the `S` brake-pedal input and applies service brake torque to all wheels through the existing braking path. The parking brake is a separate hold input on `Space`, defaults to rear wheels only, and contributes its own parking-brake torque component.
+
+Per-wheel telemetry records service brake pressure, parking brake pressure, requested/applied service brake torque, requested/applied parking brake torque, and total brake torque command magnitude. The existing `brakeTorqueNewtonMeters` field remains the signed wheel torque component consumed by net wheel torque. Brake lock tendency telemetry can identify service-brake versus parking-brake source, but ABS and real wheel-lock control are still future work.
+
+Service brake input continues to drive the brake lights. Parking brake alone is intentionally not treated as the normal brake-light signal in this simulation branch.
 
 
 ## Longitudinal Slip Ratio Telemetry
@@ -56,7 +60,7 @@ Local lateral velocity can now be measured when the vehicle yaws while moving, b
 
 ## Dynamics Sanity Telemetry
 
-The developer debug HUD includes compact local acceleration, tire-force saturation, service brake torque, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add ABS, parking brake, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
+The developer debug HUD includes compact local acceleration, tire-force saturation, service/parking brake torque, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add ABS, brake assist, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
 
 
 ## Tire Inflation Visualization
@@ -75,27 +79,28 @@ The panel does not expose UI controls for friction coefficient, surface friction
 
 ## Longitudinal Traction State
 
-Each wheel now exposes longitudinal traction classification telemetry derived from contact state, slip ratio, tire-force saturation, drive torque, service brake torque, wheel surface speed, and local ground speed. Wheels can classify as `airborne`, `stopped`, `rolling`, `saturated`, `drive_spin`, or `brake_lock_tendency`, and the debug HUD shows a compact aggregate summary.
+Each wheel now exposes longitudinal traction classification telemetry derived from contact state, slip ratio, tire-force saturation, drive torque, service/parking brake torque, wheel surface speed, and local ground speed. Wheels can classify as `airborne`, `stopped`, `rolling`, `saturated`, `drive_spin`, or `brake_lock_tendency`, and the debug HUD shows a compact aggregate summary including service-brake and parking-brake lock-tendency counts.
 
-This is a telemetry/debug foundation only. It does not implement ABS, parking brake behavior, smoke, tire squeal, skid marks, lateral tire forces, combined slip, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, or tire-force calculation.
+This is a telemetry/debug foundation only. It does not implement ABS, brake assist, smoke, tire squeal, skid marks, lateral tire forces, combined slip, suspension, or load transfer. It does not change friction, tire pressure behavior, traction limits, or tire-force calculation.
 
 
 ## Tire Slip Visual Feedback
 
 A separate tire slip feedback overlay reads longitudinal traction state telemetry and shows simple ground-oriented visual markers for rolling, saturation, drive spin, and brake-lock tendency. These visuals are independent from tire inflation contact-patch scaling, and they do not rotate with tire tread or affect wheel physics.
 
-The feedback is visual/debug only. It does not change tire force, friction, traction limits, tire pressure behavior, ABS, parking brake behavior, suspension, load transfer, combined slip, or lateral dynamics. Tire squeal audio, richer smoke, and persistent skid marks remain future work.
+The feedback is visual/debug only. It does not change tire force, friction, traction limits, tire pressure behavior, ABS, service/parking brake commands, suspension, load transfer, combined slip, or lateral dynamics. Tire squeal audio, richer smoke, and persistent skid marks remain future work.
 
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, richer tire models, and load transfer without implementing those systems yet.
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, richer tire models, and load transfer without implementing those systems yet.
 
 
 ## Controls
 
 - `W` applies throttle.
-- `S` applies brake.
+- `S` applies the service brake.
+- `Space` holds the parking brake.
 - `A` / `D` steer.
 - `[` shifts the selector down: Drive → Neutral → Reverse.
 - `]` shifts the selector up: Reverse → Neutral → Drive.

@@ -28,6 +28,8 @@ export function createTractionStateSummary() {
     saturatedWheelCount: 0,
     driveSpinningWheelCount: 0,
     brakeLockTendencyWheelCount: 0,
+    serviceBrakeLockTendencyWheelCount: 0,
+    parkingBrakeLockTendencyWheelCount: 0,
     maxAbsLongitudinalSlipRatio: 0,
     maxLongitudinalTireForceSaturationRatio: 0,
     dominantLongitudinalTractionState: LONGITUDINAL_TRACTION_STATES.STOPPED,
@@ -42,6 +44,8 @@ export function resetTractionStateSummary(tractionStateSummary) {
   tractionStateSummary.saturatedWheelCount = 0
   tractionStateSummary.driveSpinningWheelCount = 0
   tractionStateSummary.brakeLockTendencyWheelCount = 0
+  tractionStateSummary.serviceBrakeLockTendencyWheelCount = 0
+  tractionStateSummary.parkingBrakeLockTendencyWheelCount = 0
   tractionStateSummary.maxAbsLongitudinalSlipRatio = 0
   tractionStateSummary.maxLongitudinalTireForceSaturationRatio = 0
   tractionStateSummary.dominantLongitudinalTractionState =
@@ -100,6 +104,9 @@ export function updateWheelLongitudinalTractionState(
   wheelState.isWheelStopped = false
   wheelState.isDriveWheelSpinning = false
   wheelState.isBrakeLockTendency = false
+  wheelState.brakeLockTendencySource = 'none'
+  wheelState.isServiceBrakeLockTendency = false
+  wheelState.isParkingBrakeLockTendency = false
   wheelState.isLongitudinalTractionSaturated = false
   wheelState.tractionStateSeverity01 = 0
 
@@ -132,8 +139,16 @@ export function updateWheelLongitudinalTractionState(
     wheelState.driveTorqueNewtonMeters
   )
   const serviceBrakeTorqueNewtonMeters = sanitizeNumber(
-    wheelState.appliedBrakeTorqueNewtonMeters
+    wheelState.appliedServiceBrakeTorqueNewtonMeters
   )
+  const parkingBrakeTorqueNewtonMeters = sanitizeNumber(
+    wheelState.appliedParkingBrakeTorqueNewtonMeters
+  )
+  const totalBrakeTorqueNewtonMeters = Number.isFinite(
+    wheelState.totalBrakeTorqueNewtonMeters
+  )
+    ? wheelState.totalBrakeTorqueNewtonMeters
+    : sanitizeNumber(wheelState.appliedBrakeTorqueNewtonMeters)
   const driveTorqueDirection = Math.sign(driveTorqueNewtonMeters)
   const wheelSurfaceDirection = Math.sign(wheelSurfaceSpeedMetersPerSecond)
   const driveTorqueIsMeaningful =
@@ -163,7 +178,7 @@ export function updateWheelLongitudinalTractionState(
   }
 
   const brakeTorqueIsMeaningful =
-    serviceBrakeTorqueNewtonMeters > TORQUE_EPSILON_NEWTON_METERS
+    totalBrakeTorqueNewtonMeters > TORQUE_EPSILON_NEWTON_METERS
   const brakeLockSpeedConditions =
     groundSpeedAbsMetersPerSecond >=
       brakeLockGroundSpeedThresholdMetersPerSecond &&
@@ -176,6 +191,13 @@ export function updateWheelLongitudinalTractionState(
 
   if (brakeTorqueIsMeaningful && brakeLockSpeedConditions) {
     wheelState.isBrakeLockTendency = true
+    wheelState.isServiceBrakeLockTendency =
+      serviceBrakeTorqueNewtonMeters > TORQUE_EPSILON_NEWTON_METERS
+    wheelState.isParkingBrakeLockTendency =
+      parkingBrakeTorqueNewtonMeters > TORQUE_EPSILON_NEWTON_METERS
+    wheelState.brakeLockTendencySource = selectBrakeLockTendencySource(
+      wheelState
+    )
     wheelState.tractionStateSeverity01 = clamp01(
       Math.max(
         longitudinalSlipRatioAbs /
@@ -258,6 +280,14 @@ export function updateLongitudinalTractionStateSummary(
       tractionStateSummary.brakeLockTendencyWheelCount += 1
     }
 
+    if (wheelState.isServiceBrakeLockTendency) {
+      tractionStateSummary.serviceBrakeLockTendencyWheelCount += 1
+    }
+
+    if (wheelState.isParkingBrakeLockTendency) {
+      tractionStateSummary.parkingBrakeLockTendencyWheelCount += 1
+    }
+
     tractionStateSummary.maxAbsLongitudinalSlipRatio = Math.max(
       tractionStateSummary.maxAbsLongitudinalSlipRatio,
       Math.abs(sanitizeNumber(wheelState.longitudinalSlipRatioAbs))
@@ -275,6 +305,19 @@ export function updateLongitudinalTractionStateSummary(
   return tractionStateSummary
 }
 
+function selectBrakeLockTendencySource(wheelState) {
+  if (
+    wheelState.isServiceBrakeLockTendency &&
+    wheelState.isParkingBrakeLockTendency
+  ) {
+    return 'service_and_parking_brake'
+  }
+
+  if (wheelState.isParkingBrakeLockTendency) return 'parking_brake'
+  if (wheelState.isServiceBrakeLockTendency) return 'service_brake'
+
+  return 'none'
+}
 function setWheelTractionState(wheelState, stateName, reason) {
   wheelState.longitudinalTractionState = stateName
   wheelState.longitudinalTractionStateReason = reason
