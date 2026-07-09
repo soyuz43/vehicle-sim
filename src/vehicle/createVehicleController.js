@@ -11,6 +11,11 @@ import {
     resetPlanarMotionState,
     setPlanarLocalVelocity,
 } from './dynamics/planarMotion.js'
+import {
+    calculateTireInflationNormalized01,
+    createTirePressureState,
+    updateTirePressureState,
+} from './dynamics/tireInflationVisualState.js'
 
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
@@ -90,6 +95,7 @@ export function createVehicleController(config = {}) {
         worldVelocityMetersPerSecond: velocity,
     })
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
+    const tirePressureState = createTirePressureState(spec)
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
@@ -101,6 +107,7 @@ export function createVehicleController(config = {}) {
         steeringInput: 0,
         planarMotion,
         wheelStates,
+        tirePressureState,
         forces: createEmptyForceSnapshot(),
     }
 
@@ -252,7 +259,35 @@ export function createVehicleController(config = {}) {
                 state.forces.longitudinalAccelerationMetersPerSecondSquared,
             forces: state.forces,
             wheelStates: state.wheelStates,
+            tirePressureState: state.tirePressureState,
+            tirePressureKpa: state.tirePressureState.tirePressureKpa,
+            tireInflationNormalized01:
+                state.tirePressureState.tireInflationNormalized01,
+            visualTireDeflectionRatio:
+                state.tirePressureState.visualTireDeflectionRatio,
+            visualContactPatchScale:
+                state.tirePressureState.visualContactPatchScale,
         }
+    }
+
+    function setTirePressureKpa(nextTirePressureKpa) {
+        updateTirePressureState(
+            state.tirePressureState,
+            nextTirePressureKpa,
+            spec
+        )
+        applyTirePressureStateToWheels()
+        applyTireInflationVisualState()
+
+        return getTirePressureState()
+    }
+
+    function resetTirePressure() {
+        return setTirePressureKpa(spec.defaultTirePressureKpa)
+    }
+
+    function getTirePressureState() {
+        return state.tirePressureState
     }
 
     function readInput(input) {
@@ -469,6 +504,32 @@ export function createVehicleController(config = {}) {
     function syncSpeedScalarFromPlanarState() {
         state.speedScalar =
             state.planarMotion.localForwardVelocityMetersPerSecond
+    }
+
+    function applyTirePressureStateToWheels() {
+        for (const wheelState of state.wheelStates) {
+            wheelState.tirePressureKpa = state.tirePressureState.tirePressureKpa
+            wheelState.defaultTirePressureKpa =
+                state.tirePressureState.defaultTirePressureKpa
+            wheelState.minTirePressureKpa =
+                state.tirePressureState.minTirePressureKpa
+            wheelState.maxTirePressureKpa =
+                state.tirePressureState.maxTirePressureKpa
+            wheelState.tireInflationNormalized01 =
+                state.tirePressureState.tireInflationNormalized01
+            wheelState.visualTireDeflectionRatio =
+                state.tirePressureState.visualTireDeflectionRatio
+            wheelState.visualContactPatchScale.width =
+                state.tirePressureState.visualContactPatchScale.width
+            wheelState.visualContactPatchScale.length =
+                state.tirePressureState.visualContactPatchScale.length
+        }
+    }
+
+    function applyTireInflationVisualState() {
+        vehicle.userData.vehicle?.setTireInflationVisualState?.(
+            state.tirePressureState
+        )
     }
 
     function updateWheelContactStates() {
@@ -982,6 +1043,8 @@ export function createVehicleController(config = {}) {
         return forceNewtons
     }
 
+    applyTirePressureStateToWheels()
+    applyTireInflationVisualState()
     updateWheelContactStates()
     updateWheelLoadPlaceholderValues()
     calculatePerWheelLongitudinalForces()
@@ -1001,6 +1064,9 @@ export function createVehicleController(config = {}) {
         shiftGearDown,
         shiftGearUp,
         setGear,
+        setTirePressureKpa,
+        resetTirePressure,
+        getTirePressureState,
         getSnapshot,
     }
 }
@@ -1088,12 +1154,29 @@ function createWheelRuntimeStates(vehicle, spec) {
             hasLongitudinalSlipSample: false,
             longitudinalSlip: 0,
             lateralSlip: 0,
+            tirePressureKpa: spec.defaultTirePressureKpa,
+            defaultTirePressureKpa: spec.defaultTirePressureKpa,
+            minTirePressureKpa: spec.minTirePressureKpa,
+            maxTirePressureKpa: spec.maxTirePressureKpa,
+            tireInflationNormalized01:
+                calculateTireInflationNormalized01(
+                    spec.defaultTirePressureKpa,
+                    spec
+                ),
+            visualTireDeflectionRatio: 0,
+            visualContactPatchScale: {
+                width: 1,
+                length: 1,
+            },
             visual: {
                 pivot: visualNodes.pivot
                     ? vehicle.getObjectByName(visualNodes.pivot)
                     : null,
                 rollingAssembly: visualNodes.rollingAssembly
                     ? vehicle.getObjectByName(visualNodes.rollingAssembly)
+                    : null,
+                contactPatch: visualNodes.contactPatch
+                    ? vehicle.getObjectByName(visualNodes.contactPatch)
                     : null,
             },
         }

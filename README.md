@@ -59,6 +59,13 @@ Local lateral velocity can now be measured when the vehicle yaws while moving, b
 The developer debug HUD includes compact local acceleration, tire-force saturation, service brake torque, yaw-rate, slip-ratio, and planar velocity telemetry for checking longitudinal, braking, and yaw sign conventions. These diagnostics do not add ABS, parking brake, load transfer, suspension, lateral tire forces, or player-facing tuning controls.
 
 
+## Tire Inflation Visualization
+
+A developer-only tire inflation panel exposes visual tire pressure state in kPa. The current tire pressure setting changes contact-patch presentation only: underinflated values make the visual patch wider/longer, and overinflated values make it smaller. This is a visual/debug foundation, not tire-pressure physics.
+
+Tire pressure does not alter `frictionCoefficient`, `tractionLimitNewtons`, longitudinal tire force, tire stiffness, rolling resistance, wheel inertia, or vehicle dynamics in this branch. Friction remains a tire/surface/material definition in code/data, not a magic live UI control. Future tire-pressure physics may explicitly affect tire stiffness, effective rolling radius, contact patch behavior, rolling resistance, heat, or deformation.
+
+
 ## Longitudinal Force Pipeline
 
 Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied longitudinal force now comes from each wheel's capped slip-ratio tire force instead of directly clamping the driver force request. The summed applied wheel force still feeds the existing scalar longitudinal acceleration model. This establishes extension points for later brake bias, ABS, parking brake requests, richer tire models, and load transfer without implementing those systems yet.

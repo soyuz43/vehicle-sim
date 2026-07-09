@@ -31,6 +31,13 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // this is not a Pacejka or combined-slip tire model.
   longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
 
+  // Tire pressure currently drives visual/debug state only. It does not change
+  // frictionCoefficient, tractionLimitNewtons, tire force, or vehicle dynamics.
+  // Future tire-pressure physics may consume these fields explicitly.
+  defaultTirePressureKpa: 220,
+  minTirePressureKpa: 80,
+  maxTirePressureKpa: 340,
+
   // Temporary planar stabilization until lateral tire forces exist.
   // This damps local lateral velocity only; it is not a lateral tire model.
   temporaryLateralVelocityDampingPerSecond: 1.2,

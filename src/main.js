@@ -8,6 +8,7 @@ import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
 import { createGearIndicator } from './ui/gearIndicator/createGearIndicator.js'
+import { createTireInflationPanel } from './ui/tireInflationPanel/createTireInflationPanel.js'
 import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
 
 /* =========================
@@ -136,6 +137,19 @@ const gearIndicator = createGearIndicator({
   initialGear: vehicleController.getSnapshot().gear,
 })
 
+const tireInflationPanel = createTireInflationPanel({
+  parent: document.body,
+  initialTirePressureState: vehicleController.getTirePressureState(),
+  onTirePressureKpaChange: (nextTirePressureKpa) => {
+    vehicleController.setTirePressureKpa(nextTirePressureKpa)
+    updateTireInflationPanel()
+  },
+  onReset: () => {
+    vehicleController.resetTirePressure()
+    updateTireInflationPanel()
+  },
+})
+
 /* =========================
    Keyboard Input
 ========================= */
@@ -187,6 +201,7 @@ function resetCar() {
   cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
   updateDebugHud(0, fixedSimulationRunner.getSnapshot())
   updateGearIndicator()
+  updateTireInflationPanel()
 }
 
 /* =========================
@@ -262,6 +277,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
       vehicleSnapshot.longitudinalAcceleration,
     forces: vehicleSnapshot.forces,
     wheelStates: vehicleSnapshot.wheelStates,
+    tirePressureState: vehicleSnapshot.tirePressureState,
     terrainSize: terrainInfo.size,
     outsideTerrain,
   })
@@ -271,6 +287,10 @@ function updateGearIndicator() {
   const vehicleSnapshot = vehicleController.getSnapshot()
 
   gearIndicator.update(createDriverTelemetrySnapshot(vehicleSnapshot))
+}
+
+function updateTireInflationPanel() {
+  tireInflationPanel.update(vehicleController.getTirePressureState())
 }
 
 /* =========================
