@@ -31,6 +31,14 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // this is not a Pacejka or combined-slip tire model.
   longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
 
+  // Longitudinal traction-state thresholds classify/debug wheel behavior only.
+  // They do not change tire force, friction, ABS, parking brake, or traction caps.
+  tractionSlipRatioWarningThreshold: 0.08,
+  tractionSlipRatioSaturationThreshold: 0.18,
+  brakeLockGroundSpeedThresholdMetersPerSecond: 0.5,
+  brakeLockWheelSurfaceSpeedThresholdMetersPerSecond: 0.25,
+  driveSpinSlipRatioThreshold: 0.12,
+
   // Tire pressure currently drives visual/debug state only. It does not change
   // frictionCoefficient, tractionLimitNewtons, tire force, or vehicle dynamics.
   // Future tire-pressure physics may consume these fields explicitly.

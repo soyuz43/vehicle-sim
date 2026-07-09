@@ -21,6 +21,13 @@ import {
     resetDynamicsTuningState,
     updateDynamicsTuningState,
 } from './dynamics/dynamicsTuningState.js'
+import {
+    LONGITUDINAL_TRACTION_STATES,
+    createTractionStateSummary,
+    resetTractionStateSummary,
+    updateLongitudinalTractionStateSummary,
+    updateWheelLongitudinalTractionState,
+} from './dynamics/longitudinalTractionState.js'
 
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
@@ -102,6 +109,7 @@ export function createVehicleController(config = {}) {
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
     const tirePressureState = createTirePressureState(spec)
     const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
+    const tractionStateSummary = createTractionStateSummary()
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
@@ -115,6 +123,7 @@ export function createVehicleController(config = {}) {
         wheelStates,
         tirePressureState,
         dynamicsTuning,
+        tractionStateSummary,
         forces: createEmptyForceSnapshot(),
     }
 
@@ -138,6 +147,8 @@ export function createVehicleController(config = {}) {
         syncVehicleYawFromPlanarState()
         updateWheelContactStates()
         updateWheelLoadPlaceholderValues()
+        updateLongitudinalSlipTelemetry()
+    updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -150,6 +161,7 @@ export function createVehicleController(config = {}) {
         state.brakeInput = 0
         state.steeringInput = 0
         state.forces = createEmptyForceSnapshot()
+        resetTractionStateSummary(state.tractionStateSummary)
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
         })
@@ -173,6 +185,7 @@ export function createVehicleController(config = {}) {
             wheelState.surfaceKind = 'flat-asphalt-placeholder'
             wheelState.isGrounded = true
             wheelState.isSlipping = false
+            resetWheelLongitudinalTractionState(wheelState)
 
             applyWheelVisualState(wheelState)
         }
@@ -189,6 +202,8 @@ export function createVehicleController(config = {}) {
         updateWheelRotationalStates(0)
         updateYawState(0)
         updatePlanarMotion(0)
+        updateLongitudinalSlipTelemetry()
+    updateLongitudinalTractionStates()
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -275,6 +290,7 @@ export function createVehicleController(config = {}) {
             visualContactPatchScale:
                 state.tirePressureState.visualContactPatchScale,
             dynamicsTuning: state.dynamicsTuning,
+            tractionStateSummary: state.tractionStateSummary,
         }
     }
 
@@ -1018,6 +1034,17 @@ export function createVehicleController(config = {}) {
         return wheelSurfaceSpeedDirection !== 0 ? wheelSurfaceSpeedDirection : 1
     }
 
+    function updateLongitudinalTractionStates() {
+        for (const wheelState of state.wheelStates) {
+            updateWheelLongitudinalTractionState(wheelState, spec)
+        }
+
+        updateLongitudinalTractionStateSummary(
+            state.tractionStateSummary,
+            state.wheelStates
+        )
+    }
+
     function updateWheelVisualStates() {
         for (const wheelState of state.wheelStates) {
             wheelState.steeringAngleRadians = wheelState.steerable
@@ -1091,6 +1118,8 @@ export function createVehicleController(config = {}) {
     updateYawState(0)
     updatePlanarMotion(0)
     syncVehicleYawFromPlanarState()
+    updateLongitudinalSlipTelemetry()
+    updateLongitudinalTractionStates()
     updateWheelVisualStates()
 
     return {
@@ -1171,6 +1200,14 @@ function createWheelRuntimeStates(vehicle, spec) {
             rollingConstraintCorrectionTorqueNewtonMeters: 0,
             netTorqueNewtonMeters: 0,
             isWheelLocked: false,
+            longitudinalTractionState: LONGITUDINAL_TRACTION_STATES.STOPPED,
+            longitudinalTractionStateReason: 'initial resting state',
+            isLongitudinalTractionSaturated: false,
+            isDriveWheelSpinning: false,
+            isBrakeLockTendency: false,
+            isWheelStopped: true,
+            isWheelAirborne: false,
+            tractionStateSeverity01: 0,
             isGrounded: true,
             isSlipping: false,
             surfaceKind: 'flat-asphalt-placeholder',
@@ -1236,6 +1273,7 @@ function resetWheelRotationalState(wheelState) {
     wheelState.rollingConstraintCorrectionTorqueNewtonMeters = 0
     wheelState.netTorqueNewtonMeters = 0
     wheelState.isWheelLocked = false
+    resetWheelLongitudinalTractionState(wheelState)
 }
 
 function resetWheelLongitudinalTireForceState(wheelState) {
@@ -1265,6 +1303,18 @@ function resetWheelServiceBrakeTorqueState(wheelState) {
     wheelState.requestedBrakeTorqueNewtonMeters = 0
     wheelState.appliedBrakeTorqueNewtonMeters = 0
     wheelState.brakeTorqueNewtonMeters = 0
+}
+
+function resetWheelLongitudinalTractionState(wheelState) {
+    wheelState.longitudinalTractionState =
+        LONGITUDINAL_TRACTION_STATES.STOPPED
+    wheelState.longitudinalTractionStateReason = 'reset resting state'
+    wheelState.isLongitudinalTractionSaturated = false
+    wheelState.isDriveWheelSpinning = false
+    wheelState.isBrakeLockTendency = false
+    wheelState.isWheelStopped = true
+    wheelState.isWheelAirborne = false
+    wheelState.tractionStateSeverity01 = 0
 }
 
 function applyWheelVisualState(wheelState) {
