@@ -515,6 +515,10 @@ function formatBrakeTorqueTelemetry(wheelStates) {
   let maxServiceBrakeTorqueNewtonMeters = 0
   let maxParkingBrakeTorqueNewtonMeters = 0
   let maxTotalBrakeTorqueNewtonMeters = 0
+  let frontServiceBrakeTorqueSumNewtonMeters = 0
+  let rearServiceBrakeTorqueSumNewtonMeters = 0
+  let frontWheelCount = 0
+  let rearWheelCount = 0
 
   for (const wheelState of wheelStates) {
     const serviceBrakePressure01 = Number.isFinite(wheelState.serviceBrakePressure01)
@@ -559,10 +563,19 @@ function formatBrakeTorqueTelemetry(wheelStates) {
       maxTotalBrakeTorqueNewtonMeters,
       totalBrakeTorqueNewtonMeters
     )
+
+    if (wheelState.axle === 'front') {
+      frontServiceBrakeTorqueSumNewtonMeters += serviceBrakeTorqueNewtonMeters
+      frontWheelCount++
+    } else {
+      rearServiceBrakeTorqueSumNewtonMeters += serviceBrakeTorqueNewtonMeters
+      rearWheelCount++
+    }
   }
 
   return [
     `svc ${formatNumber(maxServiceBrakePressure01)} p / ${formatNumber(maxServiceBrakeTorqueNewtonMeters, 0)} N*m`,
+    `bias F${formatNumber(frontServiceBrakeTorqueSumNewtonMeters, 0)} R${formatNumber(rearServiceBrakeTorqueSumNewtonMeters, 0)} N*m`,
     `park ${formatNumber(maxParkingBrakePressure01)} p / ${formatNumber(maxParkingBrakeTorqueNewtonMeters, 0)} N*m`,
     `total ${formatNumber(maxTotalBrakeTorqueNewtonMeters, 0)} N*m`,
   ].join(' / ')

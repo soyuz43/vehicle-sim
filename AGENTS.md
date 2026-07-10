@@ -16,7 +16,11 @@
 - **Line Endings**: All source files use **LF**.
   - *Action*: When using text replacement scripts, ensure anchors match LF. Do not assume CRLF.
 - **Patch Strategy**:
-  - If `apply_patch` fails on an existing file, **switch immediately** to PowerShell text replacement (`[System.IO.File]::ReadAllText` → `.Replace()` → `WriteAllText`).
+  - If `apply_patch` fails on an existing file, switch immediately to a simple, exact text replacement strategy.
+  - Prefer replacing one complete, clearly anchored block at a time.
+  - Before writing, verify the old text occurs exactly once.
+  - After writing, immediately run `npm run build` or a targeted syntax/build check when editing JavaScript structure.
+  - Do not perform broad line-index rewrites unless explicitly recovering a file and comparing against `git diff`.
   - **Do not** retry `apply_patch` more than once on the same file.
 - **Search Tools**:
   - **PREFER**: `rg` (ripgrep).
@@ -122,6 +126,97 @@ For repository reconnaissance:
 - Keep output proportional to the requested scope.
 - Stop once the requested objective has been satisfied rather than maximizing repository traversal.
 
+### 2.2 Source Editing & Recovery Discipline
+
+These rules exist to prevent automated edits from corrupting source structure. Correctness and recoverability are more important than preserving every partial edit.
+
+#### General Editing Policy
+
+- Make the smallest source edit that satisfies the current objective.
+- Prefer replacing one complete, clearly bounded block at a time.
+- Prefer function-level or object-literal-level replacements over scattered line-index edits.
+- Do not rewrite an entire large file unless explicitly instructed.
+- Do not move helper functions across module or factory-function boundaries unless the diff clearly requires it.
+- Do not mix unrelated concerns in one edit pass. For example, do not edit controller physics, HUD formatting, and README wording in the same recovery step.
+
+#### Exact Replacement Safety
+
+When using PowerShell, Python, or any script-based text replacement:
+
+- Verify the target text occurs exactly once before replacing it.
+- If the target text occurs zero times, stop and inspect the current file instead of guessing.
+- If the target text occurs more than once, narrow the anchor before replacing.
+- After writing the file, immediately inspect the changed region with `git diff -- <path>`.
+- Never assume a replacement succeeded because the command produced no output.
+- Never continue implementation on top of a failed or uncertain replacement.
+
+#### JavaScript Structure Safety
+
+When editing JavaScript source:
+
+- Preserve existing function boundaries unless intentionally changing them.
+- Do not duplicate function declarations.
+- Do not leave nested duplicate declarations such as `function x() { function x() {`.
+- Do not introduce helper functions inside another function unless the original file already uses that pattern intentionally.
+- Preserve module-level helper placement.
+- Preserve exported function structure.
+- Preserve file path header comments.
+- Keep template literals intact. Do not replace backticks with plain text.
+- If a build error points to syntax, fix syntax before doing any feature validation.
+
+#### Line-Index Editing
+
+Line-index editing is fragile and should be avoided.
+
+- Do not use line numbers as the primary edit mechanism unless no reliable text anchor exists.
+- If line-index editing is used, first print the surrounding lines and confirm the target manually.
+- After a line-index edit, immediately run `git diff -- <path>` and inspect the resulting hunk.
+- Do not perform multiple line-index edits in different regions before checking the diff.
+- If line numbers shift during editing, stop and re-read the target region.
+
+#### Build Recovery Priority
+
+If `npm run build` fails after source edits:
+
+1. Stop feature work.
+2. Stop README/HUD polish.
+3. Inspect the build error.
+4. Inspect `git diff -- <changed-file>`.
+5. Fix the smallest syntax or structure issue first.
+6. Rerun `npm run build`.
+7. Continue only after the build passes.
+
+Do not run behavior validation while the project does not build.
+
+#### Structural Corruption Recovery
+
+If source structure appears corrupted, such as duplicated functions, misplaced braces, broken template literals, or helper functions moved outside their intended scope:
+
+- Pause feature work.
+- Do not commit.
+- Do not push.
+- Do not continue adding behavior.
+- Compare the corrupted file against `HEAD` with `git diff -- <path>`.
+- Restore the original function/module boundary before preserving feature edits.
+- If the file cannot be repaired confidently, restore that file from `HEAD` and reapply only the necessary feature changes in smaller edits.
+- After recovery, run:
+  - `npm run build`
+  - `git diff --check`
+  - `git diff -- <path>`
+
+#### Recovery Reporting
+
+After recovering from source corruption, report:
+
+- what was corrupted
+- what file or region was restored
+- what feature edits were preserved or discarded
+- whether `npm run build` passes
+- whether `git diff --check` passes
+- whether implementation may continue
+
+Do not claim the feature is complete merely because syntax was recovered.
+
 ## 3. Architectural Direction & Staging
 We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
 
@@ -141,10 +236,11 @@ We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
 13. [ ] Suspension & Weight Transfer
 
 ### Design Prohibitions (Unless Explicitly Requested)
-- **No Premature Physics**: Do not implement ABS, Parking Brake, Brake Bias, or Load Transfer before the underlying torque/slip models exist. Create *seams* for them, but do not implement the logic.
+- **No Premature Physics**: Do not implement the next realism layer until its prerequisites exist. If a system already exists in `src/vehicle`, preserve and extend it according to the current code rather than treating older roadmap text as authoritative.
 - **No Gameplay Creep**: No laps, scores, or AI.
 - **No "Magic" Numbers**: Do not tune mass, drag, or friction to "feel good" if it breaks physical consistency. Tune for realism first.
 - **No Dependency Bloat**: Use only Three.js and standard JS APIs. Ask before adding any new package.
+- **Current Code Wins**: Roadmap text may lag behind implementation. Verify current source before deciding whether a system exists or is prohibited.
 
 ## 4. Hard Simulation Conventions
 - **Units**:
@@ -169,7 +265,7 @@ We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
 
 ## 5. Code Style & Module Structure
 - **Orchestration**: `src/main.js` is for wiring only. It should not contain physics logic.
-- **Modularity**: Prefer narrow, single-responsibility modules (e.g., `createFixedTimestepRunner.js`, `createFlatTerrainContactQuery.js`).
+- **Modularity**: Prefer professional, comprehensive, but narrowly scoped single-responsibility modules (e.g., `createFixedTimestepRunner.js`, `createFlatTerrainContactQuery.js`).
 - **Comments**:
   - Preserve file path headers: `// src/vehicle/createVehicleController.js`
   - **Honesty Policy**: Clearly label placeholders.
