@@ -217,6 +217,20 @@ After recovering from source corruption, report:
 
 Do not claim the feature is complete merely because syntax was recovered.
 
+## 2.3 PowerShell / Windows Command Discipline
+
+When running commands in Windows PowerShell or PowerShell 7:
+
+- Prefer `rg -n "pattern" src/ui src/vehicle src/car` over shell-style path globs like `src/ui/*.js`.
+- For ripgrep file filtering, use `-g "*.js"` instead of relying on shell glob expansion.
+- Do not treat a failed inspection command as evidence about the code. Correct the command and rerun it.
+- Use `Get-Content -Raw <path>` when reading a whole file.
+- Use `Get-Content <path> | Select-Object -Index (start..end)` only for read-only inspection snippets, not for editing.
+- For multi-line Node or validation scripts, prefer writing a temporary script outside the repo, such as under `C:\temp`, then run it and delete it if needed.
+- Do not leave temporary scripts, recovery scripts, or generated inspection files in the repository.
+- If `git fetch` fails only because the sandbox cannot write `.git/FETCH_HEAD`, verify refs with `git rev-parse main origin/main HEAD` and report the sandbox limitation accurately.
+
+
 ## 3. Architectural Direction & Staging
 We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
 
