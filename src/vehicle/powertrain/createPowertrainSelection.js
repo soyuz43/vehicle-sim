@@ -17,6 +17,12 @@ import {
   TRANSMISSION_PROFILE_BY_ID,
 } from './createTransmissionProfiles.js'
 
+import {
+  deriveStockEngineCatalogTelemetry,
+  findStockEngineCatalogEntryById,
+  findStockEngineCatalogEntryByLinkedProfileId,
+} from './createStockEngineCatalog.js'
+
 export { DEFAULT_ENGINE_ID, DEFAULT_TRANSMISSION_ID }
 
 function normalizeProfileId(value) {
@@ -60,7 +66,24 @@ function createEngineSnapshot(engineProfile) {
     engineRotationalInertiaKgMeterSquared:
       engineProfile.engineRotationalInertiaKgMeterSquared,
     torqueCurveSampleCount: engineProfile.torqueCurveSamples.length,
+    stockEngineCatalogTelemetry: createStockEngineCatalogTelemetry(engineProfile),
   }
+}
+
+export function createStockEngineCatalogTelemetry(engineProfile) {
+  if (!engineProfile) {
+    return deriveStockEngineCatalogTelemetry(null)
+  }
+
+  const explicitCatalogId =
+    typeof engineProfile.stockEngineCatalogId === 'string'
+      ? engineProfile.stockEngineCatalogId
+      : ''
+  const entry =
+    findStockEngineCatalogEntryById(explicitCatalogId) ??
+    findStockEngineCatalogEntryByLinkedProfileId(engineProfile.engineId)
+
+  return deriveStockEngineCatalogTelemetry(entry)
 }
 
 function createTransmissionSnapshot(transmissionProfile) {

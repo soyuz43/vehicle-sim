@@ -67,6 +67,7 @@ import {
 
 import {
     createPowertrainSnapshot,
+    createStockEngineCatalogTelemetry,
     selectEngineProfile,
     selectTransmissionProfile,
 } from './powertrain/createPowertrainSelection.js'
@@ -430,6 +431,9 @@ export function createVehicleController(config = {}) {
                 state.transmissionProfile
             ),
             powertrainKinematics: state.powertrainKinematics,
+            stockEngineCatalogTelemetry: createStockEngineCatalogTelemetry(
+                state.engineProfile
+            ),
         }
     }
 
