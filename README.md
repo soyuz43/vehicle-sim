@@ -102,6 +102,11 @@ Each grounded wheel now derives dynamic `normalForceNewtons` from a quasi-static
 The debug HUD now also prints a compact per-wheel load distribution line (e.g. `Load distribution: FL 27% FR 27% RL 23% RR 23% | F/R 54/46`). This is telemetry only: it reads the existing per-wheel `normalForceNewtons` and renders finite, clamped percentages plus a front/rear split. It does not change load transfer, normal force, traction limits, or any other physics.
 
 
+## G-Force HUD v1
+
+The debug HUD now prints a compact G-force line derived from existing planar acceleration telemetry: `G-force: long +0.42g / lat -0.08g / total 0.43g`. It converts the existing local forward/lateral planar accelerations (`planarAccelerationLocalForwardMetersPerSecondSquared`, `planarAccelerationLocalLateralMetersPerSecondSquared`) into G units with the shared `EARTH_GRAVITY.standardMetersPerSecondSquared` constant, clamps and sanitizes each axis, and reports the vector magnitude as the total. Missing or non-finite telemetry falls back to `G-force: unavailable`.
+
+This is telemetry only. It reads simulation state; it does not create new physics state, and it does not change forces, braking, steering, powertrain, tire pressure, tire visuals, load transfer, or vehicle motion, nor does it alter the fixed timestep.
 ## Dynamics Sanity Telemetry
 
 The developer debug HUD includes compact local/world acceleration, tire-force saturation, lateral tire-force, combined-cap, service/parking brake torque, service-brake ABS state, yaw-rate, yaw-acceleration, yaw-moment, longitudinal slip-ratio, lateral slip-angle, planar velocity, load-transfer, and tire-pressure handling telemetry for checking longitudinal, lateral, braking, yaw, normal-force, and pressure-response sign conventions. These diagnostics do not add brake assist, suspension, traction control, stability control, or player-facing tuning controls.
