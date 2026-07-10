@@ -126,6 +126,7 @@ export function createDebugHud(config = {}) {
     const loadTransferSummary = snapshot.loadTransferSummary ?? {}
     const tirePressureHandlingSummary = snapshot.tirePressureHandlingSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
+    const vehicleDynamicsStepTrace = snapshot.vehicleDynamicsStepTrace ?? {}
 
     const powertrain = snapshot.powertrain ?? {}
     const powertrainKinematics = snapshot.powertrainKinematics ?? {}
@@ -173,6 +174,7 @@ export function createDebugHud(config = {}) {
       `Planar accel XYZ: ${formatVector3(snapshot.planarAccelerationWorldMetersPerSecondSquared)} m/s²`,
       '',
       `G-force: ${formatGForceTelemetry(snapshot)}`,
+      `Dynamics trace: ${formatVehicleDynamicsStepTraceTelemetry(vehicleDynamicsStepTrace)}`,
       `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
       `Brake force: ${formatNumber(forces.brakeForceNewtons)} N`,
       `Brake torque: ${formatBrakeTorqueTelemetry(wheelStates)}`,
@@ -280,6 +282,28 @@ function formatDynamicsTuningTelemetry(dynamicsTuning = {}) {
     `drive x${formatNumber(dynamicsTuning.driveTorqueMultiplier)}`,
     `brake x${formatNumber(dynamicsTuning.serviceBrakeTorqueMultiplier)}`,
     `tire x${formatNumber(dynamicsTuning.longitudinalTireStiffnessMultiplier)}`,
+  ].join(' / ')
+}
+
+function formatVehicleDynamicsStepTraceTelemetry(trace = {}) {
+  const integrationInput = trace.stages?.integrationInput
+
+  if (!integrationInput?.hasSample) return 'unavailable'
+
+  const normalForceSummary = integrationInput.normalForceSummary ?? {}
+  const tractionLimitSummary = integrationInput.tractionLimitSummary ?? {}
+  const longitudinalTireForceSummary =
+    integrationInput.longitudinalTireForceSummary ?? {}
+  const lateralTireForceSummary =
+    integrationInput.lateralTireForceSummary ?? {}
+  const yawMomentSummary = integrationInput.yawMomentSummary ?? {}
+
+  return [
+    `input load ${formatNumber(normalForceSummary.totalNewtons, 0)} N`,
+    `grip ${formatNumber(tractionLimitSummary.totalNewtons, 0)} N`,
+    `long T/R/A ${formatNumber(longitudinalTireForceSummary.targetTotalNewtons, 0)}/${formatNumber(longitudinalTireForceSummary.relaxedTotalNewtons, 0)}/${formatNumber(longitudinalTireForceSummary.appliedTotalNewtons, 0)} N`,
+    `lat ${formatNumber(lateralTireForceSummary.appliedTotalNewtons, 0)} N`,
+    `yaw ${formatNumber(yawMomentSummary.totalNewtonMeters, 0)} N*m`,
   ].join(' / ')
 }
 

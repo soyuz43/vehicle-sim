@@ -80,6 +80,13 @@ import {
     updateServiceBrakeAbsSummary,
     updateWheelServiceBrakeAbsState,
 } from './dynamics/serviceBrakeAbsState.js'
+import {
+    beginVehicleDynamicsStepTrace,
+    captureVehicleDynamicsStepTraceStage,
+    createVehicleDynamicsStepTrace,
+    resetVehicleDynamicsStepTrace,
+    VEHICLE_DYNAMICS_STEP_TRACE_STAGES,
+} from './dynamics/vehicleDynamicsStepTrace.js'
 
 import {
     createPowertrainSnapshot,
@@ -215,6 +222,7 @@ export function createVehicleController(config = {}) {
         tirePressureHandlingSummary,
         tractionStateSummary,
         serviceBrakeAbsSummary,
+        vehicleDynamicsStepTrace: createVehicleDynamicsStepTrace(wheelStates),
         forces: createEmptyForceSnapshot(),
     }
 
@@ -263,9 +271,25 @@ export function createVehicleController(config = {}) {
             ? forwardSpeedMetersPerSecond / rollingRadiusMeters
             : 0
     }
+
+    function captureDynamicsStepTraceStage(stageName) {
+        captureVehicleDynamicsStepTraceStage(
+            state.vehicleDynamicsStepTrace,
+            stageName,
+            state.wheelStates,
+            state.forces,
+            spec.gravityMetersPerSecondSquared
+        )
+    }
+
     function update(dt, input = {}) {
         const safeDt = sanitizeDeltaTime(dt, params)
 
+        beginVehicleDynamicsStepTrace(
+            state.vehicleDynamicsStepTrace,
+            safeDt,
+            state.wheelStates
+        )
         readInput(input)
         updateWheelSteeringAngles()
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
@@ -280,6 +304,9 @@ export function createVehicleController(config = {}) {
         calculatePerWheelLongitudinalTireForces()
         calculatePerWheelLateralTireForces()
         state.forces = calculatePlanarForcesFromWheelState()
+        captureDynamicsStepTraceStage(
+            VEHICLE_DYNAMICS_STEP_TRACE_STAGES.INTEGRATION_INPUT
+        )
         updateLateralTireForceSummaryState()
         updateWheelRotationalStates(safeDt)
         updatePowertrainKinematics()
@@ -288,6 +315,9 @@ export function createVehicleController(config = {}) {
         updatePosition(safeDt)
         syncVehicleYawFromPlanarState()
         refreshPostIntegrationTelemetry(safeDt)
+        captureDynamicsStepTraceStage(
+            VEHICLE_DYNAMICS_STEP_TRACE_STAGES.POST_INTEGRATION
+        )
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -301,6 +331,10 @@ export function createVehicleController(config = {}) {
         state.parkingBrakeInput = 0
         state.steeringInput = 0
         state.forces = createEmptyForceSnapshot()
+        resetVehicleDynamicsStepTrace(
+            state.vehicleDynamicsStepTrace,
+            state.wheelStates
+        )
         resetTractionStateSummary(state.tractionStateSummary)
         resetServiceBrakeAbsSummary(state.serviceBrakeAbsSummary)
         resetLateralSlipSummary(state.lateralSlipSummary)
@@ -347,12 +381,18 @@ export function createVehicleController(config = {}) {
         calculatePerWheelLongitudinalTireForces()
         calculatePerWheelLateralTireForces()
         state.forces = calculatePlanarForcesFromWheelState()
+        captureDynamicsStepTraceStage(
+            VEHICLE_DYNAMICS_STEP_TRACE_STAGES.INTEGRATION_INPUT
+        )
         updateLateralTireForceSummaryState()
         updateWheelRotationalStates(0)
         updatePowertrainKinematics()
         updateYawState(0)
         updatePlanarMotion(0)
         refreshPostIntegrationTelemetry(0)
+        captureDynamicsStepTraceStage(
+            VEHICLE_DYNAMICS_STEP_TRACE_STAGES.POST_INTEGRATION
+        )
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -470,6 +510,7 @@ export function createVehicleController(config = {}) {
             },
             loadTransferSummary: state.loadTransferSummary,
             tirePressureHandlingSummary: state.tirePressureHandlingSummary,
+            vehicleDynamicsStepTrace: state.vehicleDynamicsStepTrace,
             engineProfile: state.engineProfile,
             transmissionProfile: state.transmissionProfile,
             powertrain: createPowertrainSnapshot(
@@ -1707,6 +1748,9 @@ export function createVehicleController(config = {}) {
     calculatePerWheelLongitudinalTireForces()
     calculatePerWheelLateralTireForces()
     state.forces = calculatePlanarForcesFromWheelState()
+    captureDynamicsStepTraceStage(
+        VEHICLE_DYNAMICS_STEP_TRACE_STAGES.INTEGRATION_INPUT
+    )
     updateLateralTireForceSummaryState()
     updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
     updateWheelRotationalStates(0)
@@ -1714,6 +1758,9 @@ export function createVehicleController(config = {}) {
     updatePlanarMotion(0)
     syncVehicleYawFromPlanarState()
     refreshPostIntegrationTelemetry(0)
+    captureDynamicsStepTraceStage(
+        VEHICLE_DYNAMICS_STEP_TRACE_STAGES.POST_INTEGRATION
+    )
     updateWheelVisualStates()
 
     return {
