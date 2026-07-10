@@ -320,6 +320,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     serviceBrakeAbsSummary: vehicleSnapshot.serviceBrakeAbsSummary,
     lateralSlipSummary: vehicleSnapshot.lateralSlipSummary,
     lateralTireForceSummary: vehicleSnapshot.lateralTireForceSummary,
+    yawDynamics: vehicleSnapshot.yawDynamics,
     loadTransferSummary: vehicleSnapshot.loadTransferSummary,
     tirePressureHandlingSummary: vehicleSnapshot.tirePressureHandlingSummary,
     tireSlipFeedback: tireSlipFeedback.getSnapshot(),

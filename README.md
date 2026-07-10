@@ -119,6 +119,12 @@ The debug HUD now also prints a compact per-wheel load distribution line (e.g. `
 The debug HUD now prints a compact G-force line derived from existing planar acceleration telemetry: `G-force: long +0.42g / lat -0.08g / total 0.43g`. It converts the existing local forward/lateral planar accelerations (`planarAccelerationLocalForwardMetersPerSecondSquared`, `planarAccelerationLocalLateralMetersPerSecondSquared`) into G units with the shared `EARTH_GRAVITY.standardMetersPerSecondSquared` constant, clamps and sanitizes each axis, and reports the vector magnitude as the total. Missing or non-finite telemetry falls back to `G-force: unavailable`.
 
 This is telemetry only. It reads simulation state; it does not create new physics state, and it does not change forces, braking, steering, powertrain, tire pressure, tire visuals, load transfer, or vehicle motion, nor does it alter the fixed timestep.
+## Yaw Moment Budget Telemetry v1
+
+The debug HUD now prints a compact yaw budget line (`Yaw budget: +420 N*m / I 2100 / accel +0.20 rad/s² / rate +0.34 rad/s`) plus an optional per-wheel contribution line. It exposes the existing yaw moment, yaw moment of inertia, yaw acceleration, and yaw rate from the vehicle snapshot, and it decomposes the total yaw moment into longitudinal-force and lateral-force components plus the per-wheel contributions already computed in the force pipeline.
+
+This is telemetry only. It reads simulation state; it does not change the yaw force integration, yaw damping, vehicle motion, tire force formulas, friction, normal force, traction limits, braking, load transfer, tire pressure, aero drag, or mass-property behavior, nor does it add suspension, pitch/roll simulation, drift assist, stability control, traction control, or collision response.
+
 ## Dynamics Sanity Telemetry
 
 The developer debug HUD includes compact local/world acceleration, tire-force saturation, lateral tire-force, combined-cap, service/parking brake torque, service-brake ABS state, yaw-rate, yaw-acceleration, yaw-moment, longitudinal slip-ratio, lateral slip-angle, planar velocity, load-transfer, and tire-pressure handling telemetry for checking longitudinal, lateral, braking, yaw, normal-force, and pressure-response sign conventions. These diagnostics do not add brake assist, suspension, traction control, stability control, or player-facing tuning controls.
