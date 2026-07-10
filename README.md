@@ -154,3 +154,31 @@ Longitudinal drive and brake inputs still create per-wheel request and torque co
 - `R` resets the vehicle.
 
 The current drivetrain model uses a simple Reverse / Neutral / Drive selector. It does not yet simulate engine RPM, gear ratios, clutch behavior, torque converter behavior, or multi-speed transmission logic.
+## Powertrain Profile Foundation
+
+This is a static data and telemetry foundation for future engine RPM, gear ratios, torque curves, and engine braking. It does NOT yet change vehicle behavior.
+
+The simulation now carries a selected piston-engine profile and a selected transmission profile as plain data. Both are exposed through the vehicle snapshot and the Debug HUD so the chosen powertrain can be represented and inspected, but neither profile feeds any physics integration yet.
+
+Engine scope (v1):
+- Common piston car families only: inline-3, inline-4, inline-5, inline-6, V6, V8, V10, V12.
+- Explicitly excluded: W engines, H engines, flat/boxer engines, rotary/Wankel, electric motors, hybrid systems, turbine engines, and motorcycle-only oddities.
+- No full combustion simulation, no active engine RPM.
+
+Transmission scope (v1):
+- Simple static profile types only: manual-4, manual-5, manual-6, manual-6-granny, automatic-6, automatic-8, dct-7, dct-8, cvt.
+- These are data profiles only. They do not drive gear selection, shift scheduling, torque-converter behavior, clutch behavior, or any gear-ratio force multiplication.
+
+Default selection:
+- Engine: inline-4 gasoline turbo (2.0L I4 Turbo).
+- Transmission: 6-speed automatic, which fits the current Reverse / Neutral / Drive selector model (no manual shift controls yet).
+
+Profile data is immutable and frozen. Unknown engine or transmission ids fall back to the safe defaults, so the simulation state always stays finite and serializable.
+
+What this foundation does NOT do yet:
+- No engine braking.
+- No active engine RPM.
+- No clutch, shift scheduling, or automatic shift logic.
+- No torque-converter behavior, differential behavior, or gear-ratio force multiplication.
+- No change to acceleration, braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, or surface contact.
+- No UI selection menus or tuning sliders.

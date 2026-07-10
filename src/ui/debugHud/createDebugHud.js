@@ -124,11 +124,14 @@ export function createDebugHud(config = {}) {
     const tirePressureHandlingSummary = snapshot.tirePressureHandlingSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
+    const powertrain = snapshot.powertrain ?? {}
+
     debugHudText.textContent = [
       'Vehicle Sim Debug',
       '',
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
       `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
+      `Powertrain: ${formatPowertrainTelemetry(powertrain)}`,
       `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
       `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
       `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
@@ -474,6 +477,15 @@ function countLockedWheels(wheelStates) {
   }
 
   return lockedWheelCount
+}
+
+function formatPowertrainTelemetry(powertrain = {}) {
+  const engine = powertrain.engine
+  const transmission = powertrain.transmission
+
+  if (!engine || !transmission) return 'unavailable'
+
+  return `${engine.displayName} / ${transmission.displayName}`
 }
 
 function formatLongitudinalSlipTelemetry(wheelStates) {

@@ -65,6 +65,12 @@ import {
     updateWheelServiceBrakeAbsState,
 } from './dynamics/serviceBrakeAbsState.js'
 
+import {
+    createPowertrainSnapshot,
+    selectEngineProfile,
+    selectTransmissionProfile,
+} from './powertrain/createPowertrainSelection.js'
+
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
     NEUTRAL: 'neutral',
@@ -125,6 +131,9 @@ export function createVehicleController(config = {}) {
         ...(config.params ?? {}),
     }
 
+    const engineProfile = selectEngineProfile(config.engineId)
+    const transmissionProfile = selectTransmissionProfile(config.transmissionId)
+
     const terrainContactQuery =
         config.terrainContactQuery ??
         createFlatTerrainContactQuery({
@@ -152,7 +161,9 @@ export function createVehicleController(config = {}) {
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'service-brake-bias-v1',
+        controllerKind: 'powertrain-profile-foundation-v1',
+        engineProfile,
+        transmissionProfile,
         gear: initialGear,
         speedScalar: 0,
         throttleInput: 0,
@@ -355,6 +366,12 @@ export function createVehicleController(config = {}) {
             lateralTireForceSummary: state.lateralTireForceSummary,
             loadTransferSummary: state.loadTransferSummary,
             tirePressureHandlingSummary: state.tirePressureHandlingSummary,
+            engineProfile: state.engineProfile,
+            transmissionProfile: state.transmissionProfile,
+            powertrain: createPowertrainSnapshot(
+                state.engineProfile,
+                state.transmissionProfile
+            ),
         }
     }
 
