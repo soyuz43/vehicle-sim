@@ -1,6 +1,9 @@
 // src/ui/debugHud/createDebugHud.js
 
+import { EARTH_GRAVITY } from '../../simulation/simulationConstants.js'
+
 const DEFAULT_CORNER = 'top-left'
+const G_FORCE_DISPLAY_CLAMP_G = 20
 
 export function createDebugHud(config = {}) {
   const parent = config.parent ?? document.body
@@ -168,6 +171,7 @@ export function createDebugHud(config = {}) {
       `Local accel lateral: ${formatNumber(snapshot.planarAccelerationLocalLateralMetersPerSecondSquared)} m/s²`,
       `Planar accel XYZ: ${formatVector3(snapshot.planarAccelerationWorldMetersPerSecondSquared)} m/s²`,
       '',
+      `G-force: ${formatGForceTelemetry(snapshot)}`,
       `Drive force: ${formatNumber(forces.driveForceNewtons)} N`,
       `Brake force: ${formatNumber(forces.brakeForceNewtons)} N`,
       `Brake torque: ${formatBrakeTorqueTelemetry(wheelStates)}`,
@@ -506,6 +510,34 @@ function formatWheelLoadDistributionTelemetry(wheelStates = []) {
   const rearPercent = 100 - frontPercent
 
   return perWheelParts.join(' ') + ' | F/R ' + frontPercent + '/' + rearPercent
+}
+
+function formatGForceTelemetry(snapshot = {}) {
+  const localForward = Number(snapshot.planarAccelerationLocalForwardMetersPerSecondSquared)
+  const localLateral = Number(snapshot.planarAccelerationLocalLateralMetersPerSecondSquared)
+  const worldAcceleration = snapshot.planarAccelerationWorldMetersPerSecondSquared
+
+  const hasForward = Number.isFinite(localForward)
+  const hasLateral = Number.isFinite(localLateral)
+  const hasWorld =
+    worldAcceleration &&
+    Number.isFinite(worldAcceleration.x) &&
+    Number.isFinite(worldAcceleration.y) &&
+    Number.isFinite(worldAcceleration.z)
+
+  if (!hasForward && !hasLateral && !hasWorld) return 'unavailable'
+
+  const g = EARTH_GRAVITY.standardMetersPerSecondSquared
+  const clampG = (value) =>
+    Math.min(Math.max(value, -G_FORCE_DISPLAY_CLAMP_G), G_FORCE_DISPLAY_CLAMP_G)
+
+  const forwardG = hasForward ? clampG(localForward / g) : 0
+  const lateralG = hasLateral ? clampG(localLateral / g) : 0
+  const totalG = Math.hypot(forwardG, lateralG)
+
+  const signed = (value) => (value >= 0 ? '+' : '') + formatNumber(value, 2)
+
+  return 'long ' + signed(forwardG) + 'g' + ' / lat ' + signed(lateralG) + 'g' + ' / total ' + formatNumber(totalG, 2) + 'g'
 }
 
 function formatWheelNetTorqueTelemetry(wheelStates) {
