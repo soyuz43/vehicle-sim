@@ -99,6 +99,8 @@ Each grounded wheel now derives dynamic `normalForceNewtons` from a quasi-static
 
 `tractionLimitNewtons` still remains `frictionCoefficient * normalForceNewtons`, so this branch changes available grip only by changing normal force. Friction coefficient stays unchanged, while tire pressure handling now changes effective rolling radius, tire stiffness response, and rolling resistance without directly changing `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. There is still no suspension spring/damper model, roll center, or visual chassis roll/pitch motion.
 
+The debug HUD now also prints a compact per-wheel load distribution line (e.g. `Load distribution: FL 27% FR 27% RL 23% RR 23% | F/R 54/46`). This is telemetry only: it reads the existing per-wheel `normalForceNewtons` and renders finite, clamped percentages plus a front/rear split. It does not change load transfer, normal force, traction limits, or any other physics.
+
 
 ## Dynamics Sanity Telemetry
 
