@@ -1051,7 +1051,8 @@ export function createVehicleController(config = {}) {
 
     function applyTireInflationVisualState() {
         vehicle.userData.vehicle?.setTireInflationVisualState?.(
-            state.tirePressureState
+            state.tirePressureState,
+            state.wheelStates
         )
     }
 

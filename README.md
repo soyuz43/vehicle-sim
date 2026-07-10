@@ -146,24 +146,17 @@ This is telemetry only. It reads simulation state; it does not change the yaw fo
 The developer debug HUD includes compact local/world acceleration, tire-force saturation, lateral tire-force, combined-cap, service/parking brake torque, service-brake ABS state, yaw-rate, yaw-acceleration, yaw-moment, longitudinal slip-ratio, lateral slip-angle, planar velocity, load-transfer, and tire-pressure handling telemetry for checking longitudinal, lateral, braking, yaw, normal-force, and pressure-response sign conventions. These diagnostics do not add brake assist, suspension, traction control, stability control, or player-facing tuning controls.
 
 
-## Tire Inflation Visualization
+## Load-Aware Anchored Toroidal Tire Deformation v1
 
-A developer-only tire inflation panel still exposes tire pressure state in kPa and continues to drive the visible contact-patch presentation. Underinflated values still look softer and broader, while overinflated values still look tighter and smaller. That visual/debug layer remains separate from friction coefficient, load transfer, and traction-limit definition.
+Each tire now renders as an independently mutable toroidal shell rather than a solid cylinder. The shell preserves the existing `0.48 m` outside radius and approximately `0.38 m` width, while its inner bead band is fixed outside the rigid hub/rim exclusion radius. That fixed baseline prevents pressure or load visuals from expanding through or covering the hub.
 
-## Tire Pressure Visual Deformation
+The visual layer reads each wheel's existing pressure, grounded state, final `normalForceNewtons`, `staticNormalForceNewtons`, contact point, and contact normal. Pressure sets bounded visual compliance: a low-pressure tire deforms more under the same load, nominal pressure is subtler, and high pressure deforms less. A grounded wheel gains a smooth local tread flattening and lower-sidewall bulge near its contact plane; airborne wheels retain only the small symmetric pressure shape change and have no load flattening.
 
-Tire pressure now also drives the tire mesh itself, not just the contact-patch marker. Lower pressure visibly flattens and softens each tire: the radial (radius) scale decreases, the tire widens and bulges slightly along the axle, and the contact-patch marker enlarges and flattens. Higher pressure keeps the change subtle and returns the tire toward its normal inflated shape. Overinflation is intentionally conservative so it never looks cartoonish.
+The contact plane is transformed from world space into the tire's current local space every render update. Consequently the flattened region stays ground-relative while the rolling assembly spins forward or backward, and it remains correct through steering and vehicle yaw. The separate contact-patch proxy remains a visual aid only; its width, length, opacity, and visibility now reflect the same bounded pressure/load/contact inputs.
 
-The deformation is visual feedback only. A dedicated visual layer (src/car/createTirePressureVisuals.js, with pure mapping helpers in src/car/tirePressureVisualScales.js) reads the existing tire pressure state and eases the visual pressure ratio toward the target over roughly visualResponseSeconds (default 2.0 s) using exponential smoothing. The mesh scale never feeds back into physics: it does not change wheel radius, contact radius, normal force, friction coefficient, traction limit, rolling resistance, drive/brake force, or vehicle motion.
+All vertex updates are derived from immutable baseline positions, use precomputed bead/sidewall/tread influence weights, clamp the hub-clearance radius, and refresh normals/bounds only when visual inputs change. Reset restores exact baseline geometry and proxy state without changing controller, wheel, or pressure-physics state.
 
-Key invariants:
-- Tire visuals visualize simulation state; they do not drive it.
-- No sound, puncture, leak, damage, heat, wear, blowout, or compressor system exists yet.
-- Pressure-to-traction behavior is unchanged (see Tire Pressure Handling v1).
-- A compact Debug HUD line reports the visual state, e.g. "Tire visuals: settled 220 kPa / 1.00 ratio (normal)" or "Tire visuals: settling 120 kPa / 0.72 ratio (flat)".
-
-Future work may add hiss/inflation sounds or more detailed tire carcass visuals, but none are implemented in this layer yet.
-
+This remains visual-only. It does not change physical rolling radius, wheel angular velocity, slip, tire stiffness, tire forces, normal force, traction limit, braking, ABS, differential behavior, suspension integration, or vehicle motion. It is not a soft-body, finite-element, tire-temperature, wear, puncture, bead-unseating, rim-damage, terrain-deformation, or tread simulation.
 ## Tire Pressure Handling v1
 
 Tire pressure now also affects tire mechanics before the traction cap. Each wheel derives a conservative effective rolling radius, a pressure-adjusted longitudinal tire stiffness, a pressure-adjusted lateral tire stiffness, and a pressure-aware rolling resistance coefficient from its current pressure state. Underinflated tires therefore roll on a slightly smaller effective radius, build longitudinal and lateral force more softly, and add more rolling resistance; mild overinflation can sharpen stiffness slightly within conservative caps.

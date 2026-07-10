@@ -384,14 +384,16 @@ function animate() {
   )
 
   cameraManager.update(clampedRenderDeltaSeconds)
+  const vehicleSnapshot = vehicleController.getSnapshot()
   tireSlipFeedback.update(
-    vehicleController.getSnapshot(),
+    vehicleSnapshot,
     car,
     clampedRenderDeltaSeconds
   )
+  tirePressureVisuals.setTargetFromWheelStates(vehicleSnapshot.wheelStates)
+  tirePressureVisuals.update(clampedRenderDeltaSeconds)
   updateDebugHud(clampedRenderDeltaSeconds, fixedSimulationSnapshot)
   updateGearIndicator()
-  tirePressureVisuals.update(clampedRenderDeltaSeconds)
 
   renderer.render(scene, camera)
 }
