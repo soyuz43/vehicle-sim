@@ -184,6 +184,7 @@ export function createDebugHud(config = {}) {
       `Yaw moment: ${formatYawMomentTelemetry(lateralTireForceSummary)}`,
       `Load transfer: ${formatLoadTransferTelemetry(loadTransferSummary)}`,
       `Normal force bias: ${formatLoadTransferBiasTelemetry(loadTransferSummary)}`,
+      `Load distribution: ${formatWheelLoadDistributionTelemetry(wheelStates)}`,
       `Wheel normal force: ${formatWheelNormalForceTelemetry(loadTransferSummary)}`,
       `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
       `Slip visuals: ${formatTireSlipFeedbackTelemetry(tireSlipFeedback)}`,
@@ -470,6 +471,41 @@ function formatWheelNormalForceTelemetry(loadTransferSummary = {}) {
     `min ${formatNumber(loadTransferSummary.minGroundedWheelNormalForceNewtons ?? 0, 0)} N`,
     `total ${formatNumber(loadTransferSummary.totalDynamicNormalForceNewtons ?? 0, 0)} N`,
   ].join(' / ')
+}
+
+function formatWheelLoadDistributionTelemetry(wheelStates = []) {
+  if (!Array.isArray(wheelStates) || wheelStates.length === 0) return 'unavailable'
+
+  let totalNormalForceNewtons = 0
+  for (const wheelState of wheelStates) {
+    const normalForceNewtons = Number(wheelState.normalForceNewtons)
+    if (Number.isFinite(normalForceNewtons) && normalForceNewtons > 0) {
+      totalNormalForceNewtons += normalForceNewtons
+    }
+  }
+
+  if (!Number.isFinite(totalNormalForceNewtons) || totalNormalForceNewtons <= 0) {
+    return 'unavailable'
+  }
+
+  const perWheelParts = []
+  let frontNormalForceNewtons = 0
+  for (const wheelState of wheelStates) {
+    const normalForceNewtons = Number(wheelState.normalForceNewtons)
+    const safeNormalForce = Number.isFinite(normalForceNewtons) && normalForceNewtons > 0
+      ? normalForceNewtons
+      : 0
+    const percent = Math.min(Math.max((safeNormalForce / totalNormalForceNewtons) * 100, 0), 100)
+    perWheelParts.push(formatWheelId(wheelState) + ' ' + Math.round(percent) + '%')
+    if (wheelState.axle === 'front') {
+      frontNormalForceNewtons += safeNormalForce
+    }
+  }
+
+  const frontPercent = Math.min(Math.max(Math.round((frontNormalForceNewtons / totalNormalForceNewtons) * 100), 0), 100)
+  const rearPercent = 100 - frontPercent
+
+  return perWheelParts.join(' ') + ' | F/R ' + frontPercent + '/' + rearPercent
 }
 
 function formatWheelNetTorqueTelemetry(wheelStates) {
