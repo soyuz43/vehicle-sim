@@ -299,6 +299,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     worldSpeedMetersPerSecond:
       vehicleSnapshot.worldSpeedMetersPerSecond,
     aerodynamicDrag: vehicleSnapshot.aerodynamicDrag,
+    chassisMassProperties: vehicleSnapshot.chassisMassProperties,
     yawRadians: vehicleSnapshot.yawRadians,
     yawRateRadiansPerSecond:
       vehicleSnapshot.yawRateRadiansPerSecond,

@@ -8,6 +8,10 @@ import {
     updateAerodynamicDragState,
 } from './dynamics/aerodynamicDragState.js'
 import {
+    createChassisMassPropertiesState,
+    updateChassisMassPropertiesState,
+} from './dynamics/chassisMassPropertiesState.js'
+import {
     createPlanarMotionState,
     integratePlanarPosition,
     integratePlanarVelocityFromWorldAcceleration,
@@ -160,6 +164,11 @@ export function createVehicleController(config = {}) {
     })
     const aerodynamicDragState = createAerodynamicDragState()
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
+    const chassisMassPropertiesState = updateChassisMassPropertiesState(
+        createChassisMassPropertiesState(),
+        spec,
+        wheelStates
+    )
     const tirePressureState = createTirePressureState(spec)
     const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
     const lateralSlipSummary = createLateralSlipSummary()
@@ -188,6 +197,7 @@ export function createVehicleController(config = {}) {
         steeringInput: 0,
         planarMotion,
         aerodynamicDragState,
+        chassisMassPropertiesState,
         wheelStates,
         tirePressureState,
         dynamicsTuning,
@@ -393,6 +403,7 @@ export function createVehicleController(config = {}) {
             worldSpeedMetersPerSecond:
                 state.planarMotion.worldSpeedMetersPerSecond,
             aerodynamicDrag: state.aerodynamicDragState,
+            chassisMassProperties: state.chassisMassPropertiesState,
             yawRadians: state.planarMotion.yawRadians,
             yawRateRadiansPerSecond:
                 state.planarMotion.yawRateRadiansPerSecond,

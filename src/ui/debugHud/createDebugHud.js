@@ -147,6 +147,7 @@ export function createDebugHud(config = {}) {
       `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
       `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
+      `Chassis mass: ${formatChassisMassPropertiesTelemetry(snapshot.chassisMassProperties)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
       `Service brake: ${formatNumber(snapshot.brakeInput)}`,
       `Parking brake: ${formatNumber(snapshot.parkingBrakeInput)}`,
@@ -286,6 +287,26 @@ function formatAerodynamicDragTelemetry(aerodynamicDrag = {}) {
     `CdA ${formatNumber(aerodynamicDrag.dragAreaSquareMeters, 2)}`,
     `${formatNumber(aerodynamicDrag.speedMetersPerSecond, 1)} m/s`,
   ].join(' / ')
+}
+
+function formatChassisMassPropertiesTelemetry(chassisMassProperties = {}) {
+  if (!chassisMassProperties.available) return 'unavailable'
+
+  const frontBiasPercent = Math.round(
+    clampPercent(chassisMassProperties.frontStaticWeightBias01) * 100
+  )
+  const rearBiasPercent = Math.max(0, Math.min(100, 100 - frontBiasPercent))
+
+  return [
+    `${formatNumber(chassisMassProperties.massKg, 0)} kg`,
+    `CoM ${formatNumber(chassisMassProperties.centerOfMassHeightMeters, 2)} m`,
+    `F/R ${frontBiasPercent}/${rearBiasPercent}`,
+    `yaw I ${formatNumber(chassisMassProperties.yawMomentOfInertiaKgMeterSquared, 0)} kg*m²`,
+  ].join(' / ')
+}
+
+function clampPercent(value) {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
 
 function formatNumber(value, digits = 2) {

@@ -87,6 +87,12 @@ Aerodynamic drag is now an explicit part of vehicle motion. The controller uses 
 
 This v1 foundation adds no downforce, lift, wind, drafting, damage, or heat model. Tire force formulas and caps, service and parking brakes, ABS, brake bias, tire pressure and visuals, load transfer, lateral dynamics, steering/yaw, powertrain RPM and engine catalog data, terrain, rendering architecture, and fixed timestep behavior are otherwise unchanged.
 
+## Chassis Mass Properties Foundation v1
+
+Chassis mass properties are now surfaced as explicit finite telemetry derived from the existing vehicle specification and wheel layout. The snapshot reports mass, center-of-mass height and offset, static front/rear weight bias, wheelbase, front/rear track width, and yaw moment of inertia. Existing flat spec fields such as `massKg`, `centerOfMassHeightMeters`, `wheelbaseMeters`, `frontTrackWidthMeters`, `rearTrackWidthMeters`, and `yawMomentOfInertiaKgMeterSquared` remain the source data rather than being duplicated into a separate tuning model.
+
+Center of mass and yaw inertia are foundation data for future yaw, load-transfer, and suspension work. This branch does not add suspension springs, dampers, pitch simulation, roll simulation, jumps, collision response, surface friction zones, aero downforce, or damage, and it does not intentionally change vehicle motion.
+
 ## Lateral Slip Angle Telemetry
 
 Each wheel continues to record lateral slip angle by estimating contact-patch velocity from planar chassis velocity and yaw rate, then projecting that velocity into the wheel's current local forward/right axes. Front steerable wheels use current steering angle telemetry, rear wheels use chassis heading, and the vehicle snapshot exposes a compact aggregate lateral-slip summary for the debug HUD.
