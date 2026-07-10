@@ -2,23 +2,35 @@
 
 import { EARTH_GRAVITY } from '../simulation/simulationConstants.js'
 
+const DEFAULT_VEHICLE_MASS_KG = 1400
+
 export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   kind: 'flat-ground-rwd-test-chassis',
 
   // Core physical properties
-  massKg: 1400,
+  massKg: DEFAULT_VEHICLE_MASS_KG,
 
-  // Quasi-static load transfer v1 uses prior-step local acceleration to shift
-  // per-wheel normal force. Wheelbase and track width are derived from wheel
-  // local positions when possible; these spec values are conservative fallbacks.
-  // This modifies normal force, not frictionCoefficient, and still has no
-  // suspension spring/damper, chassis roll/pitch motion, or full rigid-body suspension.
+  // Quasi-static load transfer v1 uses prior-step local acceleration to provide
+  // each wheel's requested normal load. Wheelbase and track width are derived
+  // from wheel local positions when possible; these values are fallbacks.
   centerOfMassHeightMeters: 0.55,
   wheelbaseMeters: 2.9,
   frontTrackWidthMeters: 2.5,
   rearTrackWidthMeters: 2.5,
   minimumNormalForceNewtons: 0,
   loadTransferEnabled: true,
+
+  // Suspension normal-force foundation v1 derives spring rate from static load,
+  // wheel count, travel, and target static compression. Backward-Euler damping
+  // organizes the requested quasi-static load without adding chassis heave,
+  // pitch, roll, terrain bumps, or visual body motion.
+  suspensionEnabled: true,
+  suspensionRestLengthMeters: 0.35,
+  suspensionTravelMeters: 0.22,
+  suspensionTargetStaticCompressionRatio01: 0.4,
+  suspensionDampingRatio: 0.35,
+  maximumSuspensionNormalForceNewtons:
+    DEFAULT_VEHICLE_MASS_KG * EARTH_GRAVITY.standardMetersPerSecondSquared,
 
   // Speed limits are still controller-level guards for now.
   maxForwardSpeedMetersPerSecond: 60,
@@ -96,8 +108,8 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   combinedTireForceCapEnabled: true,
 
   // Basic yaw-moment foundation from per-wheel tire forces.
-  // This is not a full rigid-body chassis model and still has no suspension
-  // spring/damper, roll center geometry, or chassis roll/pitch motion.
+  // This is not a full rigid-body chassis or suspension geometry model and has
+  // no roll centers, vertical chassis dynamics, or chassis roll/pitch motion.
   yawMomentOfInertiaKgMeterSquared: 2800,
   yawRateDampingPerSecond: 1.2,
   maxYawRateRadiansPerSecond: 3.5,

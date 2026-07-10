@@ -375,8 +375,6 @@ function finalizeWheelNormalForces(
       wheelState.staticNormalForceNewtons +
         wheelState.loadTransferNormalForceDeltaNewtons
     )
-    wheelState.normalForceNewtons = wheelState.dynamicNormalForceNewtons
-
     loadTransferSummary.totalDynamicNormalForceNewtons +=
       wheelState.dynamicNormalForceNewtons
     loadTransferSummary.totalLongitudinalTransferAbsNewtons += Math.abs(
@@ -417,8 +415,6 @@ function finalizeWheelNormalForces(
       loadTransferSummary.unloadedWheelCount += 1
     }
 
-    wheelState.tractionLimitNewtons =
-      wheelState.frictionCoefficient * wheelState.normalForceNewtons
   }
 
   loadTransferSummary.minGroundedWheelNormalForceNewtons =
