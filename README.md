@@ -182,3 +182,17 @@ What this foundation does NOT do yet:
 - No torque-converter behavior, differential behavior, or gear-ratio force multiplication.
 - No change to acceleration, braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, or surface contact.
 - No UI selection menus or tuning sliders.
+### Engine RPM Telemetry
+
+Engine RPM is now derived as inert telemetry from the selected powertrain profiles, the current R/N/D selector, and driven-wheel rotational speed. It is telemetry only and does not change vehicle behavior.
+
+The estimated engine RPM is computed from the average driven-wheel angular velocity multiplied by the effective drive ratio (selected transmission ratio times final drive ratio). RPM is clamped between idle RPM and redline RPM when the powertrain is connected:
+
+- Neutral reports a disconnected powertrain state and idle RPM.
+- Reverse uses the reverse gear ratio and final drive ratio.
+- Drive uses one representative forward ratio for telemetry only (the first forward gear ratio for fixed transmissions). No automatic shifting or speed-based gear selection is performed.
+- CVT uses a fixed representative ratio (the midpoint of cvtMinRatio and cvtMaxRatio) for telemetry only. No active CVT ratio changes are applied.
+
+The telemetry also reports the powertrain connection state (disconnected / forward_connected / reverse_connected) and the engine RPM state (idle / coupled / redline_clamped / unavailable).
+
+This RPM telemetry does not yet affect acceleration, drive torque, engine braking, shifting, or vehicle motion. No clutch, torque converter, automatic shift scheduling, manual shift controls, differential, or drivetrain physics model exists yet.

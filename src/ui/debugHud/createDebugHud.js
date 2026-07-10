@@ -125,6 +125,7 @@ export function createDebugHud(config = {}) {
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     const powertrain = snapshot.powertrain ?? {}
+    const powertrainKinematics = snapshot.powertrainKinematics ?? {}
 
     debugHudText.textContent = [
       'Vehicle Sim Debug',
@@ -132,6 +133,7 @@ export function createDebugHud(config = {}) {
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
       `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
       `Powertrain: ${formatPowertrainTelemetry(powertrain)}`,
+      `Powertrain RPM: ${formatPowertrainRpmTelemetry(powertrainKinematics)}`,
       `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
       `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
       `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
@@ -486,6 +488,30 @@ function formatPowertrainTelemetry(powertrain = {}) {
   if (!engine || !transmission) return 'unavailable'
 
   return `${engine.displayName} / ${transmission.displayName}`
+}
+
+function formatPowertrainRpmTelemetry(kinematics = {}) {
+  if (!kinematics || !Number.isFinite(kinematics.estimatedEngineRpm)) {
+    return 'unavailable'
+  }
+
+  const rpm = Math.round(kinematics.estimatedEngineRpm)
+  const rpmState = kinematics.engineRpmState ?? 'unavailable'
+  const connectionState = kinematics.powertrainConnectionState ?? 'disconnected'
+
+  if (connectionState === 'disconnected') {
+    return `${rpm} rpm ${rpmState} / ${connectionState}`
+  }
+
+  const gearLabel = kinematics.selectedForwardGearLabel ?? ''
+  const transmissionRatio = Number.isFinite(kinematics.transmissionRatio)
+    ? kinematics.transmissionRatio.toFixed(2)
+    : '?'
+  const finalDriveRatio = Number.isFinite(kinematics.finalDriveRatio)
+    ? kinematics.finalDriveRatio.toFixed(2)
+    : '?'
+
+  return `${rpm} rpm ${gearLabel} ratio ${transmissionRatio} final ${finalDriveRatio}`
 }
 
 function formatLongitudinalSlipTelemetry(wheelStates) {
