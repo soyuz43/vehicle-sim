@@ -18,34 +18,45 @@ export const DEFAULT_REAR_DIFFERENTIAL_AVAILABLE_TYPES = Object.freeze([
 
 const SUPPORT_EPSILON = 0.001
 const SHARE_EPSILON_01 = 0.0001
+const TORQUE_EPSILON_NEWTON_METERS = 0.001
 
 export function createRearDifferentialState(spec = {}) {
   return resetRearDifferentialState({}, spec)
 }
 
 export function resetRearDifferentialState(state = {}, spec = {}) {
-  const rearDifferentialAvailableTypes = resolveRearDifferentialAvailableTypes(
-    state.rearDifferentialAvailableTypes ?? spec.rearDifferentialAvailableTypes
-  )
-  const rearDifferentialType = resolveRearDifferentialType(
-    state.rearDifferentialType ?? spec.rearDifferentialType,
-    rearDifferentialAvailableTypes
-  )
+  normalizeRearDifferentialConfigState(state, spec)
+  resetRearDifferentialStepState(state, spec)
 
-  state.rearDifferentialAvailableTypes = rearDifferentialAvailableTypes
-  state.rearDifferentialType = rearDifferentialType
-  state.rearDifferentialModeLabel = formatRearDifferentialModeLabel(
-    rearDifferentialType
-  )
+  return state
+}
+
+export function resetRearDifferentialStepState(state = {}, spec = {}) {
+  normalizeRearDifferentialConfigState(state, spec)
+
   state.rearDifferentialInputDriveForceNewtons = 0
   state.rearDifferentialLeftOutputDriveForceNewtons = 0
   state.rearDifferentialRightOutputDriveForceNewtons = 0
   state.rearDifferentialLeftShare01 = 0.5
   state.rearDifferentialRightShare01 = 0.5
+  state.rearDifferentialLeftAngularVelocityRadiansPerSecond = 0
+  state.rearDifferentialRightAngularVelocityRadiansPerSecond = 0
   state.rearDifferentialWheelSpeedDifferenceRadiansPerSecond = 0
-  state.rearDifferentialTorqueBiasRatio = 0
+  state.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond = 0
+  state.rearDifferentialTorqueBiasRatio =
+    state.rearDifferentialType === REAR_DIFFERENTIAL_TYPES.TORSEN
+      ? resolveTorsenDifferentialTorqueBiasRatio(spec)
+      : 0
+  state.rearDifferentialCouplingState = 'idle'
+  state.rearDifferentialLeftCouplingTorqueNewtonMeters = 0
+  state.rearDifferentialRightCouplingTorqueNewtonMeters = 0
+  state.rearDifferentialLeftCouplingAngularImpulseNewtonMeterSeconds = 0
+  state.rearDifferentialRightCouplingAngularImpulseNewtonMeterSeconds = 0
+  state.rearDifferentialCommonAngularVelocityRadiansPerSecond = 0
+  state.rearDifferentialLimitedSlipCouplingFraction01 = 0
   state.isRearDifferentialBiasing = false
   state.isRearDifferentialLockedApproximation = false
+  state.isRearDifferentialHardSpeedCouplingApplied = false
 
   return state
 }
@@ -74,7 +85,7 @@ export function updateRearDifferentialDriveForceSplit(
   totalDriveForceNewtons = 0,
   spec = {}
 ) {
-  resetRearDifferentialState(state, spec)
+  resetRearDifferentialStepState(state, spec)
 
   const safeTotalDriveForceNewtons = sanitizeNumber(totalDriveForceNewtons)
   const leftWheelState = normalizeRearWheelState(
@@ -87,9 +98,11 @@ export function updateRearDifferentialDriveForceSplit(
   )
 
   state.rearDifferentialInputDriveForceNewtons = safeTotalDriveForceNewtons
-  state.rearDifferentialWheelSpeedDifferenceRadiansPerSecond =
-    leftWheelState.angularVelocityRadiansPerSecond -
+  assignRearDifferentialWheelSpeedTelemetry(
+    state,
+    leftWheelState.angularVelocityRadiansPerSecond,
     rightWheelState.angularVelocityRadiansPerSecond
+  )
 
   const inputDriveForceMagnitudeNewtons = Math.abs(safeTotalDriveForceNewtons)
   const supportScores = {
@@ -213,6 +226,95 @@ export function updateRearDifferentialDriveForceSplit(
   return state
 }
 
+export function updateRearDifferentialWheelSpeedCoupling(
+  state = {},
+  rearWheelStates = [],
+  dtSeconds = 0,
+  spec = {}
+) {
+  normalizeRearDifferentialConfigState(state, spec)
+
+  const rearWheelPair = resolveRearWheelPair(rearWheelStates)
+  const leftWheelState = rearWheelPair.leftWheelState
+  const rightWheelState = rearWheelPair.rightWheelState
+
+  if (!leftWheelState || !rightWheelState) {
+    state.rearDifferentialCouplingState = 'unavailable'
+    return state
+  }
+
+  const leftAngularVelocityRadiansPerSecond = sanitizeNumber(
+    leftWheelState.angularVelocityRadiansPerSecond
+  )
+  const rightAngularVelocityRadiansPerSecond = sanitizeNumber(
+    rightWheelState.angularVelocityRadiansPerSecond
+  )
+
+  assignRearDifferentialWheelSpeedTelemetry(
+    state,
+    leftAngularVelocityRadiansPerSecond,
+    rightAngularVelocityRadiansPerSecond
+  )
+
+  if (state.rearDifferentialType === REAR_DIFFERENTIAL_TYPES.OPEN) {
+    state.rearDifferentialCouplingState = 'uncoupled'
+    return state
+  }
+
+  if (state.rearDifferentialType === REAR_DIFFERENTIAL_TYPES.TORSEN) {
+    state.rearDifferentialTorqueBiasRatio =
+      resolveTorsenDifferentialTorqueBiasRatio(spec)
+    state.rearDifferentialCouplingState = 'torque-bias-only'
+    return state
+  }
+
+  const leftWheelInertiaKgMeterSquared = sanitizePositiveNumber(
+    leftWheelState.wheelInertiaKgMeterSquared
+  )
+  const rightWheelInertiaKgMeterSquared = sanitizePositiveNumber(
+    rightWheelState.wheelInertiaKgMeterSquared
+  )
+  const safeDtSeconds = sanitizeNonNegativeNumber(dtSeconds)
+
+  if (
+    leftWheelInertiaKgMeterSquared <= 0 ||
+    rightWheelInertiaKgMeterSquared <= 0
+  ) {
+    state.rearDifferentialCouplingState = 'invalid-inertia'
+    return state
+  }
+
+  if (state.rearDifferentialType === REAR_DIFFERENTIAL_TYPES.LIMITED_SLIP) {
+    return applyLimitedSlipDifferentialWheelSpeedCoupling({
+      state,
+      leftWheelState,
+      rightWheelState,
+      leftWheelInertiaKgMeterSquared,
+      rightWheelInertiaKgMeterSquared,
+      safeDtSeconds,
+      spec,
+    })
+  }
+
+  if (
+    state.rearDifferentialType === REAR_DIFFERENTIAL_TYPES.LOCKED ||
+    state.rearDifferentialType === REAR_DIFFERENTIAL_TYPES.WELDED
+  ) {
+    return applyLockedDifferentialWheelSpeedCoupling({
+      state,
+      leftWheelState,
+      rightWheelState,
+      leftWheelInertiaKgMeterSquared,
+      rightWheelInertiaKgMeterSquared,
+      safeDtSeconds,
+      spec,
+    })
+  }
+
+  state.rearDifferentialCouplingState = 'uncoupled'
+  return state
+}
+
 export function formatRearDifferentialModeLabel(rearDifferentialType) {
   switch (rearDifferentialType) {
     case REAR_DIFFERENTIAL_TYPES.LIMITED_SLIP:
@@ -227,6 +329,373 @@ export function formatRearDifferentialModeLabel(rearDifferentialType) {
     default:
       return 'Open'
   }
+}
+
+function normalizeRearDifferentialConfigState(state = {}, spec = {}) {
+  const rearDifferentialAvailableTypes = resolveRearDifferentialAvailableTypes(
+    state.rearDifferentialAvailableTypes ?? spec.rearDifferentialAvailableTypes
+  )
+  const rearDifferentialType = resolveRearDifferentialType(
+    state.rearDifferentialType ?? spec.rearDifferentialType,
+    rearDifferentialAvailableTypes
+  )
+
+  state.rearDifferentialAvailableTypes = rearDifferentialAvailableTypes
+  state.rearDifferentialType = rearDifferentialType
+  state.rearDifferentialModeLabel = formatRearDifferentialModeLabel(
+    rearDifferentialType
+  )
+
+  return state
+}
+
+function resolveRearWheelPair(rearWheelStates = []) {
+  return {
+    leftWheelState:
+      rearWheelStates.find((wheelState) => wheelState?.side === 'left') ??
+      rearWheelStates[0] ??
+      null,
+    rightWheelState:
+      rearWheelStates.find((wheelState) => wheelState?.side === 'right') ??
+      rearWheelStates.find((wheelState) => wheelState?.side !== 'left') ??
+      null,
+  }
+}
+
+function applyLimitedSlipDifferentialWheelSpeedCoupling({
+  state,
+  leftWheelState,
+  rightWheelState,
+  leftWheelInertiaKgMeterSquared,
+  rightWheelInertiaKgMeterSquared,
+  safeDtSeconds,
+  spec,
+}) {
+  const angularSpeedDifferenceRadiansPerSecond =
+    sanitizeNumber(leftWheelState.angularVelocityRadiansPerSecond) -
+    sanitizeNumber(rightWheelState.angularVelocityRadiansPerSecond)
+  const angularSpeedDifferenceAbsRadiansPerSecond = Math.abs(
+    angularSpeedDifferenceRadiansPerSecond
+  )
+  const differentialSlipSpeedEpsilonRadiansPerSecond =
+    resolveDifferentialSlipSpeedEpsilonRadiansPerSecond(spec)
+  const limitedSlipLockFactor01 = resolveLimitedSlipDifferentialLockFactor01(
+    spec
+  )
+
+  if (limitedSlipLockFactor01 <= 0) {
+    state.rearDifferentialCouplingState = 'disabled'
+    return state
+  }
+
+  if (
+    angularSpeedDifferenceAbsRadiansPerSecond <=
+    differentialSlipSpeedEpsilonRadiansPerSecond
+  ) {
+    state.rearDifferentialCouplingState = 'within-epsilon'
+    return state
+  }
+
+  if (safeDtSeconds <= 0) {
+    state.rearDifferentialCouplingState = 'dt-zero'
+    return state
+  }
+
+  const preloadTorqueNewtonMeters =
+    resolveLimitedSlipDifferentialPreloadTorqueNewtonMeters(spec) *
+    limitedSlipLockFactor01
+  const couplingGainNewtonMetersPerRadianPerSecond =
+    resolveLimitedSlipDifferentialCouplingGainNewtonMetersPerRadianPerSecond(
+      spec
+    ) * limitedSlipLockFactor01
+  const maximumCouplingTorqueNewtonMeters =
+    resolveLimitedSlipDifferentialMaxCouplingTorqueNewtonMeters(spec) *
+    limitedSlipLockFactor01
+  const angularSpeedDifferenceExcessRadiansPerSecond = Math.max(
+    0,
+    angularSpeedDifferenceAbsRadiansPerSecond -
+      differentialSlipSpeedEpsilonRadiansPerSecond
+  )
+  const requestedCouplingTorqueNewtonMeters =
+    preloadTorqueNewtonMeters +
+    couplingGainNewtonMetersPerRadianPerSecond *
+      angularSpeedDifferenceExcessRadiansPerSecond
+  const boundedCouplingTorqueNewtonMeters = Math.min(
+    maximumCouplingTorqueNewtonMeters,
+    requestedCouplingTorqueNewtonMeters
+  )
+  const maximumNoOvershootCouplingTorqueNewtonMeters =
+    angularSpeedDifferenceAbsRadiansPerSecond /
+    (
+      safeDtSeconds *
+      (
+        1 / leftWheelInertiaKgMeterSquared +
+        1 / rightWheelInertiaKgMeterSquared
+      )
+    )
+  const appliedCouplingTorqueNewtonMeters = Math.min(
+    boundedCouplingTorqueNewtonMeters,
+    maximumNoOvershootCouplingTorqueNewtonMeters
+  )
+
+  if (appliedCouplingTorqueNewtonMeters <= TORQUE_EPSILON_NEWTON_METERS) {
+    state.rearDifferentialCouplingState = 'within-epsilon'
+    return state
+  }
+
+  const angularSpeedDifferenceDirection = Math.sign(
+    angularSpeedDifferenceRadiansPerSecond
+  )
+  const leftCouplingTorqueNewtonMeters =
+    -angularSpeedDifferenceDirection * appliedCouplingTorqueNewtonMeters
+  const rightCouplingTorqueNewtonMeters =
+    -leftCouplingTorqueNewtonMeters
+  const leftAngularVelocityRadiansPerSecond =
+    sanitizeNumber(leftWheelState.angularVelocityRadiansPerSecond) +
+    leftCouplingTorqueNewtonMeters /
+      leftWheelInertiaKgMeterSquared *
+      safeDtSeconds
+  const rightAngularVelocityRadiansPerSecond =
+    sanitizeNumber(rightWheelState.angularVelocityRadiansPerSecond) +
+    rightCouplingTorqueNewtonMeters /
+      rightWheelInertiaKgMeterSquared *
+      safeDtSeconds
+
+  applyRearDifferentialCouplingResult({
+    state,
+    leftWheelState,
+    rightWheelState,
+    leftWheelInertiaKgMeterSquared,
+    rightWheelInertiaKgMeterSquared,
+    safeDtSeconds,
+    leftAngularVelocityRadiansPerSecond,
+    rightAngularVelocityRadiansPerSecond,
+    couplingState:
+      appliedCouplingTorqueNewtonMeters + TORQUE_EPSILON_NEWTON_METERS <
+      boundedCouplingTorqueNewtonMeters
+        ? 'no-overshoot-clamped'
+        : 'coupling',
+    limitedSlipCouplingFraction01:
+      maximumCouplingTorqueNewtonMeters > 0
+        ? appliedCouplingTorqueNewtonMeters /
+          maximumCouplingTorqueNewtonMeters
+        : 0,
+  })
+
+  return state
+}
+
+function applyLockedDifferentialWheelSpeedCoupling({
+  state,
+  leftWheelState,
+  rightWheelState,
+  leftWheelInertiaKgMeterSquared,
+  rightWheelInertiaKgMeterSquared,
+  safeDtSeconds,
+  spec,
+}) {
+  state.isRearDifferentialLockedApproximation = true
+
+  const leftAngularVelocityRadiansPerSecond = sanitizeNumber(
+    leftWheelState.angularVelocityRadiansPerSecond
+  )
+  const rightAngularVelocityRadiansPerSecond = sanitizeNumber(
+    rightWheelState.angularVelocityRadiansPerSecond
+  )
+  const totalWheelInertiaKgMeterSquared =
+    leftWheelInertiaKgMeterSquared + rightWheelInertiaKgMeterSquared
+
+  if (totalWheelInertiaKgMeterSquared <= 0) {
+    state.rearDifferentialCouplingState = 'invalid-inertia'
+    return state
+  }
+
+  const commonAngularVelocityRadiansPerSecond =
+    (
+      leftWheelInertiaKgMeterSquared * leftAngularVelocityRadiansPerSecond +
+      rightWheelInertiaKgMeterSquared * rightAngularVelocityRadiansPerSecond
+    ) / totalWheelInertiaKgMeterSquared
+  const hardCouplingMatchEpsilonRadiansPerSecond =
+    resolveRearDifferentialHardCouplingEpsilonRadiansPerSecond(spec)
+
+  state.rearDifferentialCommonAngularVelocityRadiansPerSecond =
+    commonAngularVelocityRadiansPerSecond
+
+  if (safeDtSeconds <= 0) {
+    state.rearDifferentialCouplingState =
+      Math.abs(
+        leftAngularVelocityRadiansPerSecond -
+          rightAngularVelocityRadiansPerSecond
+      ) <= hardCouplingMatchEpsilonRadiansPerSecond
+        ? 'constrained'
+        : 'dt-zero'
+    return state
+  }
+
+  applyRearDifferentialCouplingResult({
+    state,
+    leftWheelState,
+    rightWheelState,
+    leftWheelInertiaKgMeterSquared,
+    rightWheelInertiaKgMeterSquared,
+    safeDtSeconds,
+    leftAngularVelocityRadiansPerSecond:
+      commonAngularVelocityRadiansPerSecond,
+    rightAngularVelocityRadiansPerSecond:
+      commonAngularVelocityRadiansPerSecond,
+    couplingState: 'constrained',
+    hardSpeedCouplingApplied: true,
+    commonAngularVelocityRadiansPerSecond,
+  })
+
+  return state
+}
+
+function applyRearDifferentialCouplingResult({
+  state,
+  leftWheelState,
+  rightWheelState,
+  leftWheelInertiaKgMeterSquared,
+  rightWheelInertiaKgMeterSquared,
+  safeDtSeconds,
+  leftAngularVelocityRadiansPerSecond,
+  rightAngularVelocityRadiansPerSecond,
+  couplingState,
+  hardSpeedCouplingApplied = false,
+  commonAngularVelocityRadiansPerSecond = 0,
+  limitedSlipCouplingFraction01 = 0,
+}) {
+  const previousLeftAngularVelocityRadiansPerSecond = sanitizeNumber(
+    leftWheelState.angularVelocityRadiansPerSecond
+  )
+  const previousRightAngularVelocityRadiansPerSecond = sanitizeNumber(
+    rightWheelState.angularVelocityRadiansPerSecond
+  )
+  const nextLeftAngularVelocityRadiansPerSecond = sanitizeNumber(
+    leftAngularVelocityRadiansPerSecond
+  )
+  const nextRightAngularVelocityRadiansPerSecond = sanitizeNumber(
+    rightAngularVelocityRadiansPerSecond
+  )
+  const leftCouplingAngularImpulseNewtonMeterSeconds =
+    leftWheelInertiaKgMeterSquared *
+    (nextLeftAngularVelocityRadiansPerSecond -
+      previousLeftAngularVelocityRadiansPerSecond)
+  const rightCouplingAngularImpulseNewtonMeterSeconds =
+    rightWheelInertiaKgMeterSquared *
+    (nextRightAngularVelocityRadiansPerSecond -
+      previousRightAngularVelocityRadiansPerSecond)
+  const leftCouplingTorqueNewtonMeters =
+    safeDtSeconds > 0
+      ? leftCouplingAngularImpulseNewtonMeterSeconds / safeDtSeconds
+      : 0
+  const rightCouplingTorqueNewtonMeters =
+    safeDtSeconds > 0
+      ? rightCouplingAngularImpulseNewtonMeterSeconds / safeDtSeconds
+      : 0
+
+  applyRearDifferentialWheelSpeedToWheelState(
+    leftWheelState,
+    previousLeftAngularVelocityRadiansPerSecond,
+    nextLeftAngularVelocityRadiansPerSecond,
+    leftCouplingTorqueNewtonMeters,
+    leftCouplingAngularImpulseNewtonMeterSeconds,
+    safeDtSeconds,
+    leftWheelInertiaKgMeterSquared
+  )
+  applyRearDifferentialWheelSpeedToWheelState(
+    rightWheelState,
+    previousRightAngularVelocityRadiansPerSecond,
+    nextRightAngularVelocityRadiansPerSecond,
+    rightCouplingTorqueNewtonMeters,
+    rightCouplingAngularImpulseNewtonMeterSeconds,
+    safeDtSeconds,
+    rightWheelInertiaKgMeterSquared
+  )
+
+  state.rearDifferentialCouplingState = couplingState
+  state.rearDifferentialLeftCouplingTorqueNewtonMeters =
+    leftCouplingTorqueNewtonMeters
+  state.rearDifferentialRightCouplingTorqueNewtonMeters =
+    rightCouplingTorqueNewtonMeters
+  state.rearDifferentialLeftCouplingAngularImpulseNewtonMeterSeconds =
+    leftCouplingAngularImpulseNewtonMeterSeconds
+  state.rearDifferentialRightCouplingAngularImpulseNewtonMeterSeconds =
+    rightCouplingAngularImpulseNewtonMeterSeconds
+  state.rearDifferentialCommonAngularVelocityRadiansPerSecond =
+    hardSpeedCouplingApplied
+      ? commonAngularVelocityRadiansPerSecond
+      : 0
+  state.rearDifferentialLimitedSlipCouplingFraction01 = clamp01(
+    limitedSlipCouplingFraction01
+  )
+  state.isRearDifferentialHardSpeedCouplingApplied =
+    hardSpeedCouplingApplied
+
+  assignRearDifferentialWheelSpeedTelemetry(
+    state,
+    nextLeftAngularVelocityRadiansPerSecond,
+    nextRightAngularVelocityRadiansPerSecond
+  )
+
+  return state
+}
+
+function applyRearDifferentialWheelSpeedToWheelState(
+  wheelState,
+  previousAngularVelocityRadiansPerSecond,
+  nextAngularVelocityRadiansPerSecond,
+  couplingTorqueNewtonMeters,
+  couplingAngularImpulseNewtonMeterSeconds,
+  dtSeconds,
+  wheelInertiaKgMeterSquared
+) {
+  wheelState.angularVelocityRadiansPerSecond =
+    nextAngularVelocityRadiansPerSecond
+  wheelState.differentialCouplingTorqueNewtonMeters =
+    couplingTorqueNewtonMeters
+  wheelState.differentialCouplingAngularImpulseNewtonMeterSeconds =
+    couplingAngularImpulseNewtonMeterSeconds
+  wheelState.netTorqueNewtonMeters =
+    sanitizeNumber(wheelState.netTorqueNewtonMeters) +
+    couplingTorqueNewtonMeters
+
+  if (wheelInertiaKgMeterSquared > 0) {
+    wheelState.angularAccelerationRadiansPerSecondSquared =
+      sanitizeNumber(wheelState.angularAccelerationRadiansPerSecondSquared) +
+      couplingTorqueNewtonMeters / wheelInertiaKgMeterSquared
+  }
+
+  if (dtSeconds > 0) {
+    wheelState.spinAngleRadians =
+      sanitizeNumber(wheelState.spinAngleRadians) +
+      (nextAngularVelocityRadiansPerSecond -
+        previousAngularVelocityRadiansPerSecond) *
+        dtSeconds
+  }
+
+  wheelState.rollingSurfaceSpeedMetersPerSecond =
+    nextAngularVelocityRadiansPerSecond *
+    resolveWheelRollingRadiusMeters(wheelState)
+}
+
+function assignRearDifferentialWheelSpeedTelemetry(
+  state,
+  leftAngularVelocityRadiansPerSecond,
+  rightAngularVelocityRadiansPerSecond
+) {
+  state.rearDifferentialLeftAngularVelocityRadiansPerSecond = sanitizeNumber(
+    leftAngularVelocityRadiansPerSecond
+  )
+  state.rearDifferentialRightAngularVelocityRadiansPerSecond = sanitizeNumber(
+    rightAngularVelocityRadiansPerSecond
+  )
+  state.rearDifferentialWheelSpeedDifferenceRadiansPerSecond =
+    state.rearDifferentialLeftAngularVelocityRadiansPerSecond -
+    state.rearDifferentialRightAngularVelocityRadiansPerSecond
+  state.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond = Math.abs(
+    state.rearDifferentialWheelSpeedDifferenceRadiansPerSecond
+  )
 }
 
 function normalizeRearWheelState(wheelState = {}) {
@@ -274,12 +743,11 @@ function calculateBiasSignal01({
     totalSupportScore > SUPPORT_EPSILON
       ? Math.abs(supportScores.left - supportScores.right) / totalSupportScore
       : 0
-  const angularSpeedDifference01 =
-    normalizeDifference01(
-      leftWheelState.angularSpeedRadiansPerSecond,
-      rightWheelState.angularSpeedRadiansPerSecond,
-      differentialSlipSpeedEpsilonRadiansPerSecond
-    )
+  const angularSpeedDifference01 = normalizeDifference01(
+    leftWheelState.angularSpeedRadiansPerSecond,
+    rightWheelState.angularSpeedRadiansPerSecond,
+    differentialSlipSpeedEpsilonRadiansPerSecond
+  )
   const slipDifference01 = normalizeDifference01(
     leftWheelState.longitudinalSlipRatioAbs,
     rightWheelState.longitudinalSlipRatioAbs,
@@ -400,6 +868,24 @@ function resolveLimitedSlipDifferentialPreloadTorqueNewtonMeters(spec = {}) {
   )
 }
 
+function resolveLimitedSlipDifferentialCouplingGainNewtonMetersPerRadianPerSecond(
+  spec = {}
+) {
+  return sanitizeNonNegativeNumber(
+    spec.limitedSlipDifferentialCouplingGainNewtonMetersPerRadianPerSecond,
+    600
+  )
+}
+
+function resolveLimitedSlipDifferentialMaxCouplingTorqueNewtonMeters(
+  spec = {}
+) {
+  return sanitizeNonNegativeNumber(
+    spec.limitedSlipDifferentialMaxCouplingTorqueNewtonMeters,
+    1800
+  )
+}
+
 function resolveTorsenDifferentialTorqueBiasRatio(spec = {}) {
   return sanitizePositiveNumber(spec.torsenDifferentialTorqueBiasRatio, 3)
 }
@@ -413,6 +899,24 @@ function resolveDifferentialSlipSpeedEpsilonRadiansPerSecond(spec = {}) {
     spec.differentialSlipSpeedEpsilonRadiansPerSecond,
     0.5
   )
+}
+
+function resolveRearDifferentialHardCouplingEpsilonRadiansPerSecond(spec = {}) {
+  return sanitizePositiveNumber(
+    spec.rearDifferentialHardCouplingEpsilonRadiansPerSecond,
+    0.001
+  )
+}
+
+function resolveWheelRollingRadiusMeters(wheelState = {}) {
+  const effectiveTireRollingRadiusMeters = sanitizePositiveNumber(
+    wheelState.effectiveTireRollingRadiusMeters,
+    sanitizePositiveNumber(wheelState.radius, 0.48)
+  )
+
+  return effectiveTireRollingRadiusMeters > 0
+    ? effectiveTireRollingRadiusMeters
+    : 0.48
 }
 
 function normalizeDifference01(leftValue, rightValue, epsilon) {

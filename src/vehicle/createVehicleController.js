@@ -52,8 +52,10 @@ import {
 import {
     createRearDifferentialState,
     resetRearDifferentialState,
+    resetRearDifferentialStepState,
     setRearDifferentialType as setActiveRearDifferentialType,
     updateRearDifferentialDriveForceSplit,
+    updateRearDifferentialWheelSpeedCoupling,
 } from './dynamics/rearDifferentialState.js'
 import {
     createLoadTransferSummary,
@@ -507,14 +509,36 @@ export function createVehicleController(config = {}) {
                 state.rearDifferentialState.rearDifferentialLeftShare01,
             rearDifferentialRightShare01:
                 state.rearDifferentialState.rearDifferentialRightShare01,
+            rearDifferentialLeftAngularVelocityRadiansPerSecond:
+                state.rearDifferentialState.rearDifferentialLeftAngularVelocityRadiansPerSecond,
+            rearDifferentialRightAngularVelocityRadiansPerSecond:
+                state.rearDifferentialState.rearDifferentialRightAngularVelocityRadiansPerSecond,
             rearDifferentialWheelSpeedDifferenceRadiansPerSecond:
                 state.rearDifferentialState.rearDifferentialWheelSpeedDifferenceRadiansPerSecond,
+            rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond:
+                state.rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond,
             rearDifferentialTorqueBiasRatio:
                 state.rearDifferentialState.rearDifferentialTorqueBiasRatio,
+            rearDifferentialCouplingState:
+                state.rearDifferentialState.rearDifferentialCouplingState,
+            rearDifferentialLeftCouplingTorqueNewtonMeters:
+                state.rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters,
+            rearDifferentialRightCouplingTorqueNewtonMeters:
+                state.rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters,
+            rearDifferentialLeftCouplingAngularImpulseNewtonMeterSeconds:
+                state.rearDifferentialState.rearDifferentialLeftCouplingAngularImpulseNewtonMeterSeconds,
+            rearDifferentialRightCouplingAngularImpulseNewtonMeterSeconds:
+                state.rearDifferentialState.rearDifferentialRightCouplingAngularImpulseNewtonMeterSeconds,
+            rearDifferentialCommonAngularVelocityRadiansPerSecond:
+                state.rearDifferentialState.rearDifferentialCommonAngularVelocityRadiansPerSecond,
+            rearDifferentialLimitedSlipCouplingFraction01:
+                state.rearDifferentialState.rearDifferentialLimitedSlipCouplingFraction01,
             isRearDifferentialBiasing:
                 state.rearDifferentialState.isRearDifferentialBiasing,
             isRearDifferentialLockedApproximation:
                 state.rearDifferentialState.isRearDifferentialLockedApproximation,
+            isRearDifferentialHardSpeedCouplingApplied:
+                state.rearDifferentialState.isRearDifferentialHardSpeedCouplingApplied,
             rearDifferentialState: state.rearDifferentialState,
             tractionStateSummary: state.tractionStateSummary,
             serviceBrakeAbsSummary: state.serviceBrakeAbsSummary,
@@ -1136,6 +1160,7 @@ export function createVehicleController(config = {}) {
 
     function calculatePerWheelLongitudinalForces(dt) {
         resetWheelForceAndBrakeTorqueRequests()
+        resetRearDifferentialStepState(state.rearDifferentialState, spec)
         updateBrakeTorqueStates(dt)
 
         const speedDirection = getSignWithDeadzone(
@@ -1508,7 +1533,21 @@ export function createVehicleController(config = {}) {
 
     function updateWheelRotationalStates(dt) {
         for (const wheelState of state.wheelStates) {
+            resetWheelDifferentialCouplingState(wheelState)
             updateWheelTorqueCoupledRotationalState(wheelState, dt)
+        }
+
+        const drivenRearWheelStates = state.wheelStates.filter(
+            (wheelState) => wheelState.driven && wheelState.axle === 'rear'
+        )
+
+        if (drivenRearWheelStates.length === 2) {
+            updateRearDifferentialWheelSpeedCoupling(
+                state.rearDifferentialState,
+                drivenRearWheelStates,
+                dt,
+                spec
+            )
         }
     }
 
@@ -1955,6 +1994,8 @@ function createWheelRuntimeStates(vehicle, spec) {
             isParkingBraking: false,
             contactReactionTorqueNewtonMeters: 0,
             rollingConstraintCorrectionTorqueNewtonMeters: 0,
+            differentialCouplingTorqueNewtonMeters: 0,
+            differentialCouplingAngularImpulseNewtonMeterSeconds: 0,
             netTorqueNewtonMeters: 0,
             yawMomentContributionNewtonMeters: 0,
             isWheelLocked: false,
@@ -2081,6 +2122,7 @@ function resetWheelRotationalState(wheelState, spec) {
     resetWheelLoadTransferState(wheelState)
     resetWheelTirePressureHandlingState(wheelState, spec)
     resetWheelBrakeTorqueState(wheelState)
+    resetWheelDifferentialCouplingState(wheelState)
     resetWheelServiceBrakeAbsState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0
     wheelState.brakeTorqueNewtonMeters = 0
@@ -2125,6 +2167,11 @@ function resetWheelBrakeTorqueState(wheelState) {
     wheelState.serviceBrakeFrontBiasShare01 = 0
     wheelState.isServiceBraking = false
     wheelState.isParkingBraking = false
+}
+
+function resetWheelDifferentialCouplingState(wheelState) {
+    wheelState.differentialCouplingTorqueNewtonMeters = 0
+    wheelState.differentialCouplingAngularImpulseNewtonMeterSeconds = 0
 }
 
 function resetWheelLongitudinalTractionState(wheelState) {

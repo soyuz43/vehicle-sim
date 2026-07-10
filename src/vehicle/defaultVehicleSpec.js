@@ -50,9 +50,12 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   ],
   limitedSlipDifferentialLockFactor01: 0.35,
   limitedSlipDifferentialPreloadTorqueNewtonMeters: 80,
+  limitedSlipDifferentialCouplingGainNewtonMetersPerRadianPerSecond: 600,
+  limitedSlipDifferentialMaxCouplingTorqueNewtonMeters: 1800,
   torsenDifferentialTorqueBiasRatio: 3,
   lockedDifferentialLockFactor01: 1,
   differentialSlipSpeedEpsilonRadiansPerSecond: 0.5,
+  rearDifferentialHardCouplingEpsilonRadiansPerSecond: 0.001,
 
   // Longitudinal driver request budgets. Tire force now comes from slip ratio;
   // these requests remain command telemetry and torque inputs, not direct body force.
