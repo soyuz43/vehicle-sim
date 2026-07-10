@@ -152,7 +152,7 @@ export function createVehicleController(config = {}) {
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'tire-pressure-handling-v1',
+        controllerKind: 'service-brake-bias-v1',
         gear: initialGear,
         speedScalar: 0,
         throttleInput: 0,
@@ -950,6 +950,21 @@ export function createVehicleController(config = {}) {
         // One-step explicit control approximation: service-brake ABS uses slip
         // and service-brake lock telemetry from the prior fixed step when
         // modulating this step's service brake torque command.
+        // Service brake bias v1 splits torque by axle using serviceBrakeFrontBias01.
+        // Parking brake torque remains rear-only and unaffected by service brake bias.
+        const serviceBrakeFrontBias01 = spec.serviceBrakeFrontBias01 ?? 0.65
+        const frontWheelCount = state.wheelStates.filter(w => w.axle === 'front').length
+        const rearWheelCount = state.wheelStates.filter(w => w.axle === 'rear').length
+        const totalServiceBrakeTorqueNewtonMeters = requestedServiceBrakeTorqueNewtonMeters
+        const frontServiceBrakeTorquePerWheelNewtonMeters =
+            frontWheelCount > 0
+                ? totalServiceBrakeTorqueNewtonMeters * serviceBrakeFrontBias01 / frontWheelCount
+                : 0
+        const rearServiceBrakeTorquePerWheelNewtonMeters =
+            rearWheelCount > 0
+                ? totalServiceBrakeTorqueNewtonMeters * (1 - serviceBrakeFrontBias01) / rearWheelCount
+                : 0
+
         for (const wheelState of state.wheelStates) {
             const parkingBrakeAppliesToWheel =
                 !spec.parkingBrakeActsOnRearWheelsOnly ||
@@ -959,10 +974,16 @@ export function createVehicleController(config = {}) {
                     ? requestedParkingBrakeTorqueNewtonMeters
                     : 0
 
+            const requestedServiceBrakeTorquePerWheelNewtonMeters =
+                wheelState.axle === 'front'
+                    ? frontServiceBrakeTorquePerWheelNewtonMeters
+                    : rearServiceBrakeTorquePerWheelNewtonMeters
+
             wheelState.serviceBrakePressure01 = serviceBrakePressure01
             wheelState.parkingBrakePressure01 = parkingBrakePressure01
+            wheelState.serviceBrakeFrontBiasShare01 = serviceBrakeFrontBias01
             wheelState.requestedServiceBrakeTorqueNewtonMeters =
-                requestedServiceBrakeTorqueNewtonMeters
+                requestedServiceBrakeTorquePerWheelNewtonMeters
             wheelState.requestedParkingBrakeTorqueNewtonMeters =
                 requestedParkingBrakeTorquePerWheelNewtonMeters
 
@@ -970,7 +991,7 @@ export function createVehicleController(config = {}) {
                 wheelState,
                 spec,
                 serviceBrakePressure01,
-                requestedServiceBrakeTorqueNewtonMeters,
+                requestedServiceBrakeTorquePerWheelNewtonMeters,
                 dt
             )
 
@@ -989,7 +1010,7 @@ export function createVehicleController(config = {}) {
             wheelState.totalBrakeTorqueNewtonMeters =
                 totalBrakeTorqueNewtonMeters
             wheelState.requestedBrakeTorqueNewtonMeters =
-                requestedServiceBrakeTorqueNewtonMeters +
+                requestedServiceBrakeTorquePerWheelNewtonMeters +
                 requestedParkingBrakeTorquePerWheelNewtonMeters
             wheelState.appliedBrakeTorqueNewtonMeters =
                 totalBrakeTorqueNewtonMeters
@@ -1046,10 +1067,24 @@ export function createVehicleController(config = {}) {
         if (totalBrakeForceNewtons === 0) return
         if (state.wheelStates.length === 0) return
 
-        const brakeForcePerWheelNewtons =
-            totalBrakeForceNewtons / state.wheelStates.length
+        // Service brake bias v1: split brake force by axle.
+        const serviceBrakeFrontBias01 = spec.serviceBrakeFrontBias01 ?? 0.65
+        const frontWheelCount = state.wheelStates.filter(w => w.axle === 'front').length
+        const rearWheelCount = state.wheelStates.filter(w => w.axle === 'rear').length
+        const frontBrakeForcePerWheelNewtons =
+            frontWheelCount > 0
+                ? totalBrakeForceNewtons * serviceBrakeFrontBias01 / frontWheelCount
+                : 0
+        const rearBrakeForcePerWheelNewtons =
+            rearWheelCount > 0
+                ? totalBrakeForceNewtons * (1 - serviceBrakeFrontBias01) / rearWheelCount
+                : 0
 
         for (const wheelState of state.wheelStates) {
+            const brakeForcePerWheelNewtons =
+                wheelState.axle === 'front'
+                    ? frontBrakeForcePerWheelNewtons
+                    : rearBrakeForcePerWheelNewtons
             wheelState.requestedBrakeForceNewtons = brakeForcePerWheelNewtons
             wheelState.requestedLongitudinalForceNewtons +=
                 brakeForcePerWheelNewtons
@@ -1591,6 +1626,7 @@ function createWheelRuntimeStates(vehicle, spec) {
             requestedServiceBrakeTorqueNewtonMeters: 0,
             requestedParkingBrakeTorqueNewtonMeters: 0,
             appliedServiceBrakeTorqueNewtonMeters: 0,
+            serviceBrakeFrontBiasShare01: 0,
             appliedParkingBrakeTorqueNewtonMeters: 0,
             serviceBrakeAbsState: SERVICE_BRAKE_ABS_STATES.INACTIVE,
             serviceBrakeAbsActive: false,
@@ -1773,6 +1809,7 @@ function resetWheelBrakeTorqueState(wheelState) {
     wheelState.requestedBrakeTorqueNewtonMeters = 0
     wheelState.appliedBrakeTorqueNewtonMeters = 0
     wheelState.brakeTorqueNewtonMeters = 0
+    wheelState.serviceBrakeFrontBiasShare01 = 0
     wheelState.isServiceBraking = false
     wheelState.isParkingBraking = false
 }

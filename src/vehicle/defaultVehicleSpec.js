@@ -53,6 +53,17 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   serviceBrakeAbsReapplyRatePerSecond: 4,
   serviceBrakeAbsMinimumModulation01: 0.2,
 
+  // Service brake bias v1 distributes requested service brake torque by axle.
+  // serviceBrakeFrontBias01 is the fraction of total service brake torque sent
+  // to the front axle; the rear axle receives 1 - serviceBrakeFrontBias01.
+  // This applies only to service brake distribution. Parking brake remains
+  // rear-only and ABS still modulates only the service brake path. Brake bias
+  // does not directly change frictionCoefficient, normalForceNewtons, or
+  // tractionLimitNewtons; the traction limit remains frictionCoefficient *
+  // normalForceNewtons. There is no brake heat, fade, wear, hydraulic model,
+  // or damage model.
+  serviceBrakeFrontBias01: 0.65,
+
   // Basic linear/saturated longitudinal tire model coefficient.
   // Tire force is still capped by frictionCoefficient * normalForceNewtons;
   // this is not a Pacejka or combined-slip tire model.

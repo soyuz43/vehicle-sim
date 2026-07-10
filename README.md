@@ -42,6 +42,23 @@ Service-brake ABS v1 now modulates service brake torque per wheel when service-b
 
 ABS applies only to the service brake path. Parking brake torque remains a separate rear-wheel-only command path and is explicitly excluded from ABS modulation. This is a staged controller foundation, not a full production ABS model; it does not change friction, traction limits, tire pressure behavior, brake assist, traction control, stability control, suspension, load transfer, the new lateral tire-force path, or full combined-slip modeling.
 
+## Service Brake Bias v1
+
+Service brake torque is now distributed using a front-biased axle split.
+The `serviceBrakeFrontBias01` spec value (default 0.65) controls the
+fraction of total requested service brake torque sent to the front axle;
+the rear axle receives the remainder.
+
+Brake bias applies only to the service brake path. Parking brake remains
+rear-only and is unaffected by service brake bias. ABS still modulates
+only the service brake path.
+
+Brake bias does not directly change `frictionCoefficient`,
+`normalForceNewtons`, or `tractionLimitNewtons`; the traction limit
+remains `frictionCoefficient * normalForceNewtons`. There is no hydraulic
+brake model, brake heat, fade, wear, or damage model.
+
+
 ## Longitudinal Slip Ratio Telemetry
 
 Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Current ground speed is approximated from planar local-forward velocity until per-wheel contact patch velocity exists. Slip ratio now feeds the basic longitudinal tire-force model, and the service-brake ABS v1 controller can also read it while richer wheel-lock detection and tire curves remain future work.
@@ -122,7 +139,7 @@ The feedback is visual/debug only. It does not change tire force, friction, trac
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force now comes from each wheel's capped slip-ratio longitudinal tire force plus the new slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. Quasi-static load transfer updates per-wheel normal force before those traction limits are consumed, so acceleration, braking, and cornering can redistribute available grip while friction coefficient remains unchanged. This preserves clear seams for later brake bias, richer tire curves, friction-ellipse work, and suspension without pretending those systems already exist.
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force now comes from each wheel's capped slip-ratio longitudinal tire force plus the new slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. Quasi-static load transfer updates per-wheel normal force before those traction limits are consumed, so acceleration, braking, and cornering can redistribute available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and suspension without pretending those systems already exist. Service brake bias is now implemented separately (see Service Brake Bias v1).
 
 
 ## Controls
