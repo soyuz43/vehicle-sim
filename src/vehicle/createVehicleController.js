@@ -51,6 +51,10 @@ import {
     updateLoadTransferState,
 } from './dynamics/loadTransferState.js'
 import {
+    resetWheelSuspensionNormalForceState,
+    updateSuspensionNormalForceState,
+} from './dynamics/suspensionNormalForceState.js'
+import {
     calculateWheelRollingResistanceForce,
     createTirePressureHandlingSummary,
     resetTirePressureHandlingSummary,
@@ -279,7 +283,7 @@ export function createVehicleController(config = {}) {
         updatePlanarMotion(safeDt)
         updatePosition(safeDt)
         syncVehicleYawFromPlanarState()
-        refreshPostIntegrationTelemetry()
+        refreshPostIntegrationTelemetry(safeDt)
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -310,8 +314,7 @@ export function createVehicleController(config = {}) {
         for (const wheelState of state.wheelStates) {
             resetWheelRotationalState(wheelState, spec)
             wheelState.steeringAngleRadians = 0
-            wheelState.normalForceNewtons = 0
-            wheelState.tractionLimitNewtons = 0
+            resetWheelSuspensionNormalForceState(wheelState)
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
@@ -332,7 +335,7 @@ export function createVehicleController(config = {}) {
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelSteeringAngles()
         updateWheelContactStates()
-        updateWheelLoadTransferState()
+        updateWheelLoadTransferState(0)
         updateWheelTirePressureHandlingState()
         calculatePerWheelLongitudinalForces(0)
         updateLateralSlipTelemetry()
@@ -345,7 +348,7 @@ export function createVehicleController(config = {}) {
         updatePowertrainKinematics()
         updateYawState(0)
         updatePlanarMotion(0)
-        refreshPostIntegrationTelemetry()
+        refreshPostIntegrationTelemetry(0)
         updateWheelVisualStates()
 
         return getSnapshot()
@@ -989,7 +992,7 @@ export function createVehicleController(config = {}) {
             wheelState.terrainContactQueryResult.isInsideTerrainBounds
     }
 
-    function updateWheelLoadTransferState() {
+    function updateWheelLoadTransferState(suspensionDtSeconds = null) {
         // Quasi-static load transfer intentionally reads the previous fixed-step
         // local acceleration telemetry. That explicit one-step lag avoids a
         // same-step circular dependency between normal force, traction limit,
@@ -1000,6 +1003,14 @@ export function createVehicleController(config = {}) {
             spec,
             state.loadTransferSummary
         )
+
+        if (suspensionDtSeconds !== null) {
+            updateSuspensionNormalForceState(
+                state.wheelStates,
+                spec,
+                suspensionDtSeconds
+            )
+        }
     }
 
     function updateWheelTirePressureHandlingState() {
@@ -1010,11 +1021,11 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function refreshPostIntegrationTelemetry() {
+    function refreshPostIntegrationTelemetry(suspensionDtSeconds = null) {
         // Refresh post-step telemetry against the latest contact, slip, and
         // load-transfer state without integrating motion a second time.
         updateWheelContactStates()
-        updateWheelLoadTransferState()
+        updateWheelLoadTransferState(suspensionDtSeconds)
         updateWheelTirePressureHandlingState()
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
@@ -1667,7 +1678,7 @@ export function createVehicleController(config = {}) {
     applyTireInflationVisualState()
     updateWheelSteeringAngles()
     updateWheelContactStates()
-    updateWheelLoadTransferState()
+    updateWheelLoadTransferState(0)
     updateWheelTirePressureHandlingState()
     calculatePerWheelLongitudinalForces(0)
     updateLateralSlipTelemetry()
@@ -1681,7 +1692,7 @@ export function createVehicleController(config = {}) {
     updateYawState(0)
     updatePlanarMotion(0)
     syncVehicleYawFromPlanarState()
-    refreshPostIntegrationTelemetry()
+    refreshPostIntegrationTelemetry(0)
     updateWheelVisualStates()
 
     return {
@@ -1725,6 +1736,7 @@ function createWheelRuntimeStates(vehicle, spec) {
 
         return {
             id: wheel.id,
+            wheelId: wheel.id,
             axle: wheel.axle,
             side: wheel.side,
             driven: Boolean(wheel.driven),

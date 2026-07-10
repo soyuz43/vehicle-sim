@@ -71,14 +71,14 @@ Wheel angular velocity now integrates from simple net torque and wheel inertia. 
 
 ## Basic Linear Longitudinal Tire Model
 
-Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. Longitudinal and lateral components now also share a basic combined friction cap, and traction limits now follow each wheel's dynamic normal force through quasi-static load transfer. This remains a staged foundation: it is not Pacejka, not a professional tire model, not a full combined-slip curve, and not suspension or a full rigid-body chassis model.
+Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. Longitudinal and lateral components now also share a basic combined friction cap, and traction limits follow each wheel's suspension-produced normal force. This remains a staged foundation: it is not Pacejka, not a professional tire model, not a full combined-slip curve, and not a full rigid-body chassis or suspension model.
 
 
 ## Planar Chassis Motion
 
 Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, yaw acceleration, and planar acceleration telemetry. Per-wheel tire forces now sum into world-space planar body force, while `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
-Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. Quasi-static load transfer now also shifts per-wheel normal force from prior-step local acceleration so acceleration, braking, and cornering can change available traction without changing friction coefficient. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is still no suspension, no spring/damper motion, no roll-center geometry, and no visual chassis roll or pitch simulation.
+Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. Quasi-static load transfer shifts the requested per-wheel normal load from prior-step local acceleration, and the suspension normal-force foundation organizes that load into spring/damper state. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no chassis heave, pitch or roll dynamics, roll-center geometry, or visual chassis roll or pitch simulation.
 
 
 ## Aerodynamic Drag Foundation v1
@@ -91,7 +91,7 @@ This v1 foundation adds no downforce, lift, wind, drafting, damage, or heat mode
 
 Chassis mass properties are now surfaced as explicit finite telemetry derived from the existing vehicle specification and wheel layout. The snapshot reports mass, center-of-mass height and offset, static front/rear weight bias, wheelbase, front/rear track width, and yaw moment of inertia. Existing flat spec fields such as `massKg`, `centerOfMassHeightMeters`, `wheelbaseMeters`, `frontTrackWidthMeters`, `rearTrackWidthMeters`, and `yawMomentOfInertiaKgMeterSquared` remain the source data rather than being duplicated into a separate tuning model.
 
-Center of mass and yaw inertia are foundation data for future yaw, load-transfer, and suspension work. This branch does not add suspension springs, dampers, pitch simulation, roll simulation, jumps, collision response, surface friction zones, aero downforce, or damage, and it does not intentionally change vehicle motion.
+Center of mass and yaw inertia are foundation data for yaw, load transfer, and suspension work. The suspension normal-force foundation reads the existing mass and gravity inputs without changing mass-property behavior. Full chassis heave, pitch and roll dynamics, jumps, collision response, surface friction zones, aero downforce, and damage remain outside the current model.
 
 ## Lateral Slip Angle Telemetry
 
@@ -103,15 +103,23 @@ That telemetry now feeds the first basic lateral tire-force branch. Straight-lin
 
 Each grounded wheel now converts lateral slip angle into a basic linear lateral tire force using `-lateralTireStiffnessNewtonsPerRadian * lateralSlipAngleRadians`. The force is capped by each wheel's existing `frictionCoefficient * normalForceNewtons`, and longitudinal plus lateral components then share a simple combined friction cap so a wheel cannot exceed its current traction limit when both components are active.
 
-The vehicle body now receives summed world-space planar tire force and a basic yaw moment from per-wheel tire forces applied at wheel offsets. This is an inspectable v1 foundation, not Pacejka, not a professional tire model, not a full combined-slip model, and not suspension, stability control, traction control, or drift physics.
+The vehicle body now receives summed world-space planar tire force and a basic yaw moment from per-wheel tire forces applied at wheel offsets. This is an inspectable v1 foundation, not Pacejka, not a professional tire model, not a full combined-slip model, and not a full suspension geometry, stability control, traction control, or drift model.
 
 ## Quasi-Static Load Transfer v1
 
-Each grounded wheel now derives dynamic `normalForceNewtons` from a quasi-static baseline plus longitudinal and lateral load-transfer deltas driven by prior-step local acceleration. Positive forward acceleration shifts load rearward, braking shifts load forward, and lateral acceleration shifts load to the outside wheels under the project's local-axis convention.
+Each grounded wheel derives a requested dynamic normal load from a quasi-static baseline plus longitudinal and lateral load-transfer deltas driven by prior-step local acceleration. Positive forward acceleration shifts load rearward, braking shifts load forward, and lateral acceleration shifts load to the outside wheels under the project's local-axis convention.
 
-`tractionLimitNewtons` still remains `frictionCoefficient * normalForceNewtons`, so this branch changes available grip only by changing normal force. Friction coefficient stays unchanged, while tire pressure handling now changes effective rolling radius, tire stiffness response, and rolling resistance without directly changing `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. There is still no suspension spring/damper model, roll center, or visual chassis roll/pitch motion.
+The suspension normal-force foundation consumes that requested load without double-counting static weight. `tractionLimitNewtons` remains `frictionCoefficient * normalForceNewtons`, so available grip changes only through the resulting normal force. Friction coefficient and tire pressure semantics remain unchanged.
 
 The debug HUD now also prints a compact per-wheel load distribution line (e.g. `Load distribution: FL 27% FR 27% RL 23% RR 23% | F/R 54/46`). This is telemetry only: it reads the existing per-wheel `normalForceNewtons` and renders finite, clamped percentages plus a front/rear split. It does not change load transfer, normal force, traction limits, or any other physics.
+
+## Suspension Normal Force Foundation v1
+
+Each wheel now exposes finite suspension compression, compression ratio, compression velocity, spring force, damping force, final normal force, and top-out/bottom-out state. Quasi-static load transfer remains the requested per-wheel load; a backward-Euler spring/damper step converts that request into compression state and computes `normalForceNewtons`. At rest on flat ground, the derived spring rates target 40% travel and the total normal force remains approximately vehicle mass times standard gravity.
+
+Traction changes only through the existing `tractionLimitNewtons = frictionCoefficient * normalForceNewtons` path. The foundation does not change friction-coefficient meaning, tire-pressure handling, or the longitudinal and lateral tire-force formulas.
+
+This v1 model has no independent vertical chassis dynamics. It adds no jumps, terrain bumps, chassis pitch/roll visuals, anti-roll bars, active suspension, collision response, damage, tire heat or wear, surface friction zones, or downforce. Future branches can add chassis heave, pitch, roll, suspension geometry, and visual chassis motion on top of the per-wheel state seam.
 
 
 ## G-Force HUD v1
@@ -152,7 +160,7 @@ Future work may add hiss/inflation sounds or more detailed tire carcass visuals,
 
 Tire pressure now also affects tire mechanics before the traction cap. Each wheel derives a conservative effective rolling radius, a pressure-adjusted longitudinal tire stiffness, a pressure-adjusted lateral tire stiffness, and a pressure-aware rolling resistance coefficient from its current pressure state. Underinflated tires therefore roll on a slightly smaller effective radius, build longitudinal and lateral force more softly, and add more rolling resistance; mild overinflation can sharpen stiffness slightly within conservative caps.
 
-Tire pressure still does not directly alter `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. Traction limit still comes only from `frictionCoefficient * normalForceNewtons`, so pressure changes response and drag before saturation rather than acting as a hidden grip slider. There is still no tire temperature, wear, damage, puncture, or blowout model, and there is still no suspension, visual chassis roll/pitch, or Pacejka tire model here.
+Tire pressure still does not directly alter `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. Traction limit still comes only from `frictionCoefficient * normalForceNewtons`, so pressure changes response and drag before saturation rather than acting as a hidden grip slider. There is still no tire temperature, wear, damage, puncture, blowout, visual chassis roll/pitch, or Pacejka tire model here.
 
 
 ## Developer Dynamics Tuning
@@ -178,7 +186,7 @@ The feedback is visual/debug only. It does not change tire force, friction, trac
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force now comes from each wheel's capped slip-ratio longitudinal tire force plus the new slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. Quasi-static load transfer updates per-wheel normal force before those traction limits are consumed, so acceleration, braking, and cornering can redistribute available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and suspension without pretending those systems already exist. Service brake bias is now implemented separately (see Service Brake Bias v1).
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force comes from each wheel's capped slip-ratio longitudinal tire force plus the slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. Quasi-static load transfer provides the requested per-wheel load before the suspension helper updates normal force, so acceleration, braking, and cornering can redistribute available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and full suspension geometry. Service brake bias is implemented separately (see Service Brake Bias v1).
 
 
 ## Controls

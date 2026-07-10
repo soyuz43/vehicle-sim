@@ -192,6 +192,7 @@ export function createDebugHud(config = {}) {
       `Load transfer: ${formatLoadTransferTelemetry(loadTransferSummary)}`,
       `Normal force bias: ${formatLoadTransferBiasTelemetry(loadTransferSummary)}`,
       `Load distribution: ${formatWheelLoadDistributionTelemetry(wheelStates)}`,
+      `Suspension: ${formatSuspensionTelemetry(wheelStates)}`,
       `Wheel normal force: ${formatWheelNormalForceTelemetry(loadTransferSummary)}`,
       `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
       `Slip visuals: ${formatTireSlipFeedbackTelemetry(tireSlipFeedback)}`,
@@ -584,6 +585,37 @@ function formatWheelLoadDistributionTelemetry(wheelStates = []) {
   const rearPercent = 100 - frontPercent
 
   return perWheelParts.join(' ') + ' | F/R ' + frontPercent + '/' + rearPercent
+}
+
+function formatSuspensionTelemetry(wheelStates = []) {
+  if (!Array.isArray(wheelStates) || wheelStates.length === 0) {
+    return 'unavailable'
+  }
+
+  const perWheelParts = []
+  let totalNormalForceNewtons = 0
+
+  for (const wheelState of wheelStates) {
+    const compressionRatio01 = Number(wheelState.suspensionCompressionRatio01)
+    const normalForceNewtons = Number(wheelState.normalForceNewtons)
+
+    if (
+      !Number.isFinite(compressionRatio01) ||
+      !Number.isFinite(normalForceNewtons) ||
+      normalForceNewtons < 0
+    ) {
+      return 'unavailable'
+    }
+
+    perWheelParts.push(
+      `${formatWheelId(wheelState)} ${Math.round(clampPercent(compressionRatio01) * 100)}%`
+    )
+    totalNormalForceNewtons += normalForceNewtons
+  }
+
+  if (!Number.isFinite(totalNormalForceNewtons)) return 'unavailable'
+
+  return `${perWheelParts.join(' ')} | normal ${formatNumber(totalNormalForceNewtons / 1000, 1)} kN`
 }
 
 function formatGForceTelemetry(snapshot = {}) {
