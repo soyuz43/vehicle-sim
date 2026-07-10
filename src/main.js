@@ -321,6 +321,9 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     dynamicsTuning: vehicleSnapshot.dynamicsTuning,
     terrainSize: terrainInfo.size,
     outsideTerrain,
+    engineProfile: vehicleSnapshot.engineProfile,
+    transmissionProfile: vehicleSnapshot.transmissionProfile,
+    powertrain: vehicleSnapshot.powertrain,
   })
 }
 
