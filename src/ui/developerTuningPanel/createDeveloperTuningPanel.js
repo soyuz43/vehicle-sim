@@ -353,15 +353,57 @@ function normalizeRearDifferentialState(rearDifferentialState = {}) {
     rearDifferentialRightShare01: clamp01(
       rearDifferentialState.rearDifferentialRightShare01 ?? 0.5
     ),
+    rearDifferentialLeftAngularVelocityRadiansPerSecond: Number.isFinite(
+      rearDifferentialState.rearDifferentialLeftAngularVelocityRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialLeftAngularVelocityRadiansPerSecond
+      : 0,
+    rearDifferentialRightAngularVelocityRadiansPerSecond: Number.isFinite(
+      rearDifferentialState.rearDifferentialRightAngularVelocityRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialRightAngularVelocityRadiansPerSecond
+      : 0,
+    rearDifferentialWheelSpeedDifferenceRadiansPerSecond: Number.isFinite(
+      rearDifferentialState.rearDifferentialWheelSpeedDifferenceRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialWheelSpeedDifferenceRadiansPerSecond
+      : 0,
+    rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond: Number.isFinite(
+      rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond
+      : 0,
     rearDifferentialTorqueBiasRatio: Number.isFinite(
       rearDifferentialState.rearDifferentialTorqueBiasRatio
     )
       ? rearDifferentialState.rearDifferentialTorqueBiasRatio
       : 0,
+    rearDifferentialCouplingState:
+      rearDifferentialState.rearDifferentialCouplingState ?? 'idle',
+    rearDifferentialLeftCouplingTorqueNewtonMeters: Number.isFinite(
+      rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters
+    )
+      ? rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters
+      : 0,
+    rearDifferentialRightCouplingTorqueNewtonMeters: Number.isFinite(
+      rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters
+    )
+      ? rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters
+      : 0,
+    rearDifferentialCommonAngularVelocityRadiansPerSecond: Number.isFinite(
+      rearDifferentialState.rearDifferentialCommonAngularVelocityRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialCommonAngularVelocityRadiansPerSecond
+      : 0,
+    rearDifferentialLimitedSlipCouplingFraction01: clamp01(
+      rearDifferentialState.rearDifferentialLimitedSlipCouplingFraction01 ?? 0
+    ),
     isRearDifferentialBiasing:
       rearDifferentialState.isRearDifferentialBiasing === true,
     isRearDifferentialLockedApproximation:
       rearDifferentialState.isRearDifferentialLockedApproximation === true,
+    isRearDifferentialHardSpeedCouplingApplied:
+      rearDifferentialState.isRearDifferentialHardSpeedCouplingApplied === true,
   }
 }
 
@@ -409,7 +451,32 @@ function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
     clamp01(rearDifferentialState.rearDifferentialLeftShare01 ?? 0.5) * 100
   )
   const rightPercent = Math.max(0, 100 - leftPercent)
-  const suffixes = []
+  const absoluteWheelSpeedDifferenceRadiansPerSecond = Math.abs(
+    Number.isFinite(
+      rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond
+      : rearDifferentialState.rearDifferentialWheelSpeedDifferenceRadiansPerSecond ?? 0
+  )
+  const couplingTorqueNewtonMeters = Math.max(
+    Math.abs(
+      Number.isFinite(
+        rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters
+      )
+        ? rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters
+        : 0
+    ),
+    Math.abs(
+      Number.isFinite(
+        rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters
+      )
+        ? rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters
+        : 0
+    )
+  )
+  const suffixes = [
+    `dOmega ${formatNumber(absoluteWheelSpeedDifferenceRadiansPerSecond, 2)} rad/s`,
+  ]
 
   if (
     rearDifferentialState.rearDifferentialType === 'torsen' &&
@@ -421,12 +488,22 @@ function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
     )
   }
 
-  if (rearDifferentialState.isRearDifferentialBiasing) {
-    suffixes.push('biasing')
+  if (couplingTorqueNewtonMeters > 0.001) {
+    suffixes.push(`coupling ${formatNumber(couplingTorqueNewtonMeters, 0)} N*m`)
   }
 
-  if (rearDifferentialState.isRearDifferentialLockedApproximation) {
-    suffixes.push('locked approx')
+  if (rearDifferentialState.isRearDifferentialHardSpeedCouplingApplied) {
+    suffixes.push('constrained')
+  } else if (
+    rearDifferentialState.rearDifferentialCouplingState &&
+    rearDifferentialState.rearDifferentialCouplingState !== 'idle' &&
+    rearDifferentialState.rearDifferentialCouplingState !== 'uncoupled'
+  ) {
+    suffixes.push(rearDifferentialState.rearDifferentialCouplingState)
+  }
+
+  if (rearDifferentialState.isRearDifferentialBiasing) {
+    suffixes.push('biasing')
   }
 
   const baseLabel =
@@ -434,9 +511,7 @@ function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
     getRearDifferentialLabel(rearDifferentialState.rearDifferentialType)
   const baseTelemetry = `${baseLabel} / L ${leftPercent}% R ${rightPercent}%`
 
-  return suffixes.length > 0
-    ? `${baseTelemetry} / ${suffixes.join(' / ')}`
-    : baseTelemetry
+  return `${baseTelemetry} / ${suffixes.join(' / ')}`
 }
 
 function getRearDifferentialLabel(rearDifferentialType) {

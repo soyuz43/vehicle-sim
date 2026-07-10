@@ -293,7 +293,32 @@ function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
     clampPercent(rearDifferentialState.rearDifferentialLeftShare01) * 100
   )
   const rightPercent = Math.max(0, 100 - leftPercent)
-  const suffixes = []
+  const absoluteWheelSpeedDifferenceRadiansPerSecond = Math.abs(
+    Number.isFinite(
+      rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond
+    )
+      ? rearDifferentialState.rearDifferentialWheelSpeedDifferenceAbsRadiansPerSecond
+      : rearDifferentialState.rearDifferentialWheelSpeedDifferenceRadiansPerSecond ?? 0
+  )
+  const couplingTorqueNewtonMeters = Math.max(
+    Math.abs(
+      Number.isFinite(
+        rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters
+      )
+        ? rearDifferentialState.rearDifferentialLeftCouplingTorqueNewtonMeters
+        : 0
+    ),
+    Math.abs(
+      Number.isFinite(
+        rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters
+      )
+        ? rearDifferentialState.rearDifferentialRightCouplingTorqueNewtonMeters
+        : 0
+    )
+  )
+  const suffixes = [
+    `dOmega ${formatNumber(absoluteWheelSpeedDifferenceRadiansPerSecond, 2)} rad/s`,
+  ]
 
   if (
     rearDifferentialState.rearDifferentialType === 'torsen' &&
@@ -305,19 +330,25 @@ function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
     )
   }
 
+  if (couplingTorqueNewtonMeters > 0.001) {
+    suffixes.push(`coupling ${formatNumber(couplingTorqueNewtonMeters, 0)} N*m`)
+  }
+
+  if (rearDifferentialState.isRearDifferentialHardSpeedCouplingApplied) {
+    suffixes.push('constrained')
+  } else if (
+    rearDifferentialState.rearDifferentialCouplingState &&
+    rearDifferentialState.rearDifferentialCouplingState !== 'idle' &&
+    rearDifferentialState.rearDifferentialCouplingState !== 'uncoupled'
+  ) {
+    suffixes.push(rearDifferentialState.rearDifferentialCouplingState)
+  }
+
   if (rearDifferentialState.isRearDifferentialBiasing) {
     suffixes.push('biasing')
   }
 
-  if (rearDifferentialState.isRearDifferentialLockedApproximation) {
-    suffixes.push('locked approx')
-  }
-
-  const baseTelemetry = `${modeLabel} / L ${leftPercent}% R ${rightPercent}%`
-
-  return suffixes.length > 0
-    ? `${baseTelemetry} / ${suffixes.join(' / ')}`
-    : baseTelemetry
+  return `${modeLabel} / L ${leftPercent}% R ${rightPercent}% / ${suffixes.join(' / ')}`
 }
 
 function formatVehicleDynamicsStepTraceTelemetry(trace = {}) {
