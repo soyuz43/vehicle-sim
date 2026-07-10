@@ -126,6 +126,10 @@ export function createDebugHud(config = {}) {
 
     const powertrain = snapshot.powertrain ?? {}
     const powertrainKinematics = snapshot.powertrainKinematics ?? {}
+    const stockEngineCatalogTelemetry =
+      snapshot.stockEngineCatalogTelemetry ??
+      powertrain.engine?.stockEngineCatalogTelemetry ??
+      {}
 
     debugHudText.textContent = [
       'Vehicle Sim Debug',
@@ -133,6 +137,7 @@ export function createDebugHud(config = {}) {
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
       `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
       `Powertrain: ${formatPowertrainTelemetry(powertrain)}`,
+      `Engine catalog: ${formatStockEngineCatalogTelemetry(stockEngineCatalogTelemetry)}`,
       `Powertrain RPM: ${formatPowertrainRpmTelemetry(powertrainKinematics)}`,
       `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
       `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
@@ -512,6 +517,33 @@ function formatPowertrainRpmTelemetry(kinematics = {}) {
     : '?'
 
   return `${rpm} rpm ${gearLabel} ratio ${transmissionRatio} final ${finalDriveRatio}`
+}
+
+function formatStockEngineCatalogTelemetry(stockEngineCatalogTelemetry = {}) {
+  if (
+    stockEngineCatalogTelemetry.catalogTelemetryStatus !== 'available' ||
+    typeof stockEngineCatalogTelemetry.stockEngineDisplayName !== 'string'
+  ) {
+    return 'unavailable'
+  }
+
+  const displacementCubicCentimeters = Number.isFinite(
+    stockEngineCatalogTelemetry.stockEngineCatalog?.geometry
+      ?.displacementCubicCentimeters
+  )
+    ? Math.round(
+        stockEngineCatalogTelemetry.stockEngineCatalog.geometry
+          .displacementCubicCentimeters
+      )
+    : Math.round(
+        Number.isFinite(
+          stockEngineCatalogTelemetry.derivedDisplacementCubicCentimeters
+        )
+          ? stockEngineCatalogTelemetry.derivedDisplacementCubicCentimeters
+          : 0
+      )
+
+  return `${stockEngineCatalogTelemetry.stockEngineDisplayName} / ${displacementCubicCentimeters}cc ${stockEngineCatalogTelemetry.strokeGeometryKind ?? 'unknown'}`
 }
 
 function formatLongitudinalSlipTelemetry(wheelStates) {

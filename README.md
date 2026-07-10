@@ -182,6 +182,23 @@ What this foundation does NOT do yet:
 - No torque-converter behavior, differential behavior, or gear-ratio force multiplication.
 - No change to acceleration, braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, or surface contact.
 - No UI selection menus or tuning sliders.
+### Stock Engine Catalog Seed Data
+
+Stock engine catalog seed data now attaches source-derived stock-ish metadata to the existing piston engine profiles. The catalog is local, manual, and static for now. It adds catalog snapshots and derived validation/display telemetry, but it does not change engine or vehicle behavior.
+
+Catalog scope in this branch:
+- Eight source-derived seed records: inline-3, inline-4, inline-5, inline-6, V6, V8, V10, and V12.
+- Catalog schema fields for reference, architecture, geometry, stock performance, and source metadata.
+- Derived telemetry such as displacement cross-check, bore/stroke ratio, stroke geometry classification, and specific output metrics when the source data provides them.
+- Debug HUD visibility for the selected stock engine catalog entry.
+
+What the catalog does NOT do:
+- No online fetching, remote catalog loading, local file import, or catalog browser UI.
+- No torque-curve generation from displacement, bore, stroke, compression ratio, or cylinder count.
+- No change to acceleration, RPM behavior, shifting, drive torque, engine braking, friction, normal force, traction limits, tire forces, or vehicle motion.
+- No detailed cam profile, valve timing, intake, exhaust, ECU, turbo sizing, fueling, aftermarket package, or tuning-part modeling.
+
+The schema is intentionally shaped so future work can add more local records, imported catalog data, or user-supplied records without replacing the current engine profile system.
 ### Engine RPM Telemetry
 
 Engine RPM is now derived as inert telemetry from the selected powertrain profiles, the current R/N/D selector, and driven-wheel rotational speed. It is telemetry only and does not change vehicle behavior.
