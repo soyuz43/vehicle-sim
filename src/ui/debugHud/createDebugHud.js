@@ -183,6 +183,7 @@ export function createDebugHud(config = {}) {
       `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
       `Tire force: ${formatLongitudinalTireForceTelemetry(wheelStates)}`,
+      `Long force relax: ${formatLongitudinalTireForceRelaxationTelemetry(wheelStates)}`,
       `Tire saturation: ${formatTireSaturationTelemetry(wheelStates)}`,
       `Lateral tire force: ${formatLateralTireForceTelemetry(lateralTireForceSummary)}`,
       `Combined cap: ${formatCombinedTireForceTelemetry(lateralTireForceSummary)}`,
@@ -402,6 +403,28 @@ function formatLongitudinalTireForceTelemetry(wheelStates) {
     `a ${formatNumber(maxAppliedLongitudinalTireForceNewtonsAbs, 0)} N`,
     `sat ${saturatedWheelCount}`,
   ].join(' / ')
+}
+
+function formatLongitudinalTireForceRelaxationTelemetry(wheelStates) {
+  if (wheelStates.length === 0) return 'unavailable'
+
+  const wheelRelaxationTelemetry = []
+
+  for (const wheelState of wheelStates) {
+    const relaxationAlpha = Number.isFinite(
+      wheelState.longitudinalTireForceRelaxationAlpha
+    )
+      ? wheelState.longitudinalTireForceRelaxationAlpha
+      : null
+
+    if (relaxationAlpha === null) return 'unavailable'
+
+    wheelRelaxationTelemetry.push(
+      `${formatWheelId(wheelState)} ${formatNumber(relaxationAlpha * 100, 0)}%`
+    )
+  }
+
+  return wheelRelaxationTelemetry.join(' ')
 }
 
 function formatTireSlipFeedbackTelemetry(tireSlipFeedback = {}) {

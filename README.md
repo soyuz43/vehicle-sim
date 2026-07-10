@@ -189,6 +189,12 @@ The feedback is visual/debug only. It does not change tire force, friction, trac
 Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force comes from each wheel's capped slip-ratio longitudinal tire force plus the slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. Quasi-static load transfer provides the requested per-wheel load before the suspension helper updates normal force, so acceleration, braking, and cornering can redistribute available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and full suspension geometry. Service brake bias is implemented separately (see Service Brake Bias v1).
 
 
+## Longitudinal Tire Force Relaxation v1
+
+Longitudinal tire force now has a small relaxation layer that eases each wheel's applied force toward the existing traction-limited target instead of snapping immediately. The traction cap itself is unchanged: it still comes from `frictionCoefficient * normalForceNewtons`, and this branch does not add a Pacejka model, tire heat, tire wear, tire damage, or any lateral force relaxation.
+
+The relaxation layer is intentionally narrow. It only smooths longitudinal force buildup and keeps the existing longitudinal tire-force calculation, slip-ratio formula, stiffness formula, braking logic, ABS, parking brake, powertrain RPM, and suspension/load-transfer behavior intact.
+
 ## Controls
 
 - `W` applies throttle.
