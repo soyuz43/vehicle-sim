@@ -21,8 +21,9 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   loadTransferEnabled: true,
 
   // Suspension normal-force foundation v1 derives spring rate from static load,
-  // wheel count, travel, and target static compression. Backward-Euler damping
-  // organizes the requested quasi-static load without adding chassis heave,
+  // wheel count, travel, and target static compression. Backward-Euler
+  // suspension state preserves the requested quasi-static load target while
+  // exposing compression/velocity telemetry; it does not add chassis heave,
   // pitch, roll, terrain bumps, or visual body motion.
   suspensionEnabled: true,
   suspensionRestLengthMeters: 0.35,

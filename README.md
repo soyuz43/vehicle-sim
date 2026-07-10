@@ -78,7 +78,7 @@ Longitudinal tire force now comes from a simple linear/saturated slip-ratio mode
 
 Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, yaw acceleration, and planar acceleration telemetry. Per-wheel tire forces now sum into world-space planar body force, while `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
-Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. Quasi-static load transfer shifts the requested per-wheel normal load from prior-step local acceleration, and the suspension normal-force foundation organizes that load into spring/damper state. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no chassis heave, pitch or roll dynamics, roll-center geometry, or visual chassis roll or pitch simulation.
+Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. Quasi-static load transfer still produces the per-wheel `dynamicNormalForceNewtons` target from prior-step local acceleration, and the suspension normal-force foundation turns that target into finite spring/damper telemetry without adding body-motion feedback yet. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no chassis heave, pitch or roll dynamics, roll-center geometry, or visual chassis roll or pitch simulation.
 
 
 ## Aerodynamic Drag Foundation v1
@@ -115,11 +115,11 @@ The debug HUD now also prints a compact per-wheel load distribution line (e.g. `
 
 ## Suspension Normal Force Foundation v1
 
-Each wheel now exposes finite suspension compression, compression ratio, compression velocity, spring force, damping force, final normal force, and top-out/bottom-out state. Quasi-static load transfer remains the requested per-wheel load; a backward-Euler spring/damper step converts that request into compression state and computes `normalForceNewtons`. At rest on flat ground, the derived spring rates target 40% travel and the total normal force remains approximately vehicle mass times standard gravity.
+Each wheel now exposes finite suspension compression, compression ratio, compression velocity, spring force, damping force, final normal force, and top-out/bottom-out state. Quasi-static load transfer remains the requested per-wheel load target; a backward-Euler spring/damper step derives compression telemetry from that target, and the current implicit solve preserves final `normalForceNewtons` as the requested load-transfer value under the existing clamp bounds. The compression state is finite and smoothed, but it does not currently create transient normal-force lag or change traction feel by itself. At rest on flat ground, the derived spring rates target 40% travel and the total normal force remains approximately vehicle mass times standard gravity.
 
-Traction changes only through the existing `tractionLimitNewtons = frictionCoefficient * normalForceNewtons` path. The foundation does not change friction-coefficient meaning, tire-pressure handling, or the longitudinal and lateral tire-force formulas.
+Traction can still change through the existing `tractionLimitNewtons = frictionCoefficient * normalForceNewtons` path, and `normalForceNewtons` still follows the load-transfer target. The foundation does not change friction-coefficient meaning, tire-pressure handling, or the longitudinal and lateral tire-force formulas.
 
-This v1 model has no independent vertical chassis dynamics. It adds no jumps, terrain bumps, chassis pitch/roll visuals, anti-roll bars, active suspension, collision response, damage, tire heat or wear, surface friction zones, or downforce. Future branches can add chassis heave, pitch, roll, suspension geometry, and visual chassis motion on top of the per-wheel state seam.
+This v1 model has no independent vertical chassis dynamics. It adds no jumps, terrain bumps, chassis pitch/roll visuals, anti-roll bars, active suspension, collision response, damage, tire heat or wear, surface friction zones, or downforce. Future branches must add chassis heave, pitch, and roll degrees of freedom before suspension compression can physically feed back into body motion and transient load response.
 
 
 ## G-Force HUD v1
