@@ -2,6 +2,7 @@
 
 import * as THREE from 'three'
 import { createTirePressureVisuals } from './createTirePressureVisuals.js'
+import { createAnchoredToroidalTireGeometry } from './tireDeformationGeometry.js'
 
 const BODY_LENGTH = 2.8
 const BODY_WIDTH = 1.45
@@ -154,8 +155,9 @@ export function createCar() {
     tireInflationVisuals: {
       contactPatchNodes: contactPatches.map((patch) => patch.name),
     },
-    setTireInflationVisualState: (tirePressureState) => {
+    setTireInflationVisualState: (tirePressureState, wheelStates = null) => {
       tirePressureVisuals.setTargetFromPressureState(tirePressureState)
+      tirePressureVisuals.setTargetFromWheelStates(wheelStates)
     },
   }
 
@@ -361,21 +363,20 @@ function createWheel(id, x, z, materials) {
   const rollingAssembly = new THREE.Group()
   rollingAssembly.name = `wheel-rolling-assembly-${id}`
 
-  const tireGeometry = new THREE.CylinderGeometry(
-    WHEEL_RADIUS,
-    WHEEL_RADIUS,
-    WHEEL_WIDTH,
-    32
-  )
+  const hubRadiusMeters = WHEEL_RADIUS * 0.42
+  const tireGeometryData = createAnchoredToroidalTireGeometry({
+    outerRadiusMeters: WHEEL_RADIUS,
+    widthMeters: WHEEL_WIDTH,
+    hubRadiusMeters,
+  })
 
-  const tire = new THREE.Mesh(tireGeometry, materials.tire)
+  const tire = new THREE.Mesh(tireGeometryData.geometry, materials.tire)
   tire.name = `tire-${id}`
   tire.castShadow = true
-  tire.rotation.z = Math.PI / 2
 
   const hubGeometry = new THREE.CylinderGeometry(
-    WHEEL_RADIUS * 0.42,
-    WHEEL_RADIUS * 0.42,
+    hubRadiusMeters,
+    hubRadiusMeters,
     WHEEL_WIDTH * 1.08,
     24
   )
@@ -402,6 +403,13 @@ function createWheel(id, x, z, materials) {
     localPosition: new THREE.Vector3(x, WHEEL_Y, z),
     radius: WHEEL_RADIUS,
     width: WHEEL_WIDTH,
+    tireGeometry: {
+      kind: tireGeometryData.metadata.kind,
+      outerRadiusMeters: tireGeometryData.metadata.outerRadiusMeters,
+      innerBeadRadiusMeters: tireGeometryData.metadata.innerBeadRadiusMeters,
+      hubExclusionRadiusMeters: tireGeometryData.metadata.hubExclusionRadiusMeters,
+      widthMeters: tireGeometryData.metadata.widthMeters,
+    },
     axle: z > 0 ? 'front' : 'rear',
     side: x < 0 ? 'left' : 'right',
     driven: z < 0,

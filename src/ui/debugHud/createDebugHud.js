@@ -250,14 +250,16 @@ function formatTirePressureVisualsTelemetry(tirePressureVisuals = {}) {
   if (wheelVisuals.length === 0) return 'no wheels'
 
   const first = wheelVisuals[0]
-  const status = first.isVisualPressureSettled ? 'settled' : 'settling'
+  const status = first.isGeometrySettled ? 'settled' : 'settling'
   const pressure = formatNumber(first.targetPressureKpa ?? 0, 0)
-  const ratio = formatNumber(first.visualPressureRatio01 ?? 1, 2)
-  const label = first.isVisualPressureSettled
-    ? (first.visualDeflation01 > 0.05 ? 'flat' : 'normal')
-    : 'transition'
+  const load = formatNumber(first.normalizedLoadRatio ?? 0, 2)
+  const flattenMillimeters = formatNumber(
+    (first.contactFlatteningMeters ?? 0) * 1000,
+    1
+  )
+  const grounded = first.isGrounded ? 'grounded' : 'airborne'
 
-  return `${status} ${pressure} kPa / ${ratio} ratio (${label})`
+  return `${status} ${pressure} kPa / load ${load} / flatten ${flattenMillimeters} mm / ${grounded}`
 }
 
 function formatTirePressureHandlingTelemetry(tirePressureHandlingSummary = {}) {
