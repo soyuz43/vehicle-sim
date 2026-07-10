@@ -177,8 +177,9 @@ function calculateCompressionMeters({
     )
   }
 
-  // Backward Euler keeps the spring/damper state finite without introducing a
-  // separate vertical chassis degree of freedom in this quasi-static v1 model.
+  // Backward Euler keeps the spring/damper telemetry finite while preserving
+  // the requested quasi-static load target. It does not add vertical chassis
+  // heave, pitch, or roll feedback yet.
   const dampingRatePerStepNewtonsPerMeter =
     dampingRateNewtonsSecondPerMeter / dtSeconds
   const effectiveRateNewtonsPerMeter =
