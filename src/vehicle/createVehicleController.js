@@ -45,9 +45,16 @@ import {
     updateWheelLateralTireForceState,
 } from './dynamics/lateralTireForceState.js'
 import {
+    resetWheelLongitudinalTireForceStepState,
     resetWheelLongitudinalTireForceRelaxationState,
     updateWheelLongitudinalTireForceRelaxationState,
 } from './dynamics/longitudinalTireForceRelaxationState.js'
+import {
+    createRearDifferentialState,
+    resetRearDifferentialState,
+    setRearDifferentialType as setActiveRearDifferentialType,
+    updateRearDifferentialDriveForceSplit,
+} from './dynamics/rearDifferentialState.js'
 import {
     createLoadTransferSummary,
     resetLoadTransferSummary,
@@ -192,6 +199,7 @@ export function createVehicleController(config = {}) {
     const tirePressureHandlingSummary = createTirePressureHandlingSummary()
     const tractionStateSummary = createTractionStateSummary()
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
+    const rearDifferentialState = createRearDifferentialState(spec)
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
@@ -222,6 +230,7 @@ export function createVehicleController(config = {}) {
         tirePressureHandlingSummary,
         tractionStateSummary,
         serviceBrakeAbsSummary,
+        rearDifferentialState,
         vehicleDynamicsStepTrace: createVehicleDynamicsStepTrace(wheelStates),
         forces: createEmptyForceSnapshot(),
     }
@@ -301,7 +310,7 @@ export function createVehicleController(config = {}) {
         // frame's wheel torque and body-state integration updates velocities.
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
-        calculatePerWheelLongitudinalTireForces()
+        calculatePerWheelLongitudinalTireForces(safeDt)
         calculatePerWheelLateralTireForces()
         state.forces = calculatePlanarForcesFromWheelState()
         captureDynamicsStepTraceStage(
@@ -337,6 +346,7 @@ export function createVehicleController(config = {}) {
         )
         resetTractionStateSummary(state.tractionStateSummary)
         resetServiceBrakeAbsSummary(state.serviceBrakeAbsSummary)
+        resetRearDifferentialState(state.rearDifferentialState, spec)
         resetLateralSlipSummary(state.lateralSlipSummary)
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
@@ -483,6 +493,29 @@ export function createVehicleController(config = {}) {
             visualContactPatchScale:
                 state.tirePressureState.visualContactPatchScale,
             dynamicsTuning: state.dynamicsTuning,
+            rearDifferentialType:
+                state.rearDifferentialState.rearDifferentialType,
+            rearDifferentialModeLabel:
+                state.rearDifferentialState.rearDifferentialModeLabel,
+            rearDifferentialInputDriveForceNewtons:
+                state.rearDifferentialState.rearDifferentialInputDriveForceNewtons,
+            rearDifferentialLeftOutputDriveForceNewtons:
+                state.rearDifferentialState.rearDifferentialLeftOutputDriveForceNewtons,
+            rearDifferentialRightOutputDriveForceNewtons:
+                state.rearDifferentialState.rearDifferentialRightOutputDriveForceNewtons,
+            rearDifferentialLeftShare01:
+                state.rearDifferentialState.rearDifferentialLeftShare01,
+            rearDifferentialRightShare01:
+                state.rearDifferentialState.rearDifferentialRightShare01,
+            rearDifferentialWheelSpeedDifferenceRadiansPerSecond:
+                state.rearDifferentialState.rearDifferentialWheelSpeedDifferenceRadiansPerSecond,
+            rearDifferentialTorqueBiasRatio:
+                state.rearDifferentialState.rearDifferentialTorqueBiasRatio,
+            isRearDifferentialBiasing:
+                state.rearDifferentialState.isRearDifferentialBiasing,
+            isRearDifferentialLockedApproximation:
+                state.rearDifferentialState.isRearDifferentialLockedApproximation,
+            rearDifferentialState: state.rearDifferentialState,
             tractionStateSummary: state.tractionStateSummary,
             serviceBrakeAbsSummary: state.serviceBrakeAbsSummary,
             lateralSlipSummary: state.lateralSlipSummary,
@@ -541,6 +574,22 @@ export function createVehicleController(config = {}) {
 
     function getDynamicsTuning() {
         return state.dynamicsTuning
+    }
+
+    function setRearDifferentialType(nextRearDifferentialType) {
+        setActiveRearDifferentialType(
+            state.rearDifferentialState,
+            spec,
+            nextRearDifferentialType
+        )
+        resetRearDifferentialState(state.rearDifferentialState, spec)
+        refreshPostIntegrationTelemetry()
+
+        return getRearDifferentialState()
+    }
+
+    function getRearDifferentialState() {
+        return state.rearDifferentialState
     }
 
     function setTirePressureKpa(nextTirePressureKpa) {
@@ -1114,7 +1163,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
-            resetWheelLongitudinalTireForceState(wheelState, spec)
+            resetWheelLongitudinalTireForceStepState(wheelState, spec)
             resetWheelLateralTireForceState(wheelState)
             wheelState.isSlipping = false
             resetWheelBrakeTorqueState(wheelState)
@@ -1240,6 +1289,51 @@ export function createVehicleController(config = {}) {
     }
 
     function distributeDriveForceRequestToWheels(totalDriveForceNewtons) {
+        const drivenWheelStates = state.wheelStates.filter(
+            (wheelState) => wheelState.driven
+        )
+        const drivenRearWheelStates = drivenWheelStates.filter(
+            (wheelState) => wheelState.axle === 'rear'
+        )
+
+        if (
+            drivenWheelStates.length === 2 &&
+            drivenRearWheelStates.length === 2
+        ) {
+            updateRearDifferentialDriveForceSplit(
+                state.rearDifferentialState,
+                drivenRearWheelStates,
+                totalDriveForceNewtons,
+                spec
+            )
+
+            for (const wheelState of drivenRearWheelStates) {
+                const outputDriveForceNewtons =
+                    wheelState.side === 'left'
+                        ? state.rearDifferentialState.rearDifferentialLeftOutputDriveForceNewtons
+                        : state.rearDifferentialState.rearDifferentialRightOutputDriveForceNewtons
+
+                wheelState.requestedDriveForceNewtons = outputDriveForceNewtons
+                wheelState.requestedLongitudinalForceNewtons +=
+                    outputDriveForceNewtons
+            }
+
+            return
+        }
+
+        distributeDriveForceRequestEquallyAcrossDrivenWheels(
+            totalDriveForceNewtons
+        )
+        resetRearDifferentialState(state.rearDifferentialState, spec)
+        state.rearDifferentialState.rearDifferentialInputDriveForceNewtons =
+            Number.isFinite(totalDriveForceNewtons)
+                ? totalDriveForceNewtons
+                : 0
+    }
+
+    function distributeDriveForceRequestEquallyAcrossDrivenWheels(
+        totalDriveForceNewtons
+    ) {
         if (totalDriveForceNewtons === 0) return
 
         const drivenWheelCount = countDrivenWheels()
@@ -1772,6 +1866,8 @@ export function createVehicleController(config = {}) {
         setDynamicsTuning,
         resetDynamicsTuning,
         getDynamicsTuning,
+        setRearDifferentialType,
+        getRearDifferentialState,
         setTirePressureKpa,
         setWheelTirePressureKpa,
         resetTirePressure,

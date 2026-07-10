@@ -130,6 +130,7 @@ export function createDebugHud(config = {}) {
 
     const powertrain = snapshot.powertrain ?? {}
     const powertrainKinematics = snapshot.powertrainKinematics ?? {}
+    const rearDifferentialState = snapshot.rearDifferentialState ?? {}
     const stockEngineCatalogTelemetry =
       snapshot.stockEngineCatalogTelemetry ??
       powertrain.engine?.stockEngineCatalogTelemetry ??
@@ -148,6 +149,7 @@ export function createDebugHud(config = {}) {
       `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
       `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
+      `Rear diff: ${formatRearDifferentialTelemetry(rearDifferentialState)}`,
       `Chassis mass: ${formatChassisMassPropertiesTelemetry(snapshot.chassisMassProperties)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
       `Service brake: ${formatNumber(snapshot.brakeInput)}`,
@@ -283,6 +285,39 @@ function formatDynamicsTuningTelemetry(dynamicsTuning = {}) {
     `brake x${formatNumber(dynamicsTuning.serviceBrakeTorqueMultiplier)}`,
     `tire x${formatNumber(dynamicsTuning.longitudinalTireStiffnessMultiplier)}`,
   ].join(' / ')
+}
+
+function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
+  const modeLabel = rearDifferentialState.rearDifferentialModeLabel ?? 'Open'
+  const leftPercent = Math.round(
+    clampPercent(rearDifferentialState.rearDifferentialLeftShare01) * 100
+  )
+  const rightPercent = Math.max(0, 100 - leftPercent)
+  const suffixes = []
+
+  if (
+    rearDifferentialState.rearDifferentialType === 'torsen' &&
+    Number.isFinite(rearDifferentialState.rearDifferentialTorqueBiasRatio) &&
+    rearDifferentialState.rearDifferentialTorqueBiasRatio > 0
+  ) {
+    suffixes.push(
+      `TBR ${formatNumber(rearDifferentialState.rearDifferentialTorqueBiasRatio, 2)}`
+    )
+  }
+
+  if (rearDifferentialState.isRearDifferentialBiasing) {
+    suffixes.push('biasing')
+  }
+
+  if (rearDifferentialState.isRearDifferentialLockedApproximation) {
+    suffixes.push('locked approx')
+  }
+
+  const baseTelemetry = `${modeLabel} / L ${leftPercent}% R ${rightPercent}%`
+
+  return suffixes.length > 0
+    ? `${baseTelemetry} / ${suffixes.join(' / ')}`
+    : baseTelemetry
 }
 
 function formatVehicleDynamicsStepTraceTelemetry(trace = {}) {
