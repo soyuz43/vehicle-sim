@@ -440,6 +440,27 @@ export function createVehicleController(config = {}) {
             serviceBrakeAbsSummary: state.serviceBrakeAbsSummary,
             lateralSlipSummary: state.lateralSlipSummary,
             lateralTireForceSummary: state.lateralTireForceSummary,
+            yawDynamics: {
+                yawMomentNewtonMeters: state.forces.yawMomentNewtonMeters,
+                yawMomentOfInertiaKilogramSquareMeters:
+                    state.chassisMassPropertiesState.yawMomentOfInertiaKgMeterSquared,
+                yawAccelerationRadiansPerSecondSquared:
+                    state.planarMotion.yawAccelerationRadiansPerSecondSquared,
+                yawVelocityRadiansPerSecond: state.planarMotion.yawRateRadiansPerSecond,
+                yawAngleRadians: state.planarMotion.yawRadians,
+                netLongitudinalYawMomentNewtonMeters:
+                    state.forces.netLongitudinalYawMomentNewtonMeters,
+                netLateralYawMomentNewtonMeters:
+                    state.forces.netLateralYawMomentNewtonMeters,
+                perWheelYawMomentContributions: state.wheelStates.map(
+                    (wheelState) => ({
+                        axle: wheelState.axle,
+                        side: wheelState.side,
+                        yawMomentContributionNewtonMeters:
+                            wheelState.yawMomentContributionNewtonMeters ?? 0,
+                    })
+                ),
+            },
             loadTransferSummary: state.loadTransferSummary,
             tirePressureHandlingSummary: state.tirePressureHandlingSummary,
             engineProfile: state.engineProfile,
@@ -607,6 +628,8 @@ export function createVehicleController(config = {}) {
         let totalTireForceWorldXNewtons = 0
         let totalTireForceWorldZNewtons = 0
         let yawMomentNewtonMeters = 0
+        let netLongitudinalYawMomentNewtonMeters = 0
+        let netLateralYawMomentNewtonMeters = 0
         let totalRollingResistanceForceNewtons = 0
 
         state.tirePressureHandlingSummary.totalRollingResistanceForceAbsNewtons = 0
@@ -614,6 +637,7 @@ export function createVehicleController(config = {}) {
         for (const wheelState of state.wheelStates) {
             if (!wheelState.isGrounded) {
                 wheelState.rollingResistanceForceNewtons = 0
+                wheelState.yawMomentContributionNewtonMeters = 0
                 continue
             }
 
@@ -645,9 +669,18 @@ export function createVehicleController(config = {}) {
                 : 0
 
             // Positive yaw in this controller turns the vehicle nose toward +X/right.
-            yawMomentNewtonMeters +=
+            // The same per-wheel term feeds the total yaw moment and is captured here
+            // for diagnostics only; it does not change the physics integration.
+            const wheelYawMomentContributionNewtonMeters =
                 wheelOffsetForwardMeters * localRightForceNewtons -
                 wheelOffsetRightMeters * localForwardForceNewtons
+            yawMomentNewtonMeters += wheelYawMomentContributionNewtonMeters
+            netLateralYawMomentNewtonMeters +=
+                wheelOffsetForwardMeters * localRightForceNewtons
+            netLongitudinalYawMomentNewtonMeters +=
+                -wheelOffsetRightMeters * localForwardForceNewtons
+            wheelState.yawMomentContributionNewtonMeters =
+                wheelYawMomentContributionNewtonMeters
 
             const wheelRollingResistanceForceNewtons =
                 calculateWheelRollingResistanceForce(
@@ -748,6 +781,8 @@ export function createVehicleController(config = {}) {
                 netLateralForceNewtons / safeMassKg,
             yawMomentNewtonMeters,
             yawAccelerationRadiansPerSecondSquared,
+            netLongitudinalYawMomentNewtonMeters,
+            netLateralYawMomentNewtonMeters,
             isTractionLimited: tractionLimitedWheelCount > 0,
             tractionLimitedWheelCount,
         }
@@ -1745,6 +1780,7 @@ function createWheelRuntimeStates(vehicle, spec) {
             contactReactionTorqueNewtonMeters: 0,
             rollingConstraintCorrectionTorqueNewtonMeters: 0,
             netTorqueNewtonMeters: 0,
+            yawMomentContributionNewtonMeters: 0,
             isWheelLocked: false,
             longitudinalTractionState: LONGITUDINAL_TRACTION_STATES.STOPPED,
             longitudinalTractionStateReason: 'initial resting state',
@@ -2005,6 +2041,8 @@ function createEmptyForceSnapshot() {
         lateralAccelerationMetersPerSecondSquared: 0,
         yawMomentNewtonMeters: 0,
         yawAccelerationRadiansPerSecondSquared: 0,
+        netLongitudinalYawMomentNewtonMeters: 0,
+        netLateralYawMomentNewtonMeters: 0,
         isTractionLimited: false,
         tractionLimitedWheelCount: 0,
     }

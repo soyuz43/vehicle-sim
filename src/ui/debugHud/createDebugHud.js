@@ -187,6 +187,8 @@ export function createDebugHud(config = {}) {
       `Lateral tire force: ${formatLateralTireForceTelemetry(lateralTireForceSummary)}`,
       `Combined cap: ${formatCombinedTireForceTelemetry(lateralTireForceSummary)}`,
       `Yaw moment: ${formatYawMomentTelemetry(lateralTireForceSummary)}`,
+      `Yaw budget: ${formatYawBudgetTelemetry(snapshot.yawDynamics)}`,
+      `Yaw budget wheels: ${formatYawBudgetWheelContributionsTelemetry(snapshot.yawDynamics)}`,
       `Load transfer: ${formatLoadTransferTelemetry(loadTransferSummary)}`,
       `Normal force bias: ${formatLoadTransferBiasTelemetry(loadTransferSummary)}`,
       `Load distribution: ${formatWheelLoadDistributionTelemetry(wheelStates)}`,
@@ -474,6 +476,47 @@ function formatCombinedTireForceTelemetry(lateralTireForceSummary = {}) {
     `sat ${formatNumber(lateralTireForceSummary.combinedTireForceSaturatedWheelCount ?? 0, 0)}`,
     `max ${formatNumber(lateralTireForceSummary.maxCombinedTireForceSaturationRatio ?? 0, 2)}`,
   ].join(' / ')
+}
+
+function formatYawBudgetTelemetry(yawDynamics = {}) {
+  const moment = Number(yawDynamics.yawMomentNewtonMeters)
+  const inertia = Number(yawDynamics.yawMomentOfInertiaKilogramSquareMeters)
+  const accel = Number(yawDynamics.yawAccelerationRadiansPerSecondSquared)
+  const rate = Number(yawDynamics.yawVelocityRadiansPerSecond)
+
+  const hasMoment = Number.isFinite(moment)
+  const hasInertia = Number.isFinite(inertia)
+  const hasAccel = Number.isFinite(accel)
+  const hasRate = Number.isFinite(rate)
+
+  if (!hasMoment && !hasInertia && !hasAccel && !hasRate) return 'unavailable'
+
+  const signed = (value) => (value >= 0 ? '+' : '') + formatNumber(value, 2)
+  const parts = []
+  if (hasMoment) parts.push(signed(moment) + ' N*m')
+  if (hasInertia) parts.push('I ' + formatNumber(inertia, 0))
+  if (hasAccel) parts.push('accel ' + signed(accel) + ' rad/s²')
+  if (hasRate) parts.push('rate ' + signed(rate) + ' rad/s')
+  return parts.join(' / ')
+}
+
+function formatYawBudgetWheelContributionsTelemetry(yawDynamics = {}) {
+  const contributions = yawDynamics.perWheelYawMomentContributions
+  if (!Array.isArray(contributions) || contributions.length === 0) return 'unavailable'
+
+  const parts = []
+  for (const contribution of contributions) {
+    const value = Number(contribution.yawMomentContributionNewtonMeters)
+    if (!Number.isFinite(value)) continue
+    parts.push(
+      formatWheelId(contribution) +
+        ' ' +
+        (value >= 0 ? '+' : '') +
+        formatNumber(value, 0)
+    )
+  }
+
+  return parts.length > 0 ? parts.join(' ') : 'unavailable'
 }
 
 function formatYawMomentTelemetry(lateralTireForceSummary = {}) {
