@@ -109,6 +109,20 @@ The developer debug HUD includes compact local/world acceleration, tire-force sa
 
 A developer-only tire inflation panel still exposes tire pressure state in kPa and continues to drive the visible contact-patch presentation. Underinflated values still look softer and broader, while overinflated values still look tighter and smaller. That visual/debug layer remains separate from friction coefficient, load transfer, and traction-limit definition.
 
+## Tire Pressure Visual Deformation
+
+Tire pressure now also drives the tire mesh itself, not just the contact-patch marker. Lower pressure visibly flattens and softens each tire: the radial (radius) scale decreases, the tire widens and bulges slightly along the axle, and the contact-patch marker enlarges and flattens. Higher pressure keeps the change subtle and returns the tire toward its normal inflated shape. Overinflation is intentionally conservative so it never looks cartoonish.
+
+The deformation is visual feedback only. A dedicated visual layer (src/car/createTirePressureVisuals.js, with pure mapping helpers in src/car/tirePressureVisualScales.js) reads the existing tire pressure state and eases the visual pressure ratio toward the target over roughly visualResponseSeconds (default 2.0 s) using exponential smoothing. The mesh scale never feeds back into physics: it does not change wheel radius, contact radius, normal force, friction coefficient, traction limit, rolling resistance, drive/brake force, or vehicle motion.
+
+Key invariants:
+- Tire visuals visualize simulation state; they do not drive it.
+- No sound, puncture, leak, damage, heat, wear, blowout, or compressor system exists yet.
+- Pressure-to-traction behavior is unchanged (see Tire Pressure Handling v1).
+- A compact Debug HUD line reports the visual state, e.g. "Tire visuals: settled 220 kPa / 1.00 ratio (normal)" or "Tire visuals: settling 120 kPa / 0.72 ratio (flat)".
+
+Future work may add hiss/inflation sounds or more detailed tire carcass visuals, but none are implemented in this layer yet.
+
 ## Tire Pressure Handling v1
 
 Tire pressure now also affects tire mechanics before the traction cap. Each wheel derives a conservative effective rolling radius, a pressure-adjusted longitudinal tire stiffness, a pressure-adjusted lateral tire stiffness, and a pressure-aware rolling resistance coefficient from its current pressure state. Underinflated tires therefore roll on a slightly smaller effective radius, build longitudinal and lateral force more softly, and add more rolling resistance; mild overinflation can sharpen stiffness slightly within conservative caps.

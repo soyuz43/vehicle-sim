@@ -140,6 +140,7 @@ export function createDebugHud(config = {}) {
       `Engine catalog: ${formatStockEngineCatalogTelemetry(stockEngineCatalogTelemetry)}`,
       `Powertrain RPM: ${formatPowertrainRpmTelemetry(powertrainKinematics)}`,
       `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
+      `Tire visuals: ${formatTirePressureVisualsTelemetry(snapshot.tirePressureVisuals)}`,
       `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
       `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
@@ -227,6 +228,22 @@ function formatTirePressureTelemetry(tirePressureState = {}) {
   const inflationVisualLabel = tirePressureState.inflationVisualLabel ?? 'unknown'
 
   return `${formatNumber(tirePressureKpa, 0)} kPa / ${inflationVisualLabel}`
+}
+
+function formatTirePressureVisualsTelemetry(tirePressureVisuals = {}) {
+  if (tirePressureVisuals?.enabled === false) return 'disabled'
+  const wheelVisuals = tirePressureVisuals?.wheelVisuals ?? []
+  if (wheelVisuals.length === 0) return 'no wheels'
+
+  const first = wheelVisuals[0]
+  const status = first.isVisualPressureSettled ? 'settled' : 'settling'
+  const pressure = formatNumber(first.targetPressureKpa ?? 0, 0)
+  const ratio = formatNumber(first.visualPressureRatio01 ?? 1, 2)
+  const label = first.isVisualPressureSettled
+    ? (first.visualDeflation01 > 0.05 ? 'flat' : 'normal')
+    : 'transition'
+
+  return `${status} ${pressure} kPa / ${ratio} ratio (${label})`
 }
 
 function formatTirePressureHandlingTelemetry(tirePressureHandlingSummary = {}) {
