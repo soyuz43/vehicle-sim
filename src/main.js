@@ -90,6 +90,9 @@ scene.add(terrainGrid)
 ========================= */
 const car = createCar()
 
+// Visual-only tire pressure deformation layer (reads sim pressure, eases mesh).
+const tirePressureVisuals = car.userData.vehicle.tirePressureVisuals
+
 // CRITICAL: Pre-allocate the velocity vector.
 // We will reuse this object every frame to avoid Garbage Collection stutter.
 car.userData.velocity = new THREE.Vector3()
@@ -227,6 +230,7 @@ function resetCar() {
   vehicleController.reset()
   fixedSimulationRunner.reset()
   tireSlipFeedback.reset()
+  tirePressureVisuals.reset()
   cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
   updateDebugHud(0, fixedSimulationRunner.getSnapshot())
   updateGearIndicator()
@@ -318,6 +322,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     tirePressureHandlingSummary: vehicleSnapshot.tirePressureHandlingSummary,
     tireSlipFeedback: tireSlipFeedback.getSnapshot(),
     tirePressureState: vehicleSnapshot.tirePressureState,
+    tirePressureVisuals: tirePressureVisuals.getSnapshot(),
     dynamicsTuning: vehicleSnapshot.dynamicsTuning,
     terrainSize: terrainInfo.size,
     outsideTerrain,
@@ -373,6 +378,7 @@ function animate() {
   )
   updateDebugHud(clampedRenderDeltaSeconds, fixedSimulationSnapshot)
   updateGearIndicator()
+  tirePressureVisuals.update(clampedRenderDeltaSeconds)
 
   renderer.render(scene, camera)
 }

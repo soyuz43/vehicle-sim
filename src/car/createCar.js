@@ -1,6 +1,7 @@
 // src/car/createCar.js
 
 import * as THREE from 'three'
+import { createTirePressureVisuals } from './createTirePressureVisuals.js'
 
 const BODY_LENGTH = 2.8
 const BODY_WIDTH = 1.45
@@ -153,18 +154,14 @@ export function createCar() {
     tireInflationVisuals: {
       contactPatchNodes: contactPatches.map((patch) => patch.name),
     },
-    setTireInflationVisualState: (tireInflationVisualState) => {
-      applyTireInflationVisualState(contactPatches, tireInflationVisualState)
+    setTireInflationVisualState: (tirePressureState) => {
+      tirePressureVisuals.setTargetFromPressureState(tirePressureState)
     },
   }
 
-  applyTireInflationVisualState(contactPatches, {
-    visualContactPatchScale: {
-      width: 1,
-      length: 1,
-    },
-    visualTireDeflectionRatio: 0,
-  })
+  const tirePressureVisuals = createTirePressureVisuals(car)
+  car.userData.vehicle.tirePressureVisuals = tirePressureVisuals
+  tirePressureVisuals.reset()
 
   return car
 }
@@ -437,34 +434,6 @@ function createWheelRotationWitness(id, material) {
   marker.position.y = WHEEL_RADIUS + WHEEL_ROTATION_WITNESS_HEIGHT / 2
 
   return marker
-}
-
-function applyTireInflationVisualState(contactPatches, tireInflationVisualState = {}) {
-  const visualContactPatchScale = tireInflationVisualState.visualContactPatchScale ?? {}
-  const contactPatchWidthScale = Number.isFinite(visualContactPatchScale.width)
-    ? visualContactPatchScale.width
-    : 1
-  const contactPatchLengthScale = Number.isFinite(visualContactPatchScale.length)
-    ? visualContactPatchScale.length
-    : 1
-  const visualTireDeflectionRatio = Number.isFinite(
-    tireInflationVisualState.visualTireDeflectionRatio
-  )
-    ? tireInflationVisualState.visualTireDeflectionRatio
-    : 0
-  const opacity = THREE.MathUtils.clamp(
-    0.55 + visualTireDeflectionRatio * 0.55,
-    0.36,
-    0.78
-  )
-
-  for (const patch of contactPatches) {
-    patch.scale.set(contactPatchWidthScale, 1, contactPatchLengthScale)
-
-    if (patch.material) {
-      patch.material.opacity = opacity
-    }
-  }
 }
 
 function createContactPatch(wheelInfo, material) {
