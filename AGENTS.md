@@ -28,6 +28,100 @@
   - Always run `npm run build` before reporting completion.
   - Ignore the existing Vite chunk-size warning unless it blocks compilation.
 
+### 2.1 Command Construction & Repository Inspection Rules
+
+These rules exist to maximize the reliability of automated repository inspection. Incorrect shell commands can produce false negatives, wasted context, or incorrect conclusions. Accuracy is more important than minimizing command count.
+
+#### General Command Policy
+
+- Prefer simple, explicit, portable commands.
+- Use commands known to work in this repository's Windows PowerShell execution environment.
+- Prefer `rg` for source inspection.
+- Do not rely on interactive shell state, aliases, shell functions, or user-specific scripts.
+- If a command fails, report the failure and correct the command before drawing conclusions.
+- Never convert a command failure into a source-code conclusion.
+
+#### Ripgrep Usage
+
+When using `rg`:
+
+- Search explicit paths instead of relying on custom file types.
+- Prefer broad searches followed by narrowing.
+- Prefer glob filtering over custom type definitions.
+- Search executable source before documentation unless documentation was explicitly requested.
+- Use case-insensitive searches only when appropriate.
+- Prefer searching known project roots instead of the entire repository.
+
+Avoid:
+
+- Custom `--type-add` definitions.
+- Custom `--type` filters.
+- Complex quoting.
+- Shell-specific syntax that is easily misparsed.
+- Commands that are difficult to verify visually.
+
+#### Interpreting Search Results
+
+Distinguish carefully between these outcomes:
+
+- Matching results were found.
+- No matches were found for the requested search pattern.
+- The command failed.
+- The search scope was incomplete.
+
+These are not equivalent.
+
+A search that returns no matches for one pattern does **not** establish that the underlying concept is absent.
+
+A failed command establishes nothing about the repository.
+
+#### Progressive Search Strategy
+
+When investigating a concept:
+
+1. Begin with broad terminology.
+2. Narrow toward exact identifiers when evidence appears.
+3. Read only the files necessary to answer the request.
+4. Stop once sufficient evidence has been collected.
+
+Do not continue issuing increasingly similar searches after the relevant implementation has already been located.
+
+#### Repository Inspection Discipline
+
+When performing read-only analysis:
+
+- Respect user-specified scope limits.
+- Prefer evidence over inference.
+- Report uncertainty explicitly.
+- Identify the files that were inspected.
+- State whether conclusions are confirmed, probable, or unknown.
+- Do not silently expand repository scope.
+
+#### False-Negative Prevention
+
+Before concluding that a feature, identifier, or concept does not exist:
+
+- Perform both a broad conceptual search and an exact identifier search when practical.
+- Verify that the search command executed successfully.
+- Verify that the intended search roots were actually searched.
+- Distinguish between:
+  - absence of evidence,
+  - evidence of absence,
+  - command failure,
+  - incomplete search scope.
+
+Do not state that a feature is absent unless the performed search actually justifies that conclusion.
+
+#### Output Quality
+
+For repository reconnaissance:
+
+- Present findings before recommendations.
+- Separate confirmed observations from inferences.
+- Do not overstate confidence.
+- Keep output proportional to the requested scope.
+- Stop once the requested objective has been satisfied rather than maximizing repository traversal.
+
 ## 3. Architectural Direction & Staging
 We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
 

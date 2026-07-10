@@ -43,6 +43,13 @@ import {
     updateLoadTransferState,
 } from './dynamics/loadTransferState.js'
 import {
+    calculateWheelRollingResistanceForce,
+    createTirePressureHandlingSummary,
+    resetTirePressureHandlingSummary,
+    resetWheelTirePressureHandlingState,
+    updateTirePressureHandlingState,
+} from './dynamics/tirePressureHandlingState.js'
+import {
     LONGITUDINAL_TRACTION_STATES,
     createTractionStateSummary,
     resetTractionStateSummary,
@@ -139,12 +146,13 @@ export function createVehicleController(config = {}) {
     const lateralSlipSummary = createLateralSlipSummary()
     const lateralTireForceSummary = createLateralTireForceSummary()
     const loadTransferSummary = createLoadTransferSummary()
+    const tirePressureHandlingSummary = createTirePressureHandlingSummary()
     const tractionStateSummary = createTractionStateSummary()
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'quasi-static-load-transfer-v1',
+        controllerKind: 'tire-pressure-handling-v1',
         gear: initialGear,
         speedScalar: 0,
         throttleInput: 0,
@@ -158,6 +166,7 @@ export function createVehicleController(config = {}) {
         lateralSlipSummary,
         lateralTireForceSummary,
         loadTransferSummary,
+        tirePressureHandlingSummary,
         tractionStateSummary,
         serviceBrakeAbsSummary,
         forces: createEmptyForceSnapshot(),
@@ -171,6 +180,7 @@ export function createVehicleController(config = {}) {
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelContactStates()
         updateWheelLoadTransferState()
+        updateWheelTirePressureHandlingState()
         calculatePerWheelLongitudinalForces(safeDt)
         // Explicit one-step coupling: tire force still uses slip measured before this
         // frame's wheel torque and body-state integration updates velocities.
@@ -204,6 +214,7 @@ export function createVehicleController(config = {}) {
         resetLateralSlipSummary(state.lateralSlipSummary)
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
+        resetTirePressureHandlingSummary(state.tirePressureHandlingSummary)
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
         })
@@ -213,7 +224,7 @@ export function createVehicleController(config = {}) {
         syncVehicleYawFromPlanarState()
 
         for (const wheelState of state.wheelStates) {
-            resetWheelRotationalState(wheelState)
+            resetWheelRotationalState(wheelState, spec)
             wheelState.steeringAngleRadians = 0
             wheelState.normalForceNewtons = 0
             wheelState.tractionLimitNewtons = 0
@@ -238,6 +249,7 @@ export function createVehicleController(config = {}) {
         updateWheelSteeringAngles()
         updateWheelContactStates()
         updateWheelLoadTransferState()
+        updateWheelTirePressureHandlingState()
         calculatePerWheelLongitudinalForces(0)
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
@@ -342,6 +354,7 @@ export function createVehicleController(config = {}) {
             lateralSlipSummary: state.lateralSlipSummary,
             lateralTireForceSummary: state.lateralTireForceSummary,
             loadTransferSummary: state.loadTransferSummary,
+            tirePressureHandlingSummary: state.tirePressureHandlingSummary,
         }
     }
 
@@ -371,9 +384,28 @@ export function createVehicleController(config = {}) {
             spec
         )
         applyTirePressureStateToWheels()
+        syncAggregateTirePressureStateFromWheels()
         applyTireInflationVisualState()
+        refreshPostIntegrationTelemetry()
 
         return getTirePressureState()
+    }
+
+    function setWheelTirePressureKpa(wheelId, nextTirePressureKpa) {
+        const wheelState = state.wheelStates.find((candidateWheelState) => (
+            candidateWheelState.id === wheelId
+        ))
+
+        if (!wheelState) {
+            throw new Error(`Unknown wheel id: ${wheelId}`)
+        }
+
+        updateTirePressureState(wheelState, nextTirePressureKpa, spec)
+        syncAggregateTirePressureStateFromWheels()
+        applyTireInflationVisualState()
+        refreshPostIntegrationTelemetry()
+
+        return getSnapshot()
     }
 
     function resetTirePressure() {
@@ -484,9 +516,13 @@ export function createVehicleController(config = {}) {
         let totalTireForceWorldXNewtons = 0
         let totalTireForceWorldZNewtons = 0
         let yawMomentNewtonMeters = 0
+        let totalRollingResistanceForceNewtons = 0
+
+        state.tirePressureHandlingSummary.totalRollingResistanceForceAbsNewtons = 0
 
         for (const wheelState of state.wheelStates) {
             if (!wheelState.isGrounded) {
+                wheelState.rollingResistanceForceNewtons = 0
                 continue
             }
 
@@ -521,10 +557,22 @@ export function createVehicleController(config = {}) {
             yawMomentNewtonMeters +=
                 wheelOffsetForwardMeters * localRightForceNewtons -
                 wheelOffsetRightMeters * localForwardForceNewtons
+
+            const wheelRollingResistanceForceNewtons =
+                calculateWheelRollingResistanceForce(
+                    wheelState,
+                    state.planarMotion.localForwardVelocityMetersPerSecond,
+                    spec
+                )
+
+            totalRollingResistanceForceNewtons +=
+                wheelRollingResistanceForceNewtons
+            state.tirePressureHandlingSummary.totalRollingResistanceForceAbsNewtons +=
+                Math.abs(wheelRollingResistanceForceNewtons)
         }
 
         const rollingResistanceForceNewtons =
-            calculateRollingResistanceForce(speedDirection, normalForceNewtons)
+            totalRollingResistanceForceNewtons
         const rollingResistanceForceWorldXNewtons =
             rollingResistanceForceNewtons * state.planarMotion.forwardWorld.x
         const rollingResistanceForceWorldZNewtons =
@@ -622,14 +670,23 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function calculateRollingResistanceForce(speedDirection, normalForceNewtons) {
-        if (speedDirection === 0) return 0
-
-        return (
-            -speedDirection *
-            spec.rollingResistanceCoefficient *
-            normalForceNewtons
+    function getWheelRollingRadiusMeters(wheelState) {
+        const effectiveTireRollingRadiusMeters = Number.isFinite(
+            wheelState.effectiveTireRollingRadiusMeters
         )
+            ? wheelState.effectiveTireRollingRadiusMeters
+            : wheelState.radius
+
+        if (
+            Number.isFinite(effectiveTireRollingRadiusMeters) &&
+            effectiveTireRollingRadiusMeters > 0
+        ) {
+            return effectiveTireRollingRadiusMeters
+        }
+
+        return Number.isFinite(wheelState.radius) && wheelState.radius > 0
+            ? wheelState.radius
+            : spec.baseTireRollingRadiusMeters
     }
 
     function calculateAerodynamicDragForce(speed, speedDirection) {
@@ -704,22 +761,37 @@ export function createVehicleController(config = {}) {
 
     function applyTirePressureStateToWheels() {
         for (const wheelState of state.wheelStates) {
-            wheelState.tirePressureKpa = state.tirePressureState.tirePressureKpa
-            wheelState.defaultTirePressureKpa =
-                state.tirePressureState.defaultTirePressureKpa
-            wheelState.minTirePressureKpa =
-                state.tirePressureState.minTirePressureKpa
-            wheelState.maxTirePressureKpa =
-                state.tirePressureState.maxTirePressureKpa
-            wheelState.tireInflationNormalized01 =
-                state.tirePressureState.tireInflationNormalized01
-            wheelState.visualTireDeflectionRatio =
-                state.tirePressureState.visualTireDeflectionRatio
-            wheelState.visualContactPatchScale.width =
-                state.tirePressureState.visualContactPatchScale.width
-            wheelState.visualContactPatchScale.length =
-                state.tirePressureState.visualContactPatchScale.length
+            updateTirePressureState(
+                wheelState,
+                state.tirePressureState.tirePressureKpa,
+                spec
+            )
         }
+    }
+
+    function syncAggregateTirePressureStateFromWheels() {
+        let totalTirePressureKpa = 0
+        let sampledWheelCount = 0
+
+        for (const wheelState of state.wheelStates) {
+            if (!Number.isFinite(wheelState.tirePressureKpa)) {
+                continue
+            }
+
+            totalTirePressureKpa += wheelState.tirePressureKpa
+            sampledWheelCount += 1
+        }
+
+        const nextTirePressureKpa =
+            sampledWheelCount > 0
+                ? totalTirePressureKpa / sampledWheelCount
+                : spec.defaultTirePressureKpa
+
+        updateTirePressureState(
+            state.tirePressureState,
+            nextTirePressureKpa,
+            spec
+        )
     }
 
     function applyTireInflationVisualState() {
@@ -796,11 +868,20 @@ export function createVehicleController(config = {}) {
         )
     }
 
+    function updateWheelTirePressureHandlingState() {
+        updateTirePressureHandlingState(
+            state.wheelStates,
+            spec,
+            state.tirePressureHandlingSummary
+        )
+    }
+
     function refreshPostIntegrationTelemetry() {
         // Refresh post-step telemetry against the latest contact, slip, and
         // load-transfer state without integrating motion a second time.
         updateWheelContactStates()
         updateWheelLoadTransferState()
+        updateWheelTirePressureHandlingState()
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
         calculatePerWheelLongitudinalTireForces()
@@ -999,7 +1080,7 @@ export function createVehicleController(config = {}) {
             calculateLocalForwardLongitudinalSlipRatio(wheelState)
 
         const linearLongitudinalTireForceNewtons =
-            spec.longitudinalTireStiffnessNewtonsPerSlipRatio *
+            wheelState.pressureAdjustedLongitudinalTireStiffnessNewtonsPerSlipRatio *
             state.dynamicsTuning.longitudinalTireStiffnessMultiplier *
             localForwardLongitudinalSlipRatio
 
@@ -1140,9 +1221,11 @@ export function createVehicleController(config = {}) {
     }
 
     function calculateWheelDriveTorqueNewtonMeters(wheelState) {
-        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+        const rollingRadiusMeters = getWheelRollingRadiusMeters(wheelState)
 
-        return wheelState.requestedDriveForceNewtons * wheelState.radius
+        if (!Number.isFinite(rollingRadiusMeters) || rollingRadiusMeters <= 0) return 0
+
+        return wheelState.requestedDriveForceNewtons * rollingRadiusMeters
     }
 
     function calculateWheelBrakeTorqueNewtonMeters(wheelState, dt) {
@@ -1174,9 +1257,12 @@ export function createVehicleController(config = {}) {
 
     function calculateWheelContactReactionTorqueNewtonMeters(wheelState) {
         if (!wheelState.isGrounded) return 0
-        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
 
-        return -wheelState.appliedLongitudinalForceNewtons * wheelState.radius
+        const rollingRadiusMeters = getWheelRollingRadiusMeters(wheelState)
+
+        if (!Number.isFinite(rollingRadiusMeters) || rollingRadiusMeters <= 0) return 0
+
+        return -wheelState.appliedLongitudinalForceNewtons * rollingRadiusMeters
     }
 
     function calculateTemporaryRollingConstraintCorrectionTorqueNewtonMeters(wheelState) {
@@ -1197,7 +1283,9 @@ export function createVehicleController(config = {}) {
     }
 
     function calculateTargetRollingAngularVelocity(wheelState) {
-        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+        const rollingRadiusMeters = getWheelRollingRadiusMeters(wheelState)
+
+        if (!Number.isFinite(rollingRadiusMeters) || rollingRadiusMeters <= 0) return 0
 
         const wheelGroundForwardSpeedMetersPerSecond = Number.isFinite(
             wheelState.wheelLocalForwardVelocityMetersPerSecond
@@ -1205,13 +1293,15 @@ export function createVehicleController(config = {}) {
             ? wheelState.wheelLocalForwardVelocityMetersPerSecond
             : state.speedScalar
 
-        return wheelGroundForwardSpeedMetersPerSecond / wheelState.radius
+        return wheelGroundForwardSpeedMetersPerSecond / rollingRadiusMeters
     }
 
     function calculateRollingSurfaceSpeedMetersPerSecond(wheelState) {
-        if (!Number.isFinite(wheelState.radius) || wheelState.radius <= 0) return 0
+        const rollingRadiusMeters = getWheelRollingRadiusMeters(wheelState)
 
-        return wheelState.angularVelocityRadiansPerSecond * wheelState.radius
+        if (!Number.isFinite(rollingRadiusMeters) || rollingRadiusMeters <= 0) return 0
+
+        return wheelState.angularVelocityRadiansPerSecond * rollingRadiusMeters
     }
 
     function updateLongitudinalSlipTelemetry() {
@@ -1409,6 +1499,7 @@ export function createVehicleController(config = {}) {
     updateWheelSteeringAngles()
     updateWheelContactStates()
     updateWheelLoadTransferState()
+    updateWheelTirePressureHandlingState()
     calculatePerWheelLongitudinalForces(0)
     updateLateralSlipTelemetry()
     updateLongitudinalSlipTelemetry()
@@ -1434,6 +1525,7 @@ export function createVehicleController(config = {}) {
         resetDynamicsTuning,
         getDynamicsTuning,
         setTirePressureKpa,
+        setWheelTirePressureKpa,
         resetTirePressure,
         getTirePressureState,
         getSnapshot,
@@ -1591,6 +1683,23 @@ function createWheelRuntimeStates(vehicle, spec) {
                 width: 1,
                 length: 1,
             },
+            tirePressureRatio:
+                spec.recommendedTirePressureKpa > 0
+                    ? spec.defaultTirePressureKpa / spec.recommendedTirePressureKpa
+                    : 1,
+            tirePressureState: 'nominal',
+            tirePressureStateReason: 'initial nominal pressure state',
+            effectiveTireRollingRadiusMeters: wheel.radius,
+            tirePressureLongitudinalStiffnessMultiplier: 1,
+            tirePressureLateralStiffnessMultiplier: 1,
+            pressureAdjustedLongitudinalTireStiffnessNewtonsPerSlipRatio:
+                spec.longitudinalTireStiffnessNewtonsPerSlipRatio,
+            pressureAdjustedLateralTireStiffnessNewtonsPerRadian:
+                spec.lateralTireStiffnessNewtonsPerRadian,
+            rollingResistanceCoefficient: spec.rollingResistanceCoefficient,
+            rollingResistanceForceNewtons: 0,
+            isUnderInflated: false,
+            isOverInflated: false,
             visual: {
                 pivot: visualNodes.pivot
                     ? vehicle.getObjectByName(visualNodes.pivot)
@@ -1606,7 +1715,7 @@ function createWheelRuntimeStates(vehicle, spec) {
     })
 }
 
-function resetWheelRotationalState(wheelState) {
+function resetWheelRotationalState(wheelState, spec) {
     wheelState.rollingSurfaceSpeedMetersPerSecond = 0
     wheelState.targetRollingAngularVelocityRadiansPerSecond = 0
     wheelState.angularVelocityRadiansPerSecond = 0
@@ -1617,6 +1726,7 @@ function resetWheelRotationalState(wheelState) {
     resetWheelLateralSlipAngleState(wheelState)
     resetWheelLateralTireForceState(wheelState)
     resetWheelLoadTransferState(wheelState)
+    resetWheelTirePressureHandlingState(wheelState, spec)
     resetWheelBrakeTorqueState(wheelState)
     resetWheelServiceBrakeAbsState(wheelState)
     wheelState.driveTorqueNewtonMeters = 0

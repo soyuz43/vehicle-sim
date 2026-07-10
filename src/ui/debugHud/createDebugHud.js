@@ -121,6 +121,7 @@ export function createDebugHud(config = {}) {
     const lateralSlipSummary = snapshot.lateralSlipSummary ?? {}
     const lateralTireForceSummary = snapshot.lateralTireForceSummary ?? {}
     const loadTransferSummary = snapshot.loadTransferSummary ?? {}
+    const tirePressureHandlingSummary = snapshot.tirePressureHandlingSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
 
     debugHudText.textContent = [
@@ -129,6 +130,8 @@ export function createDebugHud(config = {}) {
       `Camera: ${snapshot.cameraMode ?? 'unknown'}`,
       `Controller: ${snapshot.controllerKind ?? 'unknown'}`,
       `Tire pressure: ${formatTirePressureTelemetry(snapshot.tirePressureState)}`,
+      `Pressure handling: ${formatTirePressureHandlingTelemetry(tirePressureHandlingSummary)}`,
+      `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
       `Service brake: ${formatNumber(snapshot.brakeInput)}`,
@@ -214,6 +217,25 @@ function formatTirePressureTelemetry(tirePressureState = {}) {
   const inflationVisualLabel = tirePressureState.inflationVisualLabel ?? 'unknown'
 
   return `${formatNumber(tirePressureKpa, 0)} kPa / ${inflationVisualLabel}`
+}
+
+function formatTirePressureHandlingTelemetry(tirePressureHandlingSummary = {}) {
+  return [
+    `${tirePressureHandlingSummary.dominantTirePressureState ?? 'nominal'}`,
+    `ratio ${formatNumber(tirePressureHandlingSummary.minTirePressureRatio ?? 0)}-${formatNumber(tirePressureHandlingSummary.maxTirePressureRatio ?? 0)}`,
+    `radius ${formatNumber(tirePressureHandlingSummary.minEffectiveTireRollingRadiusMeters ?? 0, 3)}-${formatNumber(tirePressureHandlingSummary.maxEffectiveTireRollingRadiusMeters ?? 0, 3)} m`,
+  ].join(' / ')
+}
+
+function formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary = {}) {
+  return [
+    `long x${formatNumber(tirePressureHandlingSummary.averagePressureLongitudinalStiffnessMultiplier ?? 0)}`,
+    `lat x${formatNumber(tirePressureHandlingSummary.averagePressureLateralStiffnessMultiplier ?? 0)}`,
+    `under ${formatNumber(tirePressureHandlingSummary.underInflatedWheelCount ?? 0, 0)}`,
+    `over ${formatNumber(tirePressureHandlingSummary.overInflatedWheelCount ?? 0, 0)}`,
+    `severe ${formatNumber(tirePressureHandlingSummary.severePressureWheelCount ?? 0, 0)}`,
+    `roll ${formatNumber(tirePressureHandlingSummary.totalRollingResistanceForceAbsNewtons ?? 0, 0)} N`,
+  ].join(' / ')
 }
 
 function formatDynamicsTuningTelemetry(dynamicsTuning = {}) {
