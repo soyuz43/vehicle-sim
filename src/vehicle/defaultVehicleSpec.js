@@ -82,6 +82,13 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // this is not a Pacejka or combined-slip tire model.
   longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
 
+  // Longitudinal tire force relaxation v1 eases the applied longitudinal force
+  // toward the existing traction-limited target. It does not change slip
+  // ratio, stiffness, frictionCoefficient, or tractionLimitNewtons semantics.
+  longitudinalTireForceRelaxationEnabled: true,
+  longitudinalTireForceRelaxationLengthMeters: 0.35,
+  minimumLongitudinalTireForceRelaxationSpeedMetersPerSecond: 1,
+
   // Longitudinal traction-state thresholds classify/debug wheel behavior only.
   // They do not change tire force, friction, brake torque, ABS, or traction caps.
   tractionSlipRatioWarningThreshold: 0.08,

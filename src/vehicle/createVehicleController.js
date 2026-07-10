@@ -45,6 +45,10 @@ import {
     updateWheelLateralTireForceState,
 } from './dynamics/lateralTireForceState.js'
 import {
+    resetWheelLongitudinalTireForceRelaxationState,
+    updateWheelLongitudinalTireForceRelaxationState,
+} from './dynamics/longitudinalTireForceRelaxationState.js'
+import {
     createLoadTransferSummary,
     resetLoadTransferSummary,
     resetWheelLoadTransferState,
@@ -318,7 +322,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
-            resetWheelLongitudinalTireForceState(wheelState)
+            resetWheelLongitudinalTireForceState(wheelState, spec)
             resetWheelLongitudinalSlipState(wheelState)
             resetWheelLateralSlipAngleState(wheelState)
             resetWheelLateralTireForceState(wheelState)
@@ -1029,7 +1033,11 @@ export function createVehicleController(config = {}) {
         updateWheelTirePressureHandlingState()
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
-        calculatePerWheelLongitudinalTireForces()
+        // Refresh the target telemetry without advancing the relaxation state a
+        // second time during the post-step telemetry pass.
+        calculatePerWheelLongitudinalTireForces(suspensionDtSeconds, {
+            advanceRelaxationState: false,
+        })
         calculatePerWheelLateralTireForces()
         state.forces = calculatePlanarForcesFromWheelState()
         updateLateralTireForceSummaryState()
@@ -1065,7 +1073,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
-            resetWheelLongitudinalTireForceState(wheelState)
+            resetWheelLongitudinalTireForceState(wheelState, spec)
             resetWheelLateralTireForceState(wheelState)
             wheelState.isSlipping = false
             resetWheelBrakeTorqueState(wheelState)
@@ -1236,9 +1244,9 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function calculatePerWheelLongitudinalTireForces() {
+    function calculatePerWheelLongitudinalTireForces(dt, options = {}) {
         for (const wheelState of state.wheelStates) {
-            calculateWheelLongitudinalTireForce(wheelState)
+            calculateWheelLongitudinalTireForce(wheelState, dt, options)
         }
     }
 
@@ -1248,11 +1256,17 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function calculateWheelLongitudinalTireForce(wheelState) {
+    function calculateWheelLongitudinalTireForce(
+        wheelState,
+        dt,
+        options = {}
+    ) {
         if (!wheelState.isGrounded || wheelState.tractionLimitNewtons <= 0) {
-            resetWheelLongitudinalTireForceState(wheelState)
+            resetWheelLongitudinalTireForceState(wheelState, spec)
             return
         }
+
+        const advanceRelaxationState = options.advanceRelaxationState !== false
 
         // The stored longitudinalSlipRatio is direction-aware for telemetry;
         // tire force needs the vehicle local-forward sign convention.
@@ -1271,10 +1285,17 @@ export function createVehicleController(config = {}) {
             )
         wheelState.uncappedLongitudinalTireForceNewtons =
             wheelState.linearLongitudinalTireForceNewtons
-        wheelState.appliedLongitudinalForceNewtons = THREE.MathUtils.clamp(
+        wheelState.targetLongitudinalTireForceNewtons = THREE.MathUtils.clamp(
             wheelState.linearLongitudinalTireForceNewtons,
             -wheelState.tractionLimitNewtons,
             wheelState.tractionLimitNewtons
+        )
+
+        updateWheelLongitudinalTireForceRelaxationState(
+            wheelState,
+            spec,
+            dt,
+            advanceRelaxationState
         )
 
         const uncappedForceMagnitudeNewtons = Math.abs(
@@ -1822,8 +1843,14 @@ function createWheelRuntimeStates(vehicle, spec) {
             uncappedLongitudinalTireForceNewtons: 0,
             linearLongitudinalTireForceNewtons: 0,
             appliedLongitudinalForceNewtons: 0,
+            targetLongitudinalTireForceNewtons: 0,
+            relaxedLongitudinalTireForceNewtons: 0,
+            longitudinalTireForceRelaxationAlpha: 0,
+            longitudinalTireForceRelaxationLengthMeters:
+                spec.longitudinalTireForceRelaxationLengthMeters,
             longitudinalTireForceSaturationRatio: 0,
             isLongitudinalTireForceSaturated: false,
+            isLongitudinalTireForceRelaxing: false,
             longitudinalGroundSpeedMetersPerSecond: 0,
             wheelSurfaceSpeedMetersPerSecond: 0,
             longitudinalSlipRatio: 0,
@@ -1904,7 +1931,7 @@ function resetWheelRotationalState(wheelState, spec) {
     wheelState.angularVelocityRadiansPerSecond = 0
     wheelState.angularAccelerationRadiansPerSecondSquared = 0
     wheelState.spinAngleRadians = 0
-    resetWheelLongitudinalTireForceState(wheelState)
+    resetWheelLongitudinalTireForceState(wheelState, spec)
     resetWheelLongitudinalSlipState(wheelState)
     resetWheelLateralSlipAngleState(wheelState)
     resetWheelLateralTireForceState(wheelState)
@@ -1921,12 +1948,8 @@ function resetWheelRotationalState(wheelState, spec) {
     resetWheelLongitudinalTractionState(wheelState)
 }
 
-function resetWheelLongitudinalTireForceState(wheelState) {
-    wheelState.uncappedLongitudinalTireForceNewtons = 0
-    wheelState.linearLongitudinalTireForceNewtons = 0
-    wheelState.appliedLongitudinalForceNewtons = 0
-    wheelState.longitudinalTireForceSaturationRatio = 0
-    wheelState.isLongitudinalTireForceSaturated = false
+function resetWheelLongitudinalTireForceState(wheelState, spec = {}) {
+    resetWheelLongitudinalTireForceRelaxationState(wheelState, spec)
     wheelState.isSlipping = false
 }
 
