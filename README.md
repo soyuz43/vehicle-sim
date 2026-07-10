@@ -12,6 +12,14 @@ Simulation units:
 
 Vehicle simulation advances in fixed `1 / 60` second physics steps while rendering remains driven by `requestAnimationFrame`. This prepares the simulation layer for later wheel contact, suspension, and tire-force work without tying physics integration directly to render frame rate.
 
+## Vehicle Dynamics V2 Readiness / Step Trace
+
+Vehicle Dynamics Step Trace v1 is a telemetry and instrumentation layer only. It keeps one finite, JSON-serializable latest-step record and does not change the fixed timestep, force formulas, braking, ABS, powertrain, load transfer, suspension, aero drag, yaw integration, or vehicle motion.
+
+The trace records the current step dt and compact per-wheel data plus two force-budget stages: `integrationInput`, which is the force and yaw budget consumed by the current fixed step, and `postIntegration`, which is the refreshed state exposed after integration. Each stage summarizes grounded wheels, normal load, traction limit, longitudinal requested/target/relaxed/applied force, lateral force, planar force, yaw moment, aero drag, and force-derived acceleration/G. The Debug HUD shows a compact `Dynamics trace` line using the integration-input stage.
+
+This source-of-truth seam prepares future V2 branches by making update-order and force-source regressions easier to detect without adding a history buffer or storing Three.js objects. True chassis heave, pitch, and roll plus richer combined tire modeling remain future work and are not implemented here.
+
 
 ## Wheel Contact State
 

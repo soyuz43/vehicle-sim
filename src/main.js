@@ -283,6 +283,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     steeringInput: vehicleSnapshot.steeringInput,
     dt,
     fixedSimulation: fixedSimulationSnapshot,
+    vehicleDynamicsStepTrace: vehicleSnapshot.vehicleDynamicsStepTrace,
     position: pos,
     speedScalar: vehicleSnapshot.speedScalar,
     speedMetersPerSecond: vehicleSnapshot.speedMetersPerSecond,
