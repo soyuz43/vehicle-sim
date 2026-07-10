@@ -37,6 +37,23 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   maxForwardSpeedMetersPerSecond: 60,
   maxReverseSpeedMetersPerSecond: 12,
 
+  // Rear differential models v1 only affect how the existing rear driven axle
+  // splits total drive request between left and right. They do not change the
+  // powertrain, braking, tire model, traction limit, or wheel-speed equations.
+  rearDifferentialType: 'open',
+  rearDifferentialAvailableTypes: [
+    'open',
+    'limited-slip',
+    'torsen',
+    'locked',
+    'welded',
+  ],
+  limitedSlipDifferentialLockFactor01: 0.35,
+  limitedSlipDifferentialPreloadTorqueNewtonMeters: 80,
+  torsenDifferentialTorqueBiasRatio: 3,
+  lockedDifferentialLockFactor01: 1,
+  differentialSlipSpeedEpsilonRadiansPerSecond: 0.5,
+
   // Longitudinal driver request budgets. Tire force now comes from slip ratio;
   // these requests remain command telemetry and torque inputs, not direct body force.
   maxDriveForceNewtons: 6500,

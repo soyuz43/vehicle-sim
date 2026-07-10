@@ -163,8 +163,13 @@ const tireInflationPanel = createTireInflationPanel({
 const developerTuningPanel = createDeveloperTuningPanel({
   parent: document.body,
   initialDynamicsTuning: vehicleController.getDynamicsTuning(),
+  initialRearDifferentialState: vehicleController.getRearDifferentialState(),
   onDynamicsTuningChange: (nextDynamicsTuning) => {
     vehicleController.setDynamicsTuning(nextDynamicsTuning)
+    updateDeveloperTuningPanel()
+  },
+  onRearDifferentialTypeChange: (nextRearDifferentialType) => {
+    vehicleController.setRearDifferentialType(nextRearDifferentialType)
     updateDeveloperTuningPanel()
   },
   onReset: () => {
@@ -328,6 +333,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     tirePressureState: vehicleSnapshot.tirePressureState,
     tirePressureVisuals: tirePressureVisuals.getSnapshot(),
     dynamicsTuning: vehicleSnapshot.dynamicsTuning,
+    rearDifferentialState: vehicleSnapshot.rearDifferentialState,
     terrainSize: terrainInfo.size,
     outsideTerrain,
     engineProfile: vehicleSnapshot.engineProfile,
@@ -349,7 +355,10 @@ function updateTireInflationPanel() {
 }
 
 function updateDeveloperTuningPanel() {
-  developerTuningPanel.update(vehicleController.getDynamicsTuning())
+  developerTuningPanel.update(
+    vehicleController.getDynamicsTuning(),
+    vehicleController.getRearDifferentialState()
+  )
 }
 
 /* =========================

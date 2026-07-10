@@ -27,9 +27,19 @@ const SLIDER_DEFINITIONS = Object.freeze([
   }),
 ])
 
+const REAR_DIFFERENTIAL_OPTIONS = Object.freeze([
+  Object.freeze({ key: 'open', label: 'Open' }),
+  Object.freeze({ key: 'limited-slip', label: 'Limited-slip' }),
+  Object.freeze({ key: 'torsen', label: 'Torsen' }),
+  Object.freeze({ key: 'locked', label: 'Locked' }),
+  Object.freeze({ key: 'welded', label: 'Welded' }),
+])
+
 export function createDeveloperTuningPanel(config = {}) {
   const parent = config.parent ?? document.body
   const onDynamicsTuningChange = config.onDynamicsTuningChange ?? (() => {})
+  const onRearDifferentialTypeChange =
+    config.onRearDifferentialTypeChange ?? (() => {})
   const onReset = config.onReset ?? (() => {})
 
   const root = document.createElement('div')
@@ -44,6 +54,12 @@ export function createDeveloperTuningPanel(config = {}) {
   collapseButton.textContent = 'Collapse'
 
   const body = document.createElement('div')
+  const differentialSection = document.createElement('div')
+  const differentialLabelRow = document.createElement('div')
+  const differentialLabel = document.createElement('span')
+  differentialLabel.textContent = 'Rear differential'
+  const differentialSelect = document.createElement('select')
+  const differentialStatus = document.createElement('div')
   const sliderNodes = new Map()
   const resetButton = document.createElement('button')
   resetButton.type = 'button'
@@ -54,7 +70,7 @@ export function createDeveloperTuningPanel(config = {}) {
     zIndex: '15',
     top: config.top ?? '188px',
     right: config.right ?? '12px',
-    width: '238px',
+    width: '258px',
     padding: '10px 12px',
     fontFamily: 'Consolas, "Courier New", monospace',
     fontSize: '12px',
@@ -98,6 +114,47 @@ export function createDeveloperTuningPanel(config = {}) {
     marginTop: '8px',
     width: '100%',
   })
+
+  Object.assign(differentialSection.style, {
+    margin: '0 0 10px 0',
+    padding: '0 0 8px 0',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.12)',
+  })
+
+  Object.assign(differentialLabelRow.style, {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    marginBottom: '4px',
+  })
+
+  Object.assign(differentialLabel.style, {
+    color: 'rgba(255, 255, 255, 0.78)',
+  })
+
+  Object.assign(differentialSelect.style, {
+    width: '126px',
+    padding: '3px 5px',
+    font: 'inherit',
+    fontSize: '11px',
+    color: '#f3f3f3',
+    background: 'rgba(255, 255, 255, 0.12)',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    borderRadius: '5px',
+  })
+
+  Object.assign(differentialStatus.style, {
+    fontSize: '11px',
+    color: 'rgba(255, 255, 255, 0.72)',
+  })
+
+  differentialSelect.addEventListener('change', handleRearDifferentialSelectChange)
+  differentialLabelRow.appendChild(differentialLabel)
+  differentialLabelRow.appendChild(differentialSelect)
+  differentialSection.appendChild(differentialLabelRow)
+  differentialSection.appendChild(differentialStatus)
+  body.appendChild(differentialSection)
 
   for (const sliderDefinition of SLIDER_DEFINITIONS) {
     const row = document.createElement('label')
@@ -165,15 +222,33 @@ export function createDeveloperTuningPanel(config = {}) {
   let currentDynamicsTuning = normalizeDynamicsTuning(
     config.initialDynamicsTuning
   )
+  let currentRearDifferentialState = normalizeRearDifferentialState(
+    config.initialRearDifferentialState
+  )
 
-  function update(dynamicsTuning = currentDynamicsTuning) {
+  function update(
+    dynamicsTuning = currentDynamicsTuning,
+    rearDifferentialState = currentRearDifferentialState
+  ) {
     currentDynamicsTuning = normalizeDynamicsTuning(dynamicsTuning)
+    currentRearDifferentialState = normalizeRearDifferentialState(
+      rearDifferentialState
+    )
 
     for (const [key, nodes] of sliderNodes) {
       const value = currentDynamicsTuning[key]
       nodes.slider.value = String(value)
       nodes.value.textContent = `x${formatNumber(value, 2)}`
     }
+
+    syncRearDifferentialOptions(
+      differentialSelect,
+      currentRearDifferentialState.rearDifferentialAvailableTypes
+    )
+    differentialSelect.value = currentRearDifferentialState.rearDifferentialType
+    differentialStatus.textContent = formatRearDifferentialTelemetry(
+      currentRearDifferentialState
+    )
   }
 
   function setCollapsed(nextCollapsed) {
@@ -194,8 +269,17 @@ export function createDeveloperTuningPanel(config = {}) {
     }
 
     currentDynamicsTuning = normalizeDynamicsTuning(nextDynamicsTuning)
-    update(currentDynamicsTuning)
+    update(currentDynamicsTuning, currentRearDifferentialState)
     onDynamicsTuningChange(getDynamicsTuning())
+  }
+
+  function handleRearDifferentialSelectChange() {
+    currentRearDifferentialState = normalizeRearDifferentialState({
+      ...currentRearDifferentialState,
+      rearDifferentialType: differentialSelect.value,
+    })
+    update(currentDynamicsTuning, currentRearDifferentialState)
+    onRearDifferentialTypeChange(currentRearDifferentialState.rearDifferentialType)
   }
 
   function handleResetClick() {
@@ -211,6 +295,10 @@ export function createDeveloperTuningPanel(config = {}) {
       nodes.slider.removeEventListener('input', handleSliderInput)
     }
 
+    differentialSelect.removeEventListener(
+      'change',
+      handleRearDifferentialSelectChange
+    )
     resetButton.removeEventListener('click', handleResetClick)
     collapseButton.removeEventListener('click', handleCollapseClick)
     root.remove()
@@ -219,7 +307,7 @@ export function createDeveloperTuningPanel(config = {}) {
   resetButton.addEventListener('click', handleResetClick)
   collapseButton.addEventListener('click', handleCollapseClick)
 
-  update(currentDynamicsTuning)
+  update(currentDynamicsTuning, currentRearDifferentialState)
 
   return {
     update,
@@ -242,6 +330,122 @@ function normalizeDynamicsTuning(dynamicsTuning = {}) {
   return normalizedDynamicsTuning
 }
 
+function normalizeRearDifferentialState(rearDifferentialState = {}) {
+  const rearDifferentialAvailableTypes =
+    normalizeRearDifferentialAvailableTypes(
+      rearDifferentialState.rearDifferentialAvailableTypes
+    )
+  const rearDifferentialType = rearDifferentialAvailableTypes.includes(
+    rearDifferentialState.rearDifferentialType
+  )
+    ? rearDifferentialState.rearDifferentialType
+    : 'open'
+
+  return {
+    rearDifferentialAvailableTypes,
+    rearDifferentialType,
+    rearDifferentialModeLabel:
+      rearDifferentialState.rearDifferentialModeLabel ??
+      getRearDifferentialLabel(rearDifferentialType),
+    rearDifferentialLeftShare01: clamp01(
+      rearDifferentialState.rearDifferentialLeftShare01 ?? 0.5
+    ),
+    rearDifferentialRightShare01: clamp01(
+      rearDifferentialState.rearDifferentialRightShare01 ?? 0.5
+    ),
+    rearDifferentialTorqueBiasRatio: Number.isFinite(
+      rearDifferentialState.rearDifferentialTorqueBiasRatio
+    )
+      ? rearDifferentialState.rearDifferentialTorqueBiasRatio
+      : 0,
+    isRearDifferentialBiasing:
+      rearDifferentialState.isRearDifferentialBiasing === true,
+    isRearDifferentialLockedApproximation:
+      rearDifferentialState.isRearDifferentialLockedApproximation === true,
+  }
+}
+
+function normalizeRearDifferentialAvailableTypes(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return REAR_DIFFERENTIAL_OPTIONS.map((option) => option.key)
+  }
+
+  const normalizedTypes = value.filter((type) =>
+    REAR_DIFFERENTIAL_OPTIONS.some((option) => option.key === type)
+  )
+
+  return normalizedTypes.length > 0
+    ? [...new Set(normalizedTypes)]
+    : REAR_DIFFERENTIAL_OPTIONS.map((option) => option.key)
+}
+
+function syncRearDifferentialOptions(selectNode, availableTypes) {
+  const availableTypeSet = new Set(availableTypes)
+  const existingValues = Array.from(selectNode.options).map(
+    (option) => option.value
+  )
+
+  if (
+    existingValues.length === availableTypes.length &&
+    existingValues.every((value, index) => value === availableTypes[index])
+  ) {
+    return
+  }
+
+  selectNode.replaceChildren()
+
+  for (const option of REAR_DIFFERENTIAL_OPTIONS) {
+    if (!availableTypeSet.has(option.key)) continue
+
+    const optionNode = document.createElement('option')
+    optionNode.value = option.key
+    optionNode.textContent = option.label
+    selectNode.appendChild(optionNode)
+  }
+}
+
+function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
+  const leftPercent = Math.round(
+    clamp01(rearDifferentialState.rearDifferentialLeftShare01 ?? 0.5) * 100
+  )
+  const rightPercent = Math.max(0, 100 - leftPercent)
+  const suffixes = []
+
+  if (
+    rearDifferentialState.rearDifferentialType === 'torsen' &&
+    Number.isFinite(rearDifferentialState.rearDifferentialTorqueBiasRatio) &&
+    rearDifferentialState.rearDifferentialTorqueBiasRatio > 0
+  ) {
+    suffixes.push(
+      `TBR ${formatNumber(rearDifferentialState.rearDifferentialTorqueBiasRatio, 2)}`
+    )
+  }
+
+  if (rearDifferentialState.isRearDifferentialBiasing) {
+    suffixes.push('biasing')
+  }
+
+  if (rearDifferentialState.isRearDifferentialLockedApproximation) {
+    suffixes.push('locked approx')
+  }
+
+  const baseLabel =
+    rearDifferentialState.rearDifferentialModeLabel ??
+    getRearDifferentialLabel(rearDifferentialState.rearDifferentialType)
+  const baseTelemetry = `${baseLabel} / L ${leftPercent}% R ${rightPercent}%`
+
+  return suffixes.length > 0
+    ? `${baseTelemetry} / ${suffixes.join(' / ')}`
+    : baseTelemetry
+}
+
+function getRearDifferentialLabel(rearDifferentialType) {
+  return (
+    REAR_DIFFERENTIAL_OPTIONS.find((option) => option.key === rearDifferentialType)
+      ?.label ?? 'Open'
+  )
+}
+
 function sanitizeMultiplier(value, sliderDefinition) {
   const numericValue = Number(value)
 
@@ -251,6 +455,12 @@ function sanitizeMultiplier(value, sliderDefinition) {
     Math.max(numericValue, sliderDefinition.min),
     sliderDefinition.max
   )
+}
+
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0
+
+  return Math.min(Math.max(value, 0), 1)
 }
 
 function formatNumber(value, digits) {

@@ -215,6 +215,19 @@ The relaxation layer is intentionally narrow. It only smooths longitudinal force
 - `R` resets the vehicle.
 
 The current drivetrain model uses a simple Reverse / Neutral / Drive selector. It does not yet simulate engine RPM, gear ratios, clutch behavior, torque converter behavior, or multi-speed transmission logic.
+## Rear Differential Models v1
+
+Rear Differential Models v1 adds a small rear-axle drive-split layer for the existing rear-wheel-drive axle only. Supported modes are `open`, `limited-slip`, `torsen`, `locked`, and `welded`.
+
+Mode scope in this branch:
+- `open` preserves the old equal left/right rear drive split behavior.
+- `limited-slip` is a simplified lock-factor and preload approximation that biases some drive request away from the faster or lower-support rear wheel.
+- `torsen` is a simplified torque-biasing approximation bounded by a torque-bias ratio and current rear-wheel support/traction telemetry.
+- `locked` and `welded` use the same locked-approximation path for now, exposing distinct mode labels while distributing rear drive request according to available rear-wheel support.
+
+This branch models rear axle drive split only. It does not add a center differential, front differential, AWD/4WD conversion, transfer case, clutch packs, drivetrain windup, axle shaft torsion, heat, wear, damage, or a full mechanical gear model.
+
+Braking, ABS, powertrain RPM telemetry, traction-limit definition, tire stiffness, slip ratio, tire-force relaxation, suspension, load transfer, terrain, and rendering architecture remain unchanged. Locked and welded behavior are honest approximations within the current wheel-dynamics architecture rather than full wheel-speed constraints.
 ## Powertrain Profile Foundation
 
 This is a static data and telemetry foundation for future engine RPM, gear ratios, torque curves, and engine braking. It does NOT yet change vehicle behavior.
