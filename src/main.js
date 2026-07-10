@@ -324,6 +324,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     engineProfile: vehicleSnapshot.engineProfile,
     transmissionProfile: vehicleSnapshot.transmissionProfile,
     powertrain: vehicleSnapshot.powertrain,
+    powertrainKinematics: vehicleSnapshot.powertrainKinematics,
   })
 }
 

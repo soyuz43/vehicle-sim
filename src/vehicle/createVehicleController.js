@@ -71,6 +71,10 @@ import {
     selectTransmissionProfile,
 } from './powertrain/createPowertrainSelection.js'
 
+import {
+    computePowertrainKinematics,
+} from './powertrain/createPowertrainKinematics.js'
+
 const GEARS = Object.freeze({
     REVERSE: 'reverse',
     NEUTRAL: 'neutral',
@@ -161,9 +165,15 @@ export function createVehicleController(config = {}) {
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'powertrain-profile-foundation-v1',
+        controllerKind: 'powertrain-rpm-telemetry-v1',
         engineProfile,
         transmissionProfile,
+        powertrainKinematics: computePowertrainKinematics({
+            engineProfile,
+            transmissionProfile,
+            gearDirection: getGearDirection(initialGear),
+            averageDrivenWheelAngularVelocityRadiansPerSecond: 0,
+        }),
         gear: initialGear,
         speedScalar: 0,
         throttleInput: 0,
@@ -183,6 +193,51 @@ export function createVehicleController(config = {}) {
         forces: createEmptyForceSnapshot(),
     }
 
+    function updatePowertrainKinematics() {
+        const gearDirection = getGearDirection(state.gear)
+        const averageDrivenWheelAngularVelocityRadiansPerSecond =
+            computeAverageDrivenWheelAngularVelocityRadiansPerSecond()
+        state.powertrainKinematics = computePowertrainKinematics({
+            engineProfile: state.engineProfile,
+            transmissionProfile: state.transmissionProfile,
+            gearDirection,
+            averageDrivenWheelAngularVelocityRadiansPerSecond,
+        })
+    }
+
+    function computeAverageDrivenWheelAngularVelocityRadiansPerSecond() {
+        const drivenWheels = state.wheelStates.filter(
+            (wheelState) => wheelState.driven
+        )
+
+        if (drivenWheels.length > 0) {
+            let sumAngularVelocityRadiansPerSecond = 0
+
+            for (const wheelState of drivenWheels) {
+                sumAngularVelocityRadiansPerSecond += Number.isFinite(
+                    wheelState.angularVelocityRadiansPerSecond
+                )
+                    ? wheelState.angularVelocityRadiansPerSecond
+                    : 0
+            }
+
+            return sumAngularVelocityRadiansPerSecond / drivenWheels.length
+        }
+
+        // Safe fallback: derive an approximate wheel angular velocity from
+        // vehicle forward speed and the base rolling radius when no driven
+        // wheel telemetry is available. Telemetry only; no behavior change.
+        const rollingRadiusMeters =
+            spec.baseTireRollingRadiusMeters > 0
+                ? spec.baseTireRollingRadiusMeters
+                : 1
+        const forwardSpeedMetersPerSecond =
+            state.planarMotion?.signedForwardSpeedMetersPerSecond ?? 0
+
+        return Number.isFinite(forwardSpeedMetersPerSecond)
+            ? forwardSpeedMetersPerSecond / rollingRadiusMeters
+            : 0
+    }
     function update(dt, input = {}) {
         const safeDt = sanitizeDeltaTime(dt, params)
 
@@ -202,6 +257,7 @@ export function createVehicleController(config = {}) {
         state.forces = calculatePlanarForcesFromWheelState()
         updateLateralTireForceSummaryState()
         updateWheelRotationalStates(safeDt)
+        updatePowertrainKinematics()
         updateYawState(safeDt)
         updatePlanarMotion(safeDt)
         updatePosition(safeDt)
@@ -269,6 +325,7 @@ export function createVehicleController(config = {}) {
         state.forces = calculatePlanarForcesFromWheelState()
         updateLateralTireForceSummaryState()
         updateWheelRotationalStates(0)
+        updatePowertrainKinematics()
         updateYawState(0)
         updatePlanarMotion(0)
         refreshPostIntegrationTelemetry()
@@ -372,6 +429,7 @@ export function createVehicleController(config = {}) {
                 state.engineProfile,
                 state.transmissionProfile
             ),
+            powertrainKinematics: state.powertrainKinematics,
         }
     }
 
