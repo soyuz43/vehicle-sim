@@ -80,19 +80,23 @@ The vehicle body now receives summed world-space planar tire force and a basic y
 
 Each grounded wheel now derives dynamic `normalForceNewtons` from a quasi-static baseline plus longitudinal and lateral load-transfer deltas driven by prior-step local acceleration. Positive forward acceleration shifts load rearward, braking shifts load forward, and lateral acceleration shifts load to the outside wheels under the project's local-axis convention.
 
-`tractionLimitNewtons` still remains `frictionCoefficient * normalForceNewtons`, so this branch changes available grip only by changing normal force. Friction coefficient stays unchanged, tire pressure remains visual-only, and there is still no suspension spring/damper model, roll center, or visual chassis roll/pitch motion.
+`tractionLimitNewtons` still remains `frictionCoefficient * normalForceNewtons`, so this branch changes available grip only by changing normal force. Friction coefficient stays unchanged, while tire pressure handling now changes effective rolling radius, tire stiffness response, and rolling resistance without directly changing `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. There is still no suspension spring/damper model, roll center, or visual chassis roll/pitch motion.
 
 
 ## Dynamics Sanity Telemetry
 
-The developer debug HUD includes compact local/world acceleration, tire-force saturation, lateral tire-force, combined-cap, service/parking brake torque, service-brake ABS state, yaw-rate, yaw-acceleration, yaw-moment, longitudinal slip-ratio, lateral slip-angle, planar velocity, and load-transfer telemetry for checking longitudinal, lateral, braking, yaw, and normal-force sign conventions. These diagnostics do not add brake assist, suspension, traction control, stability control, or player-facing tuning controls.
+The developer debug HUD includes compact local/world acceleration, tire-force saturation, lateral tire-force, combined-cap, service/parking brake torque, service-brake ABS state, yaw-rate, yaw-acceleration, yaw-moment, longitudinal slip-ratio, lateral slip-angle, planar velocity, load-transfer, and tire-pressure handling telemetry for checking longitudinal, lateral, braking, yaw, normal-force, and pressure-response sign conventions. These diagnostics do not add brake assist, suspension, traction control, stability control, or player-facing tuning controls.
 
 
 ## Tire Inflation Visualization
 
-A developer-only tire inflation panel exposes visual tire pressure state in kPa. The current tire pressure setting changes contact-patch presentation only: underinflated values make the visual patch wider/longer, and overinflated values make it smaller. This is a visual/debug foundation, not tire-pressure physics.
+A developer-only tire inflation panel still exposes tire pressure state in kPa and continues to drive the visible contact-patch presentation. Underinflated values still look softer and broader, while overinflated values still look tighter and smaller. That visual/debug layer remains separate from friction coefficient, load transfer, and traction-limit definition.
 
-Tire pressure does not alter `frictionCoefficient`, `tractionLimitNewtons`, longitudinal tire force, tire stiffness, rolling resistance, wheel inertia, or vehicle dynamics in this branch. Friction remains a tire/surface/material definition in code/data, not a magic live UI control. Future tire-pressure physics may explicitly affect tire stiffness, effective rolling radius, contact patch behavior, rolling resistance, heat, or deformation.
+## Tire Pressure Handling v1
+
+Tire pressure now also affects tire mechanics before the traction cap. Each wheel derives a conservative effective rolling radius, a pressure-adjusted longitudinal tire stiffness, a pressure-adjusted lateral tire stiffness, and a pressure-aware rolling resistance coefficient from its current pressure state. Underinflated tires therefore roll on a slightly smaller effective radius, build longitudinal and lateral force more softly, and add more rolling resistance; mild overinflation can sharpen stiffness slightly within conservative caps.
+
+Tire pressure still does not directly alter `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. Traction limit still comes only from `frictionCoefficient * normalForceNewtons`, so pressure changes response and drag before saturation rather than acting as a hidden grip slider. There is still no tire temperature, wear, damage, puncture, or blowout model, and there is still no suspension, visual chassis roll/pitch, or Pacejka tire model here.
 
 
 ## Developer Dynamics Tuning

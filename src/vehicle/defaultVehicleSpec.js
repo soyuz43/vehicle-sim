@@ -91,19 +91,39 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   yawRateDampingPerSecond: 1.2,
   maxYawRateRadiansPerSecond: 3.5,
 
-  // Tire pressure currently drives visual/debug state only. It does not change
-  // frictionCoefficient, tractionLimitNewtons, tire force, or vehicle dynamics.
-  // Future tire-pressure physics may consume these fields explicitly.
+  // Tire pressure handling v1 changes effective rolling radius, longitudinal
+  // and lateral tire stiffness, and rolling resistance before the traction cap.
+  // It does not directly change frictionCoefficient, normalForceNewtons, or
+  // tractionLimitNewtons; traction limit still remains frictionCoefficient *
+  // normalForceNewtons. There is still no tire temperature, wear, damage,
+  // puncture, or blowout model.
+  recommendedTirePressureKpa: 220,
   defaultTirePressureKpa: 220,
   minTirePressureKpa: 80,
   maxTirePressureKpa: 340,
+  minimumEffectiveTirePressureKpa: 120,
+  maximumEffectiveTirePressureKpa: 280,
+  baseTireRollingRadiusMeters: 0.48,
+  minimumEffectiveTireRollingRadiusMeters: 0.44,
+  underInflationRollingRadiusLossFraction: 0.06,
+  overInflationRollingRadiusGainFraction: 0.02,
+  minimumPressureLongitudinalStiffnessMultiplier: 0.72,
+  maximumPressureLongitudinalStiffnessMultiplier: 1.04,
+  minimumPressureLateralStiffnessMultiplier: 0.68,
+  maximumPressureLateralStiffnessMultiplier: 1.06,
+  underInflationRollingResistanceCoefficientGain: 0.012,
+  overInflationRollingResistanceCoefficientChange: -0.002,
+  rollingResistanceDeadSpeedMetersPerSecond: 0.35,
+  tirePressureHandlingEnabled: true,
 
   // Legacy placeholder from the pre-lateral-force stage. Basic lateral tire
   // force v1 no longer consumes this field, but it remains defined until that
   // older staging seam is removed explicitly.
   temporaryLateralVelocityDampingPerSecond: 1.2,
 
-  // Resistance forces.
+  // Resistance forces. Rolling resistance is now the baseline pressure-neutral
+  // coefficient; tire pressure handling adjusts response around this baseline
+  // without changing frictionCoefficient or the traction cap directly.
   rollingResistanceCoefficient: 0.015,
   dragCoefficient: 0.35,
   frontalAreaSquareMeters: 2.2,

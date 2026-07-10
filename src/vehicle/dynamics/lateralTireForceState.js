@@ -51,8 +51,11 @@ export function resetWheelLateralTireForceState(wheelState) {
 
 export function updateWheelLateralTireForceState(wheelState, spec = {}) {
   const lateralTireStiffnessNewtonsPerRadian = sanitizePositiveNumber(
-    spec.lateralTireStiffnessNewtonsPerRadian,
-    DEFAULT_LATERAL_TIRE_FORCE_SPEC.lateralTireStiffnessNewtonsPerRadian
+    wheelState.pressureAdjustedLateralTireStiffnessNewtonsPerRadian,
+    sanitizePositiveNumber(
+      spec.lateralTireStiffnessNewtonsPerRadian,
+      DEFAULT_LATERAL_TIRE_FORCE_SPEC.lateralTireStiffnessNewtonsPerRadian
+    )
   )
   const lateralTireForceSaturationEpsilonNewtons = sanitizeNonNegativeNumber(
     spec.lateralTireForceSaturationEpsilonNewtons,
