@@ -81,6 +81,12 @@ Vehicle heading and world velocity are now separate planar state. The controller
 Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. Quasi-static load transfer now also shifts per-wheel normal force from prior-step local acceleration so acceleration, braking, and cornering can change available traction without changing friction coefficient. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is still no suspension, no spring/damper motion, no roll-center geometry, and no visual chassis roll or pitch simulation.
 
 
+## Aerodynamic Drag Foundation v1
+
+Aerodynamic drag is now an explicit part of vehicle motion. The controller uses horizontal world velocity and the standard quadratic drag equation, `0.5 * airDensityKgPerCubicMeter * dragCoefficient * frontalAreaSquareMeters * speedMetersPerSecond^2`, then applies the resulting force directly opposite that horizontal velocity. Default values are enabled, `1.225 kg/m^3` air density, `0.32` drag coefficient, and `2.2 m^2` frontal area (`CdA 0.70`). The Debug HUD reports compact drag magnitude, CdA, and horizontal speed telemetry.
+
+This v1 foundation adds no downforce, lift, wind, drafting, damage, or heat model. Tire force formulas and caps, service and parking brakes, ABS, brake bias, tire pressure and visuals, load transfer, lateral dynamics, steering/yaw, powertrain RPM and engine catalog data, terrain, rendering architecture, and fixed timestep behavior are otherwise unchanged.
+
 ## Lateral Slip Angle Telemetry
 
 Each wheel continues to record lateral slip angle by estimating contact-patch velocity from planar chassis velocity and yaw rate, then projecting that velocity into the wheel's current local forward/right axes. Front steerable wheels use current steering angle telemetry, rear wheels use chassis heading, and the vehicle snapshot exposes a compact aggregate lateral-slip summary for the debug HUD.

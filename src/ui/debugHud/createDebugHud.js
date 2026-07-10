@@ -177,7 +177,7 @@ export function createDebugHud(config = {}) {
       `Brake torque: ${formatBrakeTorqueTelemetry(wheelStates)}`,
       `Service ABS: ${formatServiceBrakeAbsTelemetry(serviceBrakeAbsSummary)}`,
       `Rolling resistance: ${formatNumber(forces.rollingResistanceForceNewtons)} N`,
-      `Aero drag: ${formatNumber(forces.aerodynamicDragForceNewtons)} N`,
+      `Aero drag: ${formatAerodynamicDragTelemetry(snapshot.aerodynamicDrag)}`,
       `Net force local: ${formatNumber(forces.netLongitudinalForceNewtons)} fwd / ${formatNumber(forces.netLateralForceNewtons)} lat N`,
       `Traction limit: ${formatNumber(forces.tractionLimitLongitudinalNewtons)} N`,
       `Traction limited: ${forces.isTractionLimited ? 'YES' : 'no'}`,
@@ -275,6 +275,16 @@ function formatDynamicsTuningTelemetry(dynamicsTuning = {}) {
     `drive x${formatNumber(dynamicsTuning.driveTorqueMultiplier)}`,
     `brake x${formatNumber(dynamicsTuning.serviceBrakeTorqueMultiplier)}`,
     `tire x${formatNumber(dynamicsTuning.longitudinalTireStiffnessMultiplier)}`,
+  ].join(' / ')
+}
+
+function formatAerodynamicDragTelemetry(aerodynamicDrag = {}) {
+  const enabledLabel = aerodynamicDrag.enabled === false ? 'off / ' : ''
+
+  return [
+    `${enabledLabel}${formatNumber(aerodynamicDrag.dragForceNewtons, 0)} N`,
+    `CdA ${formatNumber(aerodynamicDrag.dragAreaSquareMeters, 2)}`,
+    `${formatNumber(aerodynamicDrag.speedMetersPerSecond, 1)} m/s`,
   ].join(' / ')
 }
 

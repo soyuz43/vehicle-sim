@@ -4,6 +4,10 @@ import * as THREE from 'three'
 import { DEFAULT_VEHICLE_SPEC } from './defaultVehicleSpec.js'
 import { createFlatTerrainContactQuery } from '../terrain/createFlatTerrainContactQuery.js'
 import {
+    createAerodynamicDragState,
+    updateAerodynamicDragState,
+} from './dynamics/aerodynamicDragState.js'
+import {
     createPlanarMotionState,
     integratePlanarPosition,
     integratePlanarVelocityFromWorldAcceleration,
@@ -154,6 +158,7 @@ export function createVehicleController(config = {}) {
         yawRadians: startRotation.y,
         worldVelocityMetersPerSecond: velocity,
     })
+    const aerodynamicDragState = createAerodynamicDragState()
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
     const tirePressureState = createTirePressureState(spec)
     const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
@@ -182,6 +187,7 @@ export function createVehicleController(config = {}) {
         parkingBrakeInput: 0,
         steeringInput: 0,
         planarMotion,
+        aerodynamicDragState,
         wheelStates,
         tirePressureState,
         dynamicsTuning,
@@ -386,6 +392,7 @@ export function createVehicleController(config = {}) {
                 state.planarMotion.lateralSpeedMetersPerSecond,
             worldSpeedMetersPerSecond:
                 state.planarMotion.worldSpeedMetersPerSecond,
+            aerodynamicDrag: state.aerodynamicDragState,
             yawRadians: state.planarMotion.yawRadians,
             yawRateRadiansPerSecond:
                 state.planarMotion.yawRateRadiansPerSecond,
@@ -564,12 +571,6 @@ export function createVehicleController(config = {}) {
     }
 
     function calculatePlanarForcesFromWheelState() {
-        const speed = state.speedScalar
-        const speedDirection = getSignWithDeadzone(
-            speed,
-            params.stopEpsilonMetersPerSecond
-        )
-
         const normalForceNewtons = sumWheelForceNewtons(
             'normalForceNewtons'
         )
@@ -657,18 +658,37 @@ export function createVehicleController(config = {}) {
         const rollingResistanceForceWorldZNewtons =
             rollingResistanceForceNewtons * state.planarMotion.forwardWorld.z
 
+        updateAerodynamicDragState(
+            state.aerodynamicDragState,
+            spec,
+            state.planarMotion.worldVelocityMetersPerSecond,
+            spec.massKg
+        )
+
         const aerodynamicDragForceNewtons =
-            calculateAerodynamicDragForce(speed, speedDirection)
+            state.aerodynamicDragState.dragForceNewtons
         const aerodynamicDragForceWorldXNewtons =
-            aerodynamicDragForceNewtons * state.planarMotion.forwardWorld.x
+            state.aerodynamicDragState.dragForceWorldXNewtons
         const aerodynamicDragForceWorldZNewtons =
-            aerodynamicDragForceNewtons * state.planarMotion.forwardWorld.z
+            state.aerodynamicDragState.dragForceWorldZNewtons
+        const aerodynamicDragForceLocalForwardNewtons =
+            aerodynamicDragForceWorldXNewtons *
+                state.planarMotion.forwardWorld.x +
+            aerodynamicDragForceWorldZNewtons *
+                state.planarMotion.forwardWorld.z
+        const aerodynamicDragForceLocalLateralNewtons =
+            aerodynamicDragForceWorldXNewtons *
+                state.planarMotion.rightWorld.x +
+            aerodynamicDragForceWorldZNewtons *
+                state.planarMotion.rightWorld.z
 
         const netLongitudinalForceNewtons =
             totalLongitudinalTireForceNewtons +
             rollingResistanceForceNewtons +
-            aerodynamicDragForceNewtons
-        const netLateralForceNewtons = totalLateralTireForceNewtons
+            aerodynamicDragForceLocalForwardNewtons
+        const netLateralForceNewtons =
+            totalLateralTireForceNewtons +
+            aerodynamicDragForceLocalLateralNewtons
         const netForceWorldXNewtons =
             totalTireForceWorldXNewtons +
             rollingResistanceForceWorldXNewtons +
@@ -705,6 +725,8 @@ export function createVehicleController(config = {}) {
             aerodynamicDragForceNewtons,
             aerodynamicDragForceWorldXNewtons,
             aerodynamicDragForceWorldZNewtons,
+            aerodynamicDragForceLocalForwardNewtons,
+            aerodynamicDragForceLocalLateralNewtons,
             netLongitudinalForceNewtons,
             netLateralForceNewtons,
             netForceWorldXNewtons,
@@ -768,19 +790,6 @@ export function createVehicleController(config = {}) {
             : spec.baseTireRollingRadiusMeters
     }
 
-    function calculateAerodynamicDragForce(speed, speedDirection) {
-        if (speedDirection === 0) return 0
-
-        return (
-            -speedDirection *
-            0.5 *
-            spec.airDensityKgPerCubicMeter *
-            spec.dragCoefficient *
-            spec.frontalAreaSquareMeters *
-            speed *
-            speed
-        )
-    }
 
     function shouldClampToStop(oldSpeed, nextSpeed, forces) {
         if (!crossedZero(oldSpeed, nextSpeed)) return false
@@ -1975,6 +1984,8 @@ function createEmptyForceSnapshot() {
         aerodynamicDragForceNewtons: 0,
         aerodynamicDragForceWorldXNewtons: 0,
         aerodynamicDragForceWorldZNewtons: 0,
+        aerodynamicDragForceLocalForwardNewtons: 0,
+        aerodynamicDragForceLocalLateralNewtons: 0,
         netLongitudinalForceNewtons: 0,
         netLateralForceNewtons: 0,
         netForceWorldXNewtons: 0,
