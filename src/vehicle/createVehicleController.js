@@ -45,6 +45,7 @@ import {
     updateWheelLateralTireForceState,
 } from './dynamics/lateralTireForceState.js'
 import {
+    resetWheelLongitudinalTireForceStepState,
     resetWheelLongitudinalTireForceRelaxationState,
     updateWheelLongitudinalTireForceRelaxationState,
 } from './dynamics/longitudinalTireForceRelaxationState.js'
@@ -301,7 +302,7 @@ export function createVehicleController(config = {}) {
         // frame's wheel torque and body-state integration updates velocities.
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
-        calculatePerWheelLongitudinalTireForces()
+        calculatePerWheelLongitudinalTireForces(safeDt)
         calculatePerWheelLateralTireForces()
         state.forces = calculatePlanarForcesFromWheelState()
         captureDynamicsStepTraceStage(
@@ -1114,7 +1115,7 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
-            resetWheelLongitudinalTireForceState(wheelState, spec)
+            resetWheelLongitudinalTireForceStepState(wheelState, spec)
             resetWheelLateralTireForceState(wheelState)
             wheelState.isSlipping = false
             resetWheelBrakeTorqueState(wheelState)

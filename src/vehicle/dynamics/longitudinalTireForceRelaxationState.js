@@ -12,11 +12,20 @@ export function resetWheelLongitudinalTireForceRelaxationState(
   wheelState,
   spec = {}
 ) {
+  resetWheelLongitudinalTireForceStepState(wheelState, spec)
+  wheelState.relaxedLongitudinalTireForceNewtons = 0
+
+  return wheelState
+}
+
+export function resetWheelLongitudinalTireForceStepState(
+  wheelState,
+  spec = {}
+) {
   wheelState.uncappedLongitudinalTireForceNewtons = 0
   wheelState.linearLongitudinalTireForceNewtons = 0
   wheelState.appliedLongitudinalForceNewtons = 0
   wheelState.targetLongitudinalTireForceNewtons = 0
-  wheelState.relaxedLongitudinalTireForceNewtons = 0
   wheelState.longitudinalTireForceRelaxationAlpha = 0
   wheelState.longitudinalTireForceRelaxationLengthMeters =
     resolveLongitudinalTireForceRelaxationLengthMeters(spec)
