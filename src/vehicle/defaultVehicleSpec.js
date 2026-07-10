@@ -136,7 +136,8 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // coefficient; tire pressure handling adjusts response around this baseline
   // without changing frictionCoefficient or the traction cap directly.
   rollingResistanceCoefficient: 0.015,
-  dragCoefficient: 0.35,
+  aerodynamicDragEnabled: true,
+  dragCoefficient: 0.32,
   frontalAreaSquareMeters: 2.2,
   airDensityKgPerCubicMeter: 1.225,
 
