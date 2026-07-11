@@ -7,16 +7,17 @@ export const VEHICLE_DYNAMICS_STEP_TRACE_STAGES = Object.freeze({
 
 const VEHICLE_DYNAMICS_UPDATE_ORDER = Object.freeze([
   'input-steering-and-brake-lights',
-  'contact-load-and-pressure',
+  'quasi-static-chassis-support-height',
+  'pressure-adjusted-radius-and-suspension-ray-contact',
+  'spring-damper-base-support-and-load-transfer',
   'driver-force-brake-torque-and-abs',
-  'pre-integration-slip',
+  'contact-plane-basis-and-pre-integration-slip',
   'longitudinal-and-lateral-tire-force',
-  'integration-input-force-and-yaw-budget',
+  'integration-input-force-yaw-and-slope-gravity-budget',
   'wheel-angular-dynamics',
   'powertrain-kinematics-telemetry',
   'yaw-planar-and-position-integration',
-  'post-integration-contact-load-suspension-and-pressure',
-  'post-integration-slip-force-and-summary-refresh',
+  'post-integration-traction-telemetry-without-contact-or-force-refresh',
   'wheel-visual-sync',
 ])
 
@@ -130,6 +131,18 @@ export function captureVehicleDynamicsStepTraceStage(
     const appliedLateralTireForceNewtons = sanitizeNumber(
       wheelState.appliedLateralTireForceNewtons
     )
+    const suspensionCurrentLengthMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionCurrentLengthMeters
+    )
+    const suspensionCompressionMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionCompressionMeters
+    )
+    const rawSuspensionNormalForceNewtons = sanitizeNonNegativeNumber(
+      wheelState.rawSuspensionNormalForceNewtons
+    )
+    const baseNormalForceNewtons = sanitizeNonNegativeNumber(
+      wheelState.baseNormalForceNewtons
+    )
 
     wheelTrace.id = sanitizeIdentifier(
       wheelState.id ?? wheelState.wheelId,
@@ -146,6 +159,20 @@ export function captureVehicleDynamicsStepTraceStage(
       appliedLongitudinalForceNewtons
     wheelTrace.appliedLateralTireForceNewtons =
       appliedLateralTireForceNewtons
+    wheelTrace.suspensionContactStatus =
+      typeof wheelState.suspensionContactStatus === 'string'
+        ? wheelState.suspensionContactStatus
+        : 'unavailable'
+    wheelTrace.suspensionCurrentLengthMeters = suspensionCurrentLengthMeters
+    wheelTrace.suspensionCompressionMeters = suspensionCompressionMeters
+    wheelTrace.rawSuspensionNormalForceNewtons =
+      rawSuspensionNormalForceNewtons
+    wheelTrace.baseNormalForceNewtons = baseNormalForceNewtons
+    wheelTrace.contactSlopeDegrees = sanitizeNonNegativeNumber(
+      wheelState.contactSlopeDegrees
+    )
+    wheelTrace.isContactTangentBasisValid =
+      wheelState.isContactTangentBasisValid === true
 
     if (isGrounded) {
       stage.groundedWheelCount += 1
@@ -231,6 +258,15 @@ export function captureVehicleDynamicsStepTraceStage(
   stage.aerodynamicDragForceNewtons = sanitizeNonNegativeNumber(
     forces.aerodynamicDragForceNewtons
   )
+  stage.slopeGravityForceWorldXNewtons = sanitizeNumber(
+    forces.slopeGravityForceWorldXNewtons
+  )
+  stage.slopeGravityForceWorldZNewtons = sanitizeNumber(
+    forces.slopeGravityForceWorldZNewtons
+  )
+  stage.slopeGravityForceNewtons = sanitizeNonNegativeNumber(
+    forces.slopeGravityForceNewtons
+  )
 
   const forwardAccelerationMetersPerSecondSquared = sanitizeNumber(
     forces.longitudinalAccelerationMetersPerSecondSquared
@@ -298,6 +334,9 @@ function createStageTrace(stageName, behaviorRole, wheelStates) {
       lateralNewtonMeters: 0,
     },
     aerodynamicDragForceNewtons: 0,
+    slopeGravityForceWorldXNewtons: 0,
+    slopeGravityForceWorldZNewtons: 0,
+    slopeGravityForceNewtons: 0,
     accelerationSummary: {
       forwardMetersPerSecondSquared: 0,
       lateralMetersPerSecondSquared: 0,
@@ -335,6 +374,9 @@ function resetStageTrace(stage, wheelStates) {
   stage.yawMomentSummary.longitudinalNewtonMeters = 0
   stage.yawMomentSummary.lateralNewtonMeters = 0
   stage.aerodynamicDragForceNewtons = 0
+  stage.slopeGravityForceWorldXNewtons = 0
+  stage.slopeGravityForceWorldZNewtons = 0
+  stage.slopeGravityForceNewtons = 0
   stage.accelerationSummary.forwardMetersPerSecondSquared = 0
   stage.accelerationSummary.lateralMetersPerSecondSquared = 0
   stage.accelerationSummary.forwardG = 0
@@ -356,6 +398,13 @@ function resetStageTrace(stage, wheelStates) {
     wheelTrace.relaxedLongitudinalTireForceNewtons = 0
     wheelTrace.appliedLongitudinalForceNewtons = 0
     wheelTrace.appliedLateralTireForceNewtons = 0
+    wheelTrace.suspensionContactStatus = 'unavailable'
+    wheelTrace.suspensionCurrentLengthMeters = 0
+    wheelTrace.suspensionCompressionMeters = 0
+    wheelTrace.rawSuspensionNormalForceNewtons = 0
+    wheelTrace.baseNormalForceNewtons = 0
+    wheelTrace.contactSlopeDegrees = 0
+    wheelTrace.isContactTangentBasisValid = false
   }
 }
 
@@ -370,6 +419,13 @@ function ensureWheelTraceCount(wheelTraces, wheelCount) {
       relaxedLongitudinalTireForceNewtons: 0,
       appliedLongitudinalForceNewtons: 0,
       appliedLateralTireForceNewtons: 0,
+      suspensionContactStatus: 'unavailable',
+      suspensionCurrentLengthMeters: 0,
+      suspensionCompressionMeters: 0,
+      rawSuspensionNormalForceNewtons: 0,
+      baseNormalForceNewtons: 0,
+      contactSlopeDegrees: 0,
+      isContactTangentBasisValid: false,
     })
   }
 

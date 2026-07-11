@@ -168,6 +168,10 @@ function createWheelSlipEffect(index) {
     visualState: TRACTION_VISUAL_STATES.NONE,
     intensity01: 0,
     isActive: false,
+    contactNormalWorld: new THREE.Vector3(0, 1, 0),
+    contactForwardTangentWorld: new THREE.Vector3(0, 0, 1),
+    contactPlaneXAxisWorld: new THREE.Vector3(-1, 0, 0),
+    contactOrientationMatrix: new THREE.Matrix4(),
   }
 }
 
@@ -194,22 +198,21 @@ function updateWheelSlipEffect(wheelEffect, wheelState, yawRadians, dt) {
     return
   }
 
-  const groundHeightMeters = Number.isFinite(wheelState.groundHeightMeters)
-    ? wheelState.groundHeightMeters
-    : contactPosition.y
   const highlightStyle = CONTACT_HIGHLIGHT_STYLES[visualState]
   const hazeStyle = HAZE_STYLES[visualState]
+  resolveContactFrame(wheelEffect, wheelState, yawRadians)
 
   wheelEffect.group.visible = true
   wheelEffect.contactHighlight.visible = Boolean(highlightStyle)
   wheelEffect.haze.visible = Boolean(hazeStyle)
 
-  wheelEffect.contactHighlight.position.set(
-    contactPosition.x,
-    groundHeightMeters + CONTACT_EFFECT_Y_OFFSET_METERS,
-    contactPosition.z
-  )
-  wheelEffect.contactHighlight.rotation.y = yawRadians
+  wheelEffect.contactHighlight.position
+    .copy(contactPosition)
+    .addScaledVector(
+      wheelEffect.contactNormalWorld,
+      CONTACT_EFFECT_Y_OFFSET_METERS
+    )
+  applyContactPlaneOrientation(wheelEffect.contactHighlight, wheelEffect)
   wheelEffect.contactHighlight.scale.set(
     highlightStyle.widthMeters * (0.65 + intensity01 * 0.45),
     highlightStyle.lengthMeters * (0.65 + intensity01 * 0.6),
@@ -222,17 +225,93 @@ function updateWheelSlipEffect(wheelEffect, wheelState, yawRadians, dt) {
   if (hazeStyle) {
     const pulse = calculateVisualPulse(dt, intensity01)
 
-    wheelEffect.haze.position.set(
-      contactPosition.x,
-      groundHeightMeters + HAZE_EFFECT_Y_OFFSET_METERS,
-      contactPosition.z
-    )
+    wheelEffect.haze.position
+      .copy(contactPosition)
+      .addScaledVector(
+        wheelEffect.contactNormalWorld,
+        HAZE_EFFECT_Y_OFFSET_METERS
+      )
+    applyContactPlaneOrientation(wheelEffect.haze, wheelEffect)
     wheelEffect.haze.scale.setScalar(
       hazeStyle.radiusMeters * (0.6 + intensity01 * 0.7 + pulse)
     )
     wheelEffect.haze.material.color.setHex(hazeStyle.color)
     wheelEffect.haze.material.opacity = hazeStyle.opacity * intensity01
   }
+}
+
+function resolveContactFrame(wheelEffect, wheelState, yawRadians) {
+  wheelEffect.contactNormalWorld.set(
+    Number.isFinite(wheelState.contactNormalWorld?.x)
+      ? wheelState.contactNormalWorld.x
+      : 0,
+    Number.isFinite(wheelState.contactNormalWorld?.y)
+      ? wheelState.contactNormalWorld.y
+      : 1,
+    Number.isFinite(wheelState.contactNormalWorld?.z)
+      ? wheelState.contactNormalWorld.z
+      : 0
+  )
+  if (wheelEffect.contactNormalWorld.lengthSq() <= Number.EPSILON) {
+    wheelEffect.contactNormalWorld.set(0, 1, 0)
+  }
+  wheelEffect.contactNormalWorld.normalize()
+
+  wheelEffect.contactForwardTangentWorld.set(
+    Number.isFinite(wheelState.contactForwardTangentWorld?.x)
+      ? wheelState.contactForwardTangentWorld.x
+      : Math.sin(yawRadians),
+    Number.isFinite(wheelState.contactForwardTangentWorld?.y)
+      ? wheelState.contactForwardTangentWorld.y
+      : 0,
+    Number.isFinite(wheelState.contactForwardTangentWorld?.z)
+      ? wheelState.contactForwardTangentWorld.z
+      : Math.cos(yawRadians)
+  )
+  wheelEffect.contactForwardTangentWorld.addScaledVector(
+    wheelEffect.contactNormalWorld,
+    -wheelEffect.contactForwardTangentWorld.dot(
+      wheelEffect.contactNormalWorld
+    )
+  )
+
+  if (wheelEffect.contactForwardTangentWorld.lengthSq() <= Number.EPSILON) {
+    wheelEffect.contactForwardTangentWorld.set(
+      Math.sin(yawRadians),
+      0,
+      Math.cos(yawRadians)
+    )
+    wheelEffect.contactForwardTangentWorld.addScaledVector(
+      wheelEffect.contactNormalWorld,
+      -wheelEffect.contactForwardTangentWorld.dot(
+        wheelEffect.contactNormalWorld
+      )
+    )
+  }
+
+  if (wheelEffect.contactForwardTangentWorld.lengthSq() <= Number.EPSILON) {
+    wheelEffect.contactForwardTangentWorld.set(0, 0, 1)
+  }
+  wheelEffect.contactForwardTangentWorld.normalize()
+  wheelEffect.contactPlaneXAxisWorld
+    .crossVectors(
+      wheelEffect.contactForwardTangentWorld,
+      wheelEffect.contactNormalWorld
+    )
+    .normalize()
+
+  if (wheelEffect.contactPlaneXAxisWorld.lengthSq() <= Number.EPSILON) {
+    wheelEffect.contactPlaneXAxisWorld.set(-1, 0, 0)
+  }
+}
+
+function applyContactPlaneOrientation(mesh, wheelEffect) {
+  wheelEffect.contactOrientationMatrix.makeBasis(
+    wheelEffect.contactPlaneXAxisWorld,
+    wheelEffect.contactForwardTangentWorld,
+    wheelEffect.contactNormalWorld
+  )
+  mesh.quaternion.setFromRotationMatrix(wheelEffect.contactOrientationMatrix)
 }
 
 function hideWheelEffect(wheelEffect) {

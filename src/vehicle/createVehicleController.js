@@ -64,9 +64,20 @@ import {
     updateLoadTransferState,
 } from './dynamics/loadTransferState.js'
 import {
+    createSuspensionNormalForceSummary,
+    resetSuspensionNormalForceSummary,
     resetWheelSuspensionNormalForceState,
     updateSuspensionNormalForceState,
 } from './dynamics/suspensionNormalForceState.js'
+import {
+    createChassisTerrainSupportState,
+    resetChassisTerrainSupportState,
+    updateChassisTerrainSupportState,
+} from './dynamics/chassisTerrainSupportState.js'
+import {
+    updateWheelContactPatchPlanarVelocity,
+    updateWheelContactPlaneBasis,
+} from './dynamics/contactPlaneBasisState.js'
 import {
     calculateWheelRollingResistanceForce,
     createTirePressureHandlingSummary,
@@ -138,7 +149,7 @@ const DEFAULT_CONTROLLER_PARAMS = {
     maxSimulationDeltaSeconds: 0.1,
 }
 
-const CONTACT_EPSILON_METERS = 0.001
+const DEFAULT_SUSPENSION_DOWN_LOCAL = new THREE.Vector3(0, -1, 0)
 const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
 const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = 0.1
 const WHEEL_ANGULAR_SPEED_EPSILON_RADIANS_PER_SECOND = 0.001
@@ -181,6 +192,19 @@ export function createVehicleController(config = {}) {
     const startPosition = (config.startPosition ?? vehicle.position).clone()
     const startRotation = (config.startRotation ?? vehicle.rotation).clone()
 
+    const chassisTerrainSupportState = createChassisTerrainSupportState(
+        startPosition.y
+    )
+    resetChassisTerrainSupportState(
+        chassisTerrainSupportState,
+        terrainContactQuery,
+        startPosition.x,
+        startPosition.z,
+        spec.chassisTerrainSupportBaselineOffsetMeters
+    )
+    vehicle.position.y =
+        chassisTerrainSupportState.currentChassisSupportHeightMeters
+
     const velocity = ensureVelocityVector(vehicle)
     const planarMotion = createPlanarMotionState({
         yawRadians: startRotation.y,
@@ -205,7 +229,7 @@ export function createVehicleController(config = {}) {
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
 
     const state = {
-        controllerKind: 'powertrain-rpm-telemetry-v1',
+        controllerKind: 'uneven-terrain-raycast-suspension-v1',
         engineProfile,
         transmissionProfile,
         powertrainKinematics: computePowertrainKinematics({
@@ -229,6 +253,9 @@ export function createVehicleController(config = {}) {
         lateralSlipSummary,
         lateralTireForceSummary,
         loadTransferSummary,
+        suspensionNormalForceSummary: createSuspensionNormalForceSummary(),
+        chassisTerrainSupportState,
+        slopeGravityState: createSlopeGravityState(),
         tirePressureHandlingSummary,
         tractionStateSummary,
         serviceBrakeAbsSummary,
@@ -304,9 +331,7 @@ export function createVehicleController(config = {}) {
         readInput(input)
         updateWheelSteeringAngles()
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
-        updateWheelContactStates()
-        updateWheelLoadTransferState()
-        updateWheelTirePressureHandlingState()
+        updateTerrainSupportAndWheelContactState(safeDt, true)
         calculatePerWheelLongitudinalForces(safeDt)
         // Explicit one-step coupling: tire force still uses slip measured before this
         // frame's wheel torque and body-state integration updates velocities.
@@ -325,7 +350,7 @@ export function createVehicleController(config = {}) {
         updatePlanarMotion(safeDt)
         updatePosition(safeDt)
         syncVehicleYawFromPlanarState()
-        refreshPostIntegrationTelemetry(safeDt)
+        refreshPostIntegrationTelemetry()
         captureDynamicsStepTraceStage(
             VEHICLE_DYNAMICS_STEP_TRACE_STAGES.POST_INTEGRATION
         )
@@ -352,6 +377,8 @@ export function createVehicleController(config = {}) {
         resetLateralSlipSummary(state.lateralSlipSummary)
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
+        resetSuspensionNormalForceSummary(state.suspensionNormalForceSummary)
+        resetSlopeGravityState(state.slopeGravityState)
         resetTirePressureHandlingSummary(state.tirePressureHandlingSummary)
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
@@ -359,6 +386,15 @@ export function createVehicleController(config = {}) {
 
         vehicle.position.copy(startPosition)
         vehicle.rotation.copy(startRotation)
+        resetChassisTerrainSupportState(
+            state.chassisTerrainSupportState,
+            terrainContactQuery,
+            startPosition.x,
+            startPosition.z,
+            spec.chassisTerrainSupportBaselineOffsetMeters
+        )
+        vehicle.position.y =
+            state.chassisTerrainSupportState.currentChassisSupportHeightMeters
         syncVehicleYawFromPlanarState()
 
         for (const wheelState of state.wheelStates) {
@@ -374,8 +410,13 @@ export function createVehicleController(config = {}) {
             resetWheelLateralTireForceState(wheelState)
             resetWheelLoadTransferState(wheelState)
             wheelState.frictionCoefficient = spec.defaultSurfaceFrictionCoefficient
-            wheelState.surfaceKind = 'flat-asphalt-placeholder'
-            wheelState.isGrounded = true
+            wheelState.surfaceKind = 'unavailable'
+            wheelState.terrainProfileName = 'unavailable'
+            wheelState.suspensionContactStatus = 'reset'
+            wheelState.isSuspensionContactRetained = false
+            wheelState.isWithinSuspensionContactHysteresis = false
+            wheelState.isContactTangentBasisValid = false
+            wheelState.isGrounded = false
             wheelState.isSlipping = false
             resetWheelLongitudinalTractionState(wheelState)
 
@@ -384,9 +425,7 @@ export function createVehicleController(config = {}) {
 
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelSteeringAngles()
-        updateWheelContactStates()
-        updateWheelLoadTransferState(0)
-        updateWheelTirePressureHandlingState()
+        updateTerrainSupportAndWheelContactState(0, true, true)
         calculatePerWheelLongitudinalForces(0)
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
@@ -401,7 +440,7 @@ export function createVehicleController(config = {}) {
         updatePowertrainKinematics()
         updateYawState(0)
         updatePlanarMotion(0)
-        refreshPostIntegrationTelemetry(0)
+        refreshPostIntegrationTelemetry()
         captureDynamicsStepTraceStage(
             VEHICLE_DYNAMICS_STEP_TRACE_STAGES.POST_INTEGRATION
         )
@@ -463,6 +502,11 @@ export function createVehicleController(config = {}) {
                 state.planarMotion.worldSpeedMetersPerSecond,
             aerodynamicDrag: state.aerodynamicDragState,
             chassisMassProperties: state.chassisMassPropertiesState,
+            chassisTerrainSupport: state.chassisTerrainSupportState,
+            suspensionNormalForceSummary: state.suspensionNormalForceSummary,
+            slopeGravity: state.slopeGravityState,
+            terrainProfileName:
+                state.chassisTerrainSupportState.profileName,
             yawRadians: state.planarMotion.yawRadians,
             yawRateRadiansPerSecond:
                 state.planarMotion.yawRateRadiansPerSecond,
@@ -727,19 +771,15 @@ export function createVehicleController(config = {}) {
         const normalForceNewtons = sumWheelForceNewtons(
             'normalForceNewtons'
         )
-
         const tractionLimitLongitudinalNewtons = sumWheelForceNewtons(
             'tractionLimitNewtons'
         )
-
         const driveForceNewtons = sumWheelForceNewtons(
             'requestedDriveForceNewtons'
         )
-
         const brakeForceNewtons = sumWheelForceNewtons(
             'requestedBrakeForceNewtons'
         )
-
         const requestedTireForceNewtons = sumWheelForceNewtons(
             'requestedLongitudinalForceNewtons'
         )
@@ -748,10 +788,12 @@ export function createVehicleController(config = {}) {
         let totalLateralTireForceNewtons = 0
         let totalTireForceWorldXNewtons = 0
         let totalTireForceWorldZNewtons = 0
+        let totalRollingResistanceForceNewtons = 0
+        let rollingResistanceForceWorldXNewtons = 0
+        let rollingResistanceForceWorldZNewtons = 0
         let yawMomentNewtonMeters = 0
         let netLongitudinalYawMomentNewtonMeters = 0
         let netLateralYawMomentNewtonMeters = 0
-        let totalRollingResistanceForceNewtons = 0
 
         state.tirePressureHandlingSummary.totalRollingResistanceForceAbsNewtons = 0
 
@@ -759,22 +801,27 @@ export function createVehicleController(config = {}) {
             if (!wheelState.isGrounded) {
                 wheelState.rollingResistanceForceNewtons = 0
                 wheelState.yawMomentContributionNewtonMeters = 0
+                wheelState.planarTireForceWorldXNewtons = 0
+                wheelState.planarTireForceWorldZNewtons = 0
+                wheelState.planarTireForceLocalForwardNewtons = 0
+                wheelState.planarTireForceLocalRightNewtons = 0
                 continue
             }
 
-            const {
-                localForwardForceNewtons,
-                localRightForceNewtons,
-            } = calculateWheelChassisLocalTireForces(wheelState)
+            updateWheelPlanarTireForceComponents(wheelState)
 
-            totalLongitudinalTireForceNewtons += localForwardForceNewtons
-            totalLateralTireForceNewtons += localRightForceNewtons
+            const localForwardForceNewtons =
+                wheelState.planarTireForceLocalForwardNewtons
+            const localRightForceNewtons =
+                wheelState.planarTireForceLocalRightNewtons
+            totalLongitudinalTireForceNewtons +=
+                wheelState.appliedLongitudinalForceNewtons
+            totalLateralTireForceNewtons +=
+                wheelState.appliedLateralTireForceNewtons
             totalTireForceWorldXNewtons +=
-                localForwardForceNewtons * state.planarMotion.forwardWorld.x +
-                localRightForceNewtons * state.planarMotion.rightWorld.x
+                wheelState.planarTireForceWorldXNewtons
             totalTireForceWorldZNewtons +=
-                localForwardForceNewtons * state.planarMotion.forwardWorld.z +
-                localRightForceNewtons * state.planarMotion.rightWorld.z
+                wheelState.planarTireForceWorldZNewtons
 
             const forceApplicationPointLocal =
                 wheelState.contactPatchLocal ?? wheelState.localPosition
@@ -788,13 +835,12 @@ export function createVehicleController(config = {}) {
             )
                 ? forceApplicationPointLocal.z
                 : 0
-
-            // Positive yaw in this controller turns the vehicle nose toward +X/right.
-            // The same per-wheel term feeds the total yaw moment and is captured here
-            // for diagnostics only; it does not change the physics integration.
+            // The chassis remains planar: yaw uses this same horizontal X/Z
+            // tire-force projection and the authored horizontal lever arm.
             const wheelYawMomentContributionNewtonMeters =
                 wheelOffsetForwardMeters * localRightForceNewtons -
                 wheelOffsetRightMeters * localForwardForceNewtons
+
             yawMomentNewtonMeters += wheelYawMomentContributionNewtonMeters
             netLateralYawMomentNewtonMeters +=
                 wheelOffsetForwardMeters * localRightForceNewtons
@@ -806,22 +852,29 @@ export function createVehicleController(config = {}) {
             const wheelRollingResistanceForceNewtons =
                 calculateWheelRollingResistanceForce(
                     wheelState,
-                    state.planarMotion.localForwardVelocityMetersPerSecond,
+                    wheelState.wheelLocalForwardVelocityMetersPerSecond,
                     spec
                 )
+            const rollingResistanceDirectionWorld =
+                wheelState.isContactTangentBasisValid
+                    ? wheelState.contactForwardTangentWorld
+                    : state.planarMotion.forwardWorld
+            const wheelRollingResistanceForceWorldXNewtons =
+                wheelRollingResistanceForceNewtons *
+                rollingResistanceDirectionWorld.x
+            const wheelRollingResistanceForceWorldZNewtons =
+                wheelRollingResistanceForceNewtons *
+                rollingResistanceDirectionWorld.z
 
             totalRollingResistanceForceNewtons +=
                 wheelRollingResistanceForceNewtons
+            rollingResistanceForceWorldXNewtons +=
+                wheelRollingResistanceForceWorldXNewtons
+            rollingResistanceForceWorldZNewtons +=
+                wheelRollingResistanceForceWorldZNewtons
             state.tirePressureHandlingSummary.totalRollingResistanceForceAbsNewtons +=
                 Math.abs(wheelRollingResistanceForceNewtons)
         }
-
-        const rollingResistanceForceNewtons =
-            totalRollingResistanceForceNewtons
-        const rollingResistanceForceWorldXNewtons =
-            rollingResistanceForceNewtons * state.planarMotion.forwardWorld.x
-        const rollingResistanceForceWorldZNewtons =
-            rollingResistanceForceNewtons * state.planarMotion.forwardWorld.z
 
         updateAerodynamicDragState(
             state.aerodynamicDragState,
@@ -829,6 +882,7 @@ export function createVehicleController(config = {}) {
             state.planarMotion.worldVelocityMetersPerSecond,
             spec.massKg
         )
+        updateSlopeGravityState()
 
         const aerodynamicDragForceNewtons =
             state.aerodynamicDragState.dragForceNewtons
@@ -846,22 +900,53 @@ export function createVehicleController(config = {}) {
                 state.planarMotion.rightWorld.x +
             aerodynamicDragForceWorldZNewtons *
                 state.planarMotion.rightWorld.z
+        const rollingResistanceForceLocalForwardNewtons =
+            rollingResistanceForceWorldXNewtons *
+                state.planarMotion.forwardWorld.x +
+            rollingResistanceForceWorldZNewtons *
+                state.planarMotion.forwardWorld.z
+        const rollingResistanceForceLocalLateralNewtons =
+            rollingResistanceForceWorldXNewtons *
+                state.planarMotion.rightWorld.x +
+            rollingResistanceForceWorldZNewtons *
+                state.planarMotion.rightWorld.z
+        const slopeGravityForceWorldXNewtons =
+            state.slopeGravityState.slopeGravityForceWorld.x
+        const slopeGravityForceWorldZNewtons =
+            state.slopeGravityState.slopeGravityForceWorld.z
+        const slopeGravityForceLocalForwardNewtons =
+            slopeGravityForceWorldXNewtons * state.planarMotion.forwardWorld.x +
+            slopeGravityForceWorldZNewtons * state.planarMotion.forwardWorld.z
+        const slopeGravityForceLocalLateralNewtons =
+            slopeGravityForceWorldXNewtons * state.planarMotion.rightWorld.x +
+            slopeGravityForceWorldZNewtons * state.planarMotion.rightWorld.z
 
+        const totalTireForceLocalForwardNewtons =
+            totalTireForceWorldXNewtons * state.planarMotion.forwardWorld.x +
+            totalTireForceWorldZNewtons * state.planarMotion.forwardWorld.z
+        const totalTireForceLocalRightNewtons =
+            totalTireForceWorldXNewtons * state.planarMotion.rightWorld.x +
+            totalTireForceWorldZNewtons * state.planarMotion.rightWorld.z
         const netLongitudinalForceNewtons =
-            totalLongitudinalTireForceNewtons +
-            rollingResistanceForceNewtons +
-            aerodynamicDragForceLocalForwardNewtons
+            totalTireForceLocalForwardNewtons +
+            rollingResistanceForceLocalForwardNewtons +
+            aerodynamicDragForceLocalForwardNewtons +
+            slopeGravityForceLocalForwardNewtons
         const netLateralForceNewtons =
-            totalLateralTireForceNewtons +
-            aerodynamicDragForceLocalLateralNewtons
+            totalTireForceLocalRightNewtons +
+            rollingResistanceForceLocalLateralNewtons +
+            aerodynamicDragForceLocalLateralNewtons +
+            slopeGravityForceLocalLateralNewtons
         const netForceWorldXNewtons =
             totalTireForceWorldXNewtons +
             rollingResistanceForceWorldXNewtons +
-            aerodynamicDragForceWorldXNewtons
+            aerodynamicDragForceWorldXNewtons +
+            slopeGravityForceWorldXNewtons
         const netForceWorldZNewtons =
             totalTireForceWorldZNewtons +
             rollingResistanceForceWorldZNewtons +
-            aerodynamicDragForceWorldZNewtons
+            aerodynamicDragForceWorldZNewtons +
+            slopeGravityForceWorldZNewtons
         const safeMassKg = Number.isFinite(spec.massKg) && spec.massKg > 0
             ? spec.massKg
             : 1
@@ -870,7 +955,6 @@ export function createVehicleController(config = {}) {
                 ? yawMomentNewtonMeters /
                     spec.yawMomentOfInertiaKgMeterSquared
                 : 0
-
         const tractionLimitedWheelCount = countTractionLimitedWheels()
 
         return {
@@ -884,7 +968,7 @@ export function createVehicleController(config = {}) {
             totalLateralTireForceNewtons,
             totalTireForceWorldXNewtons,
             totalTireForceWorldZNewtons,
-            rollingResistanceForceNewtons,
+            rollingResistanceForceNewtons: totalRollingResistanceForceNewtons,
             rollingResistanceForceWorldXNewtons,
             rollingResistanceForceWorldZNewtons,
             aerodynamicDragForceNewtons,
@@ -892,6 +976,12 @@ export function createVehicleController(config = {}) {
             aerodynamicDragForceWorldZNewtons,
             aerodynamicDragForceLocalForwardNewtons,
             aerodynamicDragForceLocalLateralNewtons,
+            slopeGravityForceNewtons:
+                state.slopeGravityState.slopeGravityForceNewtons,
+            slopeGravityForceWorldXNewtons,
+            slopeGravityForceWorldZNewtons,
+            slopeGravityForceLocalForwardNewtons,
+            slopeGravityForceLocalLateralNewtons,
             netLongitudinalForceNewtons,
             netLateralForceNewtons,
             netForceWorldXNewtons,
@@ -909,34 +999,135 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function calculateWheelChassisLocalTireForces(wheelState) {
-        const steeringAngleRadians = Number.isFinite(
-            wheelState.steeringAngleRadians
-        )
-            ? wheelState.steeringAngleRadians
-            : 0
-        const steeringSin = Math.sin(steeringAngleRadians)
-        const steeringCos = Math.cos(steeringAngleRadians)
-        const wheelLocalForwardForceNewtons = Number.isFinite(
+    function updateWheelPlanarTireForceComponents(wheelState) {
+        const longitudinalForceNewtons = Number.isFinite(
             wheelState.appliedLongitudinalForceNewtons
         )
             ? wheelState.appliedLongitudinalForceNewtons
             : 0
-        const wheelLocalRightForceNewtons = Number.isFinite(
+        const lateralForceNewtons = Number.isFinite(
             wheelState.appliedLateralTireForceNewtons
         )
             ? wheelState.appliedLateralTireForceNewtons
             : 0
 
-        return {
-            localForwardForceNewtons:
-                wheelLocalForwardForceNewtons * steeringCos -
-                wheelLocalRightForceNewtons * steeringSin,
-            localRightForceNewtons:
-                wheelLocalForwardForceNewtons * steeringSin +
-                wheelLocalRightForceNewtons * steeringCos,
+        if (wheelState.isContactTangentBasisValid) {
+            wheelState.tireForceWorld
+                .copy(wheelState.contactForwardTangentWorld)
+                .multiplyScalar(longitudinalForceNewtons)
+                .addScaledVector(
+                    wheelState.contactLateralTangentWorld,
+                    lateralForceNewtons
+                )
+        } else {
+            const steeringAngleRadians = Number.isFinite(
+                wheelState.steeringAngleRadians
+            )
+                ? wheelState.steeringAngleRadians
+                : 0
+            const steeringSin = Math.sin(steeringAngleRadians)
+            const steeringCos = Math.cos(steeringAngleRadians)
+            const localForwardForceNewtons =
+                longitudinalForceNewtons * steeringCos -
+                lateralForceNewtons * steeringSin
+            const localRightForceNewtons =
+                longitudinalForceNewtons * steeringSin +
+                lateralForceNewtons * steeringCos
+
+            wheelState.tireForceWorld
+                .copy(state.planarMotion.forwardWorld)
+                .multiplyScalar(localForwardForceNewtons)
+                .addScaledVector(
+                    state.planarMotion.rightWorld,
+                    localRightForceNewtons
+                )
         }
+
+        wheelState.planarTireForceWorldXNewtons =
+            wheelState.tireForceWorld.x
+        wheelState.planarTireForceWorldZNewtons =
+            wheelState.tireForceWorld.z
+        wheelState.planarTireForceLocalForwardNewtons =
+            wheelState.planarTireForceWorldXNewtons *
+                state.planarMotion.forwardWorld.x +
+            wheelState.planarTireForceWorldZNewtons *
+                state.planarMotion.forwardWorld.z
+        wheelState.planarTireForceLocalRightNewtons =
+            wheelState.planarTireForceWorldXNewtons *
+                state.planarMotion.rightWorld.x +
+            wheelState.planarTireForceWorldZNewtons *
+                state.planarMotion.rightWorld.z
     }
+
+    function updateSlopeGravityState() {
+        const slopeGravityState = state.slopeGravityState
+        resetSlopeGravityState(slopeGravityState)
+        slopeGravityState.enabled = spec.slopeGravityEnabled !== false
+
+        if (!slopeGravityState.enabled) return
+
+        let totalSupportNormalForceNewtons = 0
+
+        for (const wheelState of state.wheelStates) {
+            const normalForceNewtons = Number.isFinite(
+                wheelState.normalForceNewtons
+            ) && wheelState.normalForceNewtons > 0
+                ? wheelState.normalForceNewtons
+                : 0
+
+            if (
+                !wheelState.isGrounded ||
+                normalForceNewtons <= 0 ||
+                !wheelState.contactNormalWorld?.isVector3 ||
+                wheelState.contactNormalWorld.lengthSq() <= Number.EPSILON
+            ) {
+                continue
+            }
+
+            slopeGravityState.supportNormalWorld.addScaledVector(
+                wheelState.contactNormalWorld,
+                normalForceNewtons
+            )
+            totalSupportNormalForceNewtons += normalForceNewtons
+        }
+
+        if (totalSupportNormalForceNewtons <= 0 ||
+            slopeGravityState.supportNormalWorld.lengthSq() <= Number.EPSILON) {
+            slopeGravityState.supportNormalWorld.set(0, 1, 0)
+            return
+        }
+
+        const gravityMetersPerSecondSquared = Number.isFinite(
+            spec.gravityMetersPerSecondSquared
+        ) && spec.gravityMetersPerSecondSquared > 0
+            ? spec.gravityMetersPerSecondSquared
+            : 9.80665
+        const massKg = Number.isFinite(spec.massKg) && spec.massKg > 0
+            ? spec.massKg
+            : 1
+
+        slopeGravityState.isSupported = true
+        slopeGravityState.supportNormalWorld.normalize()
+        slopeGravityState.supportSlopeDegrees = Math.acos(
+            THREE.MathUtils.clamp(slopeGravityState.supportNormalWorld.y, -1, 1)
+        ) * (180 / Math.PI)
+        slopeGravityState.gravityTangentWorld
+            .set(0, -gravityMetersPerSecondSquared, 0)
+            .addScaledVector(
+                slopeGravityState.supportNormalWorld,
+                gravityMetersPerSecondSquared *
+                    slopeGravityState.supportNormalWorld.y
+            )
+        slopeGravityState.slopeGravityForceWorld
+            .copy(slopeGravityState.gravityTangentWorld)
+            .multiplyScalar(massKg)
+        slopeGravityState.slopeGravityForceWorld.y = 0
+        slopeGravityState.slopeGravityForceNewtons = Math.hypot(
+            slopeGravityState.slopeGravityForceWorld.x,
+            slopeGravityState.slopeGravityForceWorld.z
+        )
+    }
+
 
     function getWheelRollingRadiusMeters(wheelState) {
         const effectiveTireRollingRadiusMeters = Number.isFinite(
@@ -1056,80 +1247,457 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function updateWheelContactStates() {
-        vehicle.updateMatrixWorld(true)
+    function updateTerrainSupportAndWheelContactState(
+        dtSeconds,
+        advancePersistentState = true,
+        snapSupportHeightToTarget = false
+    ) {
+        updateChassisTerrainSupportHeight(
+            dtSeconds,
+            advancePersistentState,
+            snapSupportHeightToTarget
+        )
+        // Pressure owns the physical effective radius. It must update before
+        // suspension contact so the ray geometry never falls back to the
+        // authored visual radius.
+        updateWheelTirePressureHandlingState()
+        updateWheelContactStates(advancePersistentState)
 
+        if (!advancePersistentState) {
+            updateWheelContactPlaneBases()
+            return
+        }
+
+        updateSuspensionNormalForceState(
+            state.wheelStates,
+            spec,
+            dtSeconds,
+            state.suspensionNormalForceSummary
+        )
+        updateWheelSuspensionContactLimitStatuses()
+        updateWheelLoadTransferState()
+        updateWheelContactPlaneBases()
+    }
+
+    function updateWheelSuspensionContactLimitStatuses() {
         for (const wheelState of state.wheelStates) {
-            updateWheelContactState(wheelState)
+            if (!wheelState.isGrounded ||
+                wheelState.isWithinSuspensionContactHysteresis) {
+                continue
+            }
+
+            if (wheelState.isSuspensionAtCompressionLimit) {
+                wheelState.suspensionContactStatus =
+                    'grounded-at-compression-limit'
+            } else if (wheelState.isSuspensionAtDroopLimit) {
+                wheelState.suspensionContactStatus = 'grounded-at-droop-limit'
+            } else {
+                wheelState.suspensionContactStatus = 'grounded'
+            }
         }
     }
 
-    function updateWheelContactState(wheelState) {
-        wheelState.wheelCenterWorldPosition
-            .copy(wheelState.localPosition)
-            .applyMatrix4(vehicle.matrixWorld)
+    function updateChassisTerrainSupportHeight(
+        dtSeconds,
+        advancePersistentState,
+        snapSupportHeightToTarget
+    ) {
+        updateChassisTerrainSupportState(state.chassisTerrainSupportState, {
+            terrainContactQuery,
+            worldXMeters: vehicle.position.x,
+            worldZMeters: vehicle.position.z,
+            baselineOffsetMeters:
+                spec.chassisTerrainSupportBaselineOffsetMeters,
+            responseSeconds:
+                spec.chassisTerrainSupportHeightResponseSeconds,
+            dtSeconds,
+            advancePersistentState,
+            snapToTarget: snapSupportHeightToTarget,
+        })
 
-        terrainContactQuery.queryAtWorldXZ(
-            wheelState.wheelCenterWorldPosition.x,
-            wheelState.wheelCenterWorldPosition.z,
-            wheelState.terrainContactQueryResult
-        )
-
-        wheelState.groundHeightMeters =
-            wheelState.terrainContactQueryResult.groundHeightMeters
-
-        wheelState.distanceToGroundMeters =
-            wheelState.wheelCenterWorldPosition.y - wheelState.groundHeightMeters
-
-        wheelState.tirePenetrationMeters = Math.max(
-            0,
-            wheelState.radius - wheelState.distanceToGroundMeters
-        )
-
-        wheelState.isGrounded =
-            wheelState.distanceToGroundMeters <=
-            wheelState.radius + CONTACT_EPSILON_METERS
-
-        wheelState.contactPointWorldPosition.set(
-            wheelState.wheelCenterWorldPosition.x,
-            wheelState.groundHeightMeters,
-            wheelState.wheelCenterWorldPosition.z
-        )
-
-        wheelState.contactPatchWorldPosition.copy(
-            wheelState.contactPointWorldPosition
-        )
-
-        wheelState.contactNormalWorld.copy(
-            wheelState.terrainContactQueryResult.normalWorld
-        )
-
-        wheelState.surfaceKind = wheelState.terrainContactQueryResult.surfaceKind
-        wheelState.frictionCoefficient =
-            wheelState.terrainContactQueryResult.frictionCoefficient
-        wheelState.isInsideTerrainBounds =
-            wheelState.terrainContactQueryResult.isInsideTerrainBounds
+        if (advancePersistentState) {
+            vehicle.position.y =
+                state.chassisTerrainSupportState.currentChassisSupportHeightMeters
+        }
     }
 
-    function updateWheelLoadTransferState(suspensionDtSeconds = null) {
-        // Quasi-static load transfer intentionally reads the previous fixed-step
-        // local acceleration telemetry. That explicit one-step lag avoids a
-        // same-step circular dependency between normal force, traction limit,
-        // tire force, and the acceleration they generate.
+    function updateWheelContactStates(advanceContactHysteresis = true) {
+        vehicle.updateMatrixWorld(true)
+
+        for (const wheelState of state.wheelStates) {
+            updateWheelContactState(wheelState, advanceContactHysteresis)
+        }
+    }
+
+    function updateWheelContactState(wheelState, advanceContactHysteresis) {
+        const suspensionMountLocalPosition =
+            wheelState.suspensionMountLocalPosition ?? wheelState.localPosition
+        const suspensionAxisDownLocal =
+            wheelState.suspensionAxisDownLocal ?? DEFAULT_SUSPENSION_DOWN_LOCAL
+
+        wheelState.suspensionMountWorld
+            .copy(suspensionMountLocalPosition)
+            .applyMatrix4(vehicle.matrixWorld)
+        wheelState.suspensionAxisDownWorld
+            .copy(suspensionAxisDownLocal)
+            .transformDirection(vehicle.matrixWorld)
+
+        if (wheelState.suspensionAxisDownWorld.lengthSq() <= Number.EPSILON) {
+            wheelState.suspensionAxisDownWorld.copy(DEFAULT_SUSPENSION_DOWN_LOCAL)
+        }
+        wheelState.suspensionAxisDownWorld.normalize()
+
+        const effectiveWheelRadiusMeters = getWheelRollingRadiusMeters(wheelState)
+        const suspensionContactQueryResult =
+            wheelState.suspensionContactQueryResult
+
+        if (typeof terrainContactQuery.querySuspensionContact === 'function') {
+            terrainContactQuery.querySuspensionContact(
+                {
+                    rayOriginWorld: wheelState.suspensionMountWorld,
+                    suspensionDownDirectionWorld:
+                        wheelState.suspensionAxisDownWorld,
+                    maximumRayDistanceMeters:
+                        resolveMaximumSuspensionRayDistanceMeters(),
+                    wheelRadiusMeters: effectiveWheelRadiusMeters,
+                    minimumNormalAlignmentCosine:
+                        resolveMinimumSuspensionNormalAlignmentCosine(),
+                },
+                suspensionContactQueryResult
+            )
+        } else {
+            queryFlatSuspensionContact(
+                wheelState,
+                effectiveWheelRadiusMeters,
+                suspensionContactQueryResult
+            )
+        }
+
+        const suspensionMinimumLengthMeters =
+            resolveSuspensionMinimumLengthMeters()
+        const suspensionMaximumLengthMeters =
+            resolveSuspensionMaximumLengthMeters()
+        const wheelCenterDistanceAlongSuspensionMeters = Number.isFinite(
+            suspensionContactQueryResult.wheelCenterDistanceAlongSuspensionMeters
+        )
+            ? suspensionContactQueryResult.wheelCenterDistanceAlongSuspensionMeters
+            : Number.POSITIVE_INFINITY
+        const wasSuspensionContactRetained =
+            wheelState.isSuspensionContactRetained === true
+        const contactSlopMeters = wasSuspensionContactRetained
+            ? resolveSuspensionContactReleaseSlopMeters()
+            : resolveSuspensionContactAcquireSlopMeters()
+        const hasValidSuspensionContact =
+            suspensionContactQueryResult.hasContact === true &&
+            wheelCenterDistanceAlongSuspensionMeters >= 0 &&
+            wheelCenterDistanceAlongSuspensionMeters <=
+                suspensionMaximumLengthMeters + contactSlopMeters
+        const isWithinContactHysteresis =
+            hasValidSuspensionContact &&
+            wheelCenterDistanceAlongSuspensionMeters >
+                suspensionMaximumLengthMeters
+
+        wheelState.isGrounded = hasValidSuspensionContact
+        wheelState.isWithinSuspensionContactHysteresis =
+            isWithinContactHysteresis
+        if (advanceContactHysteresis) {
+            wheelState.isSuspensionContactRetained = hasValidSuspensionContact
+        }
+
+        wheelState.suspensionRawLengthMeters = Number.isFinite(
+            wheelCenterDistanceAlongSuspensionMeters
+        )
+            ? wheelCenterDistanceAlongSuspensionMeters
+            : suspensionMaximumLengthMeters
+        wheelState.suspensionCurrentLengthMeters = hasValidSuspensionContact
+            ? THREE.MathUtils.clamp(
+                wheelCenterDistanceAlongSuspensionMeters,
+                suspensionMinimumLengthMeters,
+                suspensionMaximumLengthMeters
+            )
+            : suspensionMaximumLengthMeters
+
+        wheelState.wheelCenterLocalPosition
+            .copy(suspensionMountLocalPosition)
+            .addScaledVector(
+                suspensionAxisDownLocal,
+                wheelState.suspensionCurrentLengthMeters
+            )
+        wheelState.wheelCenterWorldPosition
+            .copy(wheelState.suspensionMountWorld)
+            .addScaledVector(
+                wheelState.suspensionAxisDownWorld,
+                wheelState.suspensionCurrentLengthMeters
+            )
+
+        copySuspensionContactResultToWheelState(
+            wheelState,
+            suspensionContactQueryResult,
+            effectiveWheelRadiusMeters,
+            hasValidSuspensionContact
+        )
+
+        if (hasValidSuspensionContact) {
+            wheelState.suspensionContactStatus = isWithinContactHysteresis
+                ? 'within-contact-hysteresis'
+                : wheelState.isSuspensionAtCompressionLimit
+                    ? 'grounded-at-compression-limit'
+                    : 'grounded'
+        } else if (
+            suspensionContactQueryResult.hasTerrainIntersection === true &&
+            wheelCenterDistanceAlongSuspensionMeters >
+                suspensionMaximumLengthMeters + contactSlopMeters
+        ) {
+            wheelState.suspensionContactStatus = 'beyond-suspension-droop'
+        } else {
+            wheelState.suspensionContactStatus =
+                suspensionContactQueryResult.status ?? 'no-intersection'
+        }
+    }
+
+    function copySuspensionContactResultToWheelState(
+        wheelState,
+        result,
+        effectiveWheelRadiusMeters,
+        isGrounded
+    ) {
+        const hasSurfaceIntersection = result.hasTerrainIntersection === true ||
+            result.hasContact === true
+        const hasFiniteContactPoint =
+            Number.isFinite(result.contactPointWorld?.x) &&
+            Number.isFinite(result.contactPointWorld?.y) &&
+            Number.isFinite(result.contactPointWorld?.z)
+
+        if (hasSurfaceIntersection && hasFiniteContactPoint) {
+            wheelState.contactPointWorldPosition.copy(result.contactPointWorld)
+            wheelState.contactPatchWorldPosition.copy(result.contactPointWorld)
+        } else {
+            wheelState.contactPointWorldPosition
+                .copy(wheelState.wheelCenterWorldPosition)
+                .addScaledVector(
+                    wheelState.suspensionAxisDownWorld,
+                    effectiveWheelRadiusMeters
+                )
+            wheelState.contactPatchWorldPosition.copy(
+                wheelState.contactPointWorldPosition
+            )
+        }
+
+        if (
+            Number.isFinite(result.contactNormalWorld?.x) &&
+            Number.isFinite(result.contactNormalWorld?.y) &&
+            Number.isFinite(result.contactNormalWorld?.z)
+        ) {
+            wheelState.contactNormalWorld.copy(result.contactNormalWorld)
+        } else {
+            wheelState.contactNormalWorld.set(0, 1, 0)
+        }
+        if (wheelState.contactNormalWorld.lengthSq() <= Number.EPSILON) {
+            wheelState.contactNormalWorld.set(0, 1, 0)
+        }
+        wheelState.contactNormalWorld.normalize()
+
+        wheelState.groundHeightMeters = Number.isFinite(result.terrainHeightMeters)
+            ? result.terrainHeightMeters
+            : wheelState.contactPointWorldPosition.y
+        wheelState.terrainHeightMeters = wheelState.groundHeightMeters
+        wheelState.distanceToGroundMeters =
+            wheelState.wheelCenterWorldPosition.y -
+            wheelState.contactPointWorldPosition.y
+        wheelState.centerToContactOffsetWorld
+            .copy(wheelState.wheelCenterWorldPosition)
+            .sub(wheelState.contactPointWorldPosition)
+        wheelState.centerToContactPlaneDistanceMeters =
+            wheelState.contactNormalWorld.dot(
+                wheelState.centerToContactOffsetWorld
+            )
+        wheelState.tirePenetrationMeters = Math.max(
+            0,
+            effectiveWheelRadiusMeters -
+                wheelState.centerToContactPlaneDistanceMeters
+        )
+        wheelState.surfaceKind = result.surfaceKind ?? 'unavailable'
+        wheelState.frictionCoefficient = Number.isFinite(
+            result.frictionCoefficient
+        )
+            ? result.frictionCoefficient
+            : spec.defaultSurfaceFrictionCoefficient
+        wheelState.isInsideTerrainBounds = result.isInsideTerrainBounds === true
+        wheelState.terrainProfileName = result.profileName ?? 'unavailable'
+        wheelState.contactSlopeDegrees = Number.isFinite(result.slopeDegrees)
+            ? result.slopeDegrees
+            : 0
+        wheelState.suspensionNormalAlignmentCosine = Number.isFinite(
+            result.normalAlignmentCosine
+        )
+            ? result.normalAlignmentCosine
+            : 0
+        wheelState.isGrounded = isGrounded
+    }
+
+    function queryFlatSuspensionContact(
+        wheelState,
+        effectiveWheelRadiusMeters,
+        target
+    ) {
+        terrainContactQuery.queryAtWorldXZ(
+            wheelState.suspensionMountWorld.x,
+            wheelState.suspensionMountWorld.z,
+            wheelState.terrainContactQueryResult
+        )
+        const surfaceResult = wheelState.terrainContactQueryResult
+        const rayDownY = wheelState.suspensionAxisDownWorld.y
+
+        target.isInsideTerrainBounds =
+            surfaceResult.isInsideTerrainBounds === true
+        target.isWithinBounds = target.isInsideTerrainBounds
+        target.hasContact = false
+        target.hasTerrainIntersection = false
+        target.status = target.isInsideTerrainBounds
+            ? 'no-intersection'
+            : 'outside-terrain-bounds'
+        target.surfaceKind = surfaceResult.surfaceKind
+        target.frictionCoefficient = surfaceResult.frictionCoefficient
+        target.profileName = surfaceResult.profileName ?? 'flat-fallback'
+        target.terrainHeightMeters = surfaceResult.groundHeightMeters
+        target.slopeDegrees = 0
+        target.contactNormalWorld.copy(surfaceResult.normalWorld)
+        target.rayOriginWorld.copy(wheelState.suspensionMountWorld)
+        target.suspensionDownDirectionWorld.copy(
+            wheelState.suspensionAxisDownWorld
+        )
+
+        if (!target.isInsideTerrainBounds || rayDownY >= -Number.EPSILON) {
+            return target
+        }
+
+        const rayDistanceMeters =
+            (surfaceResult.groundHeightMeters -
+                wheelState.suspensionMountWorld.y) /
+            rayDownY
+        const normalAlignmentCosine = -wheelState.suspensionAxisDownWorld.dot(
+            target.contactNormalWorld
+        )
+
+        if (
+            !Number.isFinite(rayDistanceMeters) ||
+            rayDistanceMeters < 0 ||
+            !Number.isFinite(normalAlignmentCosine) ||
+            normalAlignmentCosine <
+                resolveMinimumSuspensionNormalAlignmentCosine()
+        ) {
+            target.status = 'surface-too-steep'
+            return target
+        }
+
+        target.rayDistanceMeters = rayDistanceMeters
+        target.terrainRayDistanceMeters = rayDistanceMeters
+        target.normalAlignmentCosine = normalAlignmentCosine
+        target.centerToContactDistanceAlongSuspensionMeters =
+            effectiveWheelRadiusMeters / normalAlignmentCosine
+        target.wheelCenterDistanceAlongSuspensionMeters =
+            target.rayDistanceMeters -
+            target.centerToContactDistanceAlongSuspensionMeters
+        target.contactPointWorld
+            .copy(wheelState.suspensionMountWorld)
+            .addScaledVector(
+                wheelState.suspensionAxisDownWorld,
+                rayDistanceMeters
+            )
+        target.contactPointWorld.y = surfaceResult.groundHeightMeters
+        target.hasTerrainIntersection = true
+        target.hasContact = true
+        target.status = 'surface-intersection'
+
+        return target
+    }
+
+    function updateWheelContactPlaneBases() {
+        for (const wheelState of state.wheelStates) {
+            updateWheelContactPlaneBasis(wheelState, state.planarMotion)
+            updateWheelContactPatchPlanarVelocity(wheelState, state.planarMotion)
+        }
+    }
+
+    function updateWheelLoadTransferState() {
+        // Quasi-static load transfer reads prior-step planar acceleration. The
+        // suspension module owns only normalized base support; this module owns
+        // the final normal force after acceleration-driven redistribution.
         updateLoadTransferState(
             state.wheelStates,
             state.planarMotion,
             spec,
             state.loadTransferSummary
         )
+    }
 
-        if (suspensionDtSeconds !== null) {
-            updateSuspensionNormalForceState(
-                state.wheelStates,
-                spec,
-                suspensionDtSeconds
-            )
-        }
+    function resolveSuspensionMaximumLengthMeters() {
+        const restLengthMeters = Number.isFinite(spec.suspensionRestLengthMeters) &&
+            spec.suspensionRestLengthMeters > 0
+            ? spec.suspensionRestLengthMeters
+            : 0.35
+        return Number.isFinite(spec.suspensionMaximumLengthMeters) &&
+            spec.suspensionMaximumLengthMeters > 0
+            ? spec.suspensionMaximumLengthMeters
+            : restLengthMeters
+    }
+
+    function resolveSuspensionMinimumLengthMeters() {
+        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters()
+        const travelMeters = Number.isFinite(spec.suspensionTravelMeters) &&
+            spec.suspensionTravelMeters > 0
+            ? spec.suspensionTravelMeters
+            : 0.22
+        const configuredMinimumLengthMeters = Number.isFinite(
+            spec.suspensionMinimumLengthMeters
+        ) && spec.suspensionMinimumLengthMeters > 0
+            ? spec.suspensionMinimumLengthMeters
+            : maximumLengthMeters - travelMeters
+
+        return THREE.MathUtils.clamp(
+            configuredMinimumLengthMeters,
+            Number.EPSILON,
+            maximumLengthMeters - Number.EPSILON
+        )
+    }
+
+    function resolveMaximumSuspensionRayDistanceMeters() {
+        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters()
+        const configuredRayDistanceMeters = Number.isFinite(
+            spec.maximumSuspensionRayDistanceMeters
+        ) && spec.maximumSuspensionRayDistanceMeters > 0
+            ? spec.maximumSuspensionRayDistanceMeters
+            : maximumLengthMeters + spec.baseTireRollingRadiusMeters + 0.2
+
+        return Math.max(configuredRayDistanceMeters, maximumLengthMeters)
+    }
+
+    function resolveMinimumSuspensionNormalAlignmentCosine() {
+        return THREE.MathUtils.clamp(
+            Number.isFinite(spec.minimumSuspensionNormalAlignmentCosine)
+                ? spec.minimumSuspensionNormalAlignmentCosine
+                : 0.25,
+            0.01,
+            0.99
+        )
+    }
+
+    function resolveSuspensionContactAcquireSlopMeters() {
+        return Math.max(
+            0,
+            Number.isFinite(spec.suspensionContactAcquireSlopMeters)
+                ? spec.suspensionContactAcquireSlopMeters
+                : 0.004
+        )
+    }
+
+    function resolveSuspensionContactReleaseSlopMeters() {
+        return Math.max(
+            resolveSuspensionContactAcquireSlopMeters(),
+            Number.isFinite(spec.suspensionContactReleaseSlopMeters)
+                ? spec.suspensionContactReleaseSlopMeters
+                : 0.012
+        )
     }
 
     function updateWheelTirePressureHandlingState() {
@@ -1140,22 +1708,12 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function refreshPostIntegrationTelemetry(suspensionDtSeconds = null) {
-        // Refresh post-step telemetry against the latest contact, slip, and
-        // load-transfer state without integrating motion a second time.
-        updateWheelContactStates()
-        updateWheelLoadTransferState(suspensionDtSeconds)
-        updateWheelTirePressureHandlingState()
-        updateLateralSlipTelemetry()
-        updateLongitudinalSlipTelemetry()
-        // Refresh the target telemetry without advancing the relaxation state a
-        // second time during the post-step telemetry pass.
-        calculatePerWheelLongitudinalTireForces(suspensionDtSeconds, {
-            advanceRelaxationState: false,
-        })
-        calculatePerWheelLateralTireForces()
-        state.forces = calculatePlanarForcesFromWheelState()
-        updateLateralTireForceSummaryState()
+    function refreshPostIntegrationTelemetry() {
+        // Keep the contact/normal state that supplied this step's integration
+        // input. Re-querying after X/Z integration would make the published
+        // grounded flag disagree with the normal forces and tire forces that
+        // were actually integrated. The next fixed step owns the next contact
+        // sample; this pass only refreshes non-integrating traction telemetry.
         updateLongitudinalTractionStates()
     }
 
@@ -1873,9 +2431,7 @@ export function createVehicleController(config = {}) {
     applyTirePressureStateToWheels()
     applyTireInflationVisualState()
     updateWheelSteeringAngles()
-    updateWheelContactStates()
-    updateWheelLoadTransferState(0)
-    updateWheelTirePressureHandlingState()
+    updateTerrainSupportAndWheelContactState(0, true, true)
     calculatePerWheelLongitudinalForces(0)
     updateLateralSlipTelemetry()
     updateLongitudinalSlipTelemetry()
@@ -1891,7 +2447,7 @@ export function createVehicleController(config = {}) {
     updateYawState(0)
     updatePlanarMotion(0)
     syncVehicleYawFromPlanarState()
-    refreshPostIntegrationTelemetry(0)
+    refreshPostIntegrationTelemetry()
     captureDynamicsStepTraceStage(
         VEHICLE_DYNAMICS_STEP_TRACE_STAGES.POST_INTEGRATION
     )
@@ -1949,17 +2505,67 @@ function createWheelRuntimeStates(vehicle, spec) {
             width: wheel.width,
             localPosition: cloneVector3(wheel.localPosition),
             contactPatchLocal: cloneVector3(wheel.contactPatchLocal),
+            suspensionMountLocalPosition: cloneVector3(
+                wheel.suspensionMountLocal ?? wheel.localPosition
+            ),
+            suspensionAxisDownLocal: cloneVector3(
+                wheel.suspensionAxisDownLocal ?? DEFAULT_SUSPENSION_DOWN_LOCAL
+            ),
+            wheelCenterLocalPosition: cloneVector3(wheel.localPosition),
+            suspensionMountWorld: new THREE.Vector3(),
+            suspensionAxisDownWorld: new THREE.Vector3(0, -1, 0),
             wheelCenterWorldPosition: new THREE.Vector3(),
             contactPointWorldPosition: new THREE.Vector3(),
             contactPatchWorldPosition: new THREE.Vector3(),
             contactNormalWorld: new THREE.Vector3(0, 1, 0),
+            centerToContactOffsetWorld: new THREE.Vector3(),
+            wheelForwardWorld: new THREE.Vector3(0, 0, 1),
+            contactForwardTangentWorld: new THREE.Vector3(0, 0, 1),
+            contactLateralTangentWorld: new THREE.Vector3(1, 0, 0),
+            contactPatchVelocityWorld: new THREE.Vector3(),
+            tireForceWorld: new THREE.Vector3(),
+            planarTireForceWorldXNewtons: 0,
+            planarTireForceWorldZNewtons: 0,
+            planarTireForceLocalForwardNewtons: 0,
+            planarTireForceLocalRightNewtons: 0,
             terrainContactQueryResult: {
                 normalWorld: new THREE.Vector3(0, 1, 0),
             },
+            suspensionContactQueryResult: {
+                rayOriginWorld: new THREE.Vector3(),
+                suspensionDownDirectionWorld: new THREE.Vector3(0, -1, 0),
+                contactPointWorld: new THREE.Vector3(),
+                contactNormalWorld: new THREE.Vector3(0, 1, 0),
+                isInsideTerrainBounds: true,
+                isWithinBounds: true,
+                hasContact: false,
+                hasTerrainIntersection: false,
+                status: 'initializing',
+                profileName: 'unavailable',
+                surfaceKind: 'unavailable',
+                frictionCoefficient: spec.defaultSurfaceFrictionCoefficient,
+                terrainHeightMeters: 0,
+                slopeDegrees: 0,
+                normalAlignmentCosine: 1,
+                rayDistanceMeters: 0,
+                terrainRayDistanceMeters: 0,
+                centerToContactDistanceAlongSuspensionMeters: 0,
+                wheelCenterDistanceAlongSuspensionMeters: 0,
+            },
             groundHeightMeters: 0,
+            terrainHeightMeters: 0,
             distanceToGroundMeters: 0,
+            centerToContactPlaneDistanceMeters: 0,
             tirePenetrationMeters: 0,
             isInsideTerrainBounds: true,
+            terrainProfileName: 'unavailable',
+            contactSlopeDegrees: 0,
+            suspensionNormalAlignmentCosine: 0,
+            suspensionRawLengthMeters: 0,
+            suspensionContactStatus: 'initializing',
+            isSuspensionContactRetained: false,
+            isWithinSuspensionContactHysteresis: false,
+            isContactTangentBasisValid: false,
             steeringAngleRadians: 0,
             // Wheel angular dynamics are torque-coupled, while tire forces use a basic
             // linear/saturated longitudinal slip model. Wheel lock behavior remains future work.
@@ -2191,9 +2797,17 @@ function resetWheelLongitudinalTractionState(wheelState) {
 }
 
 function applyWheelVisualState(wheelState) {
-    if (wheelState.visual.pivot && wheelState.steerable) {
-        wheelState.visual.pivot.rotation.y =
-            wheelState.steeringAngleRadians
+    if (wheelState.visual.pivot) {
+        if (wheelState.wheelCenterLocalPosition?.isVector3) {
+            wheelState.visual.pivot.position.copy(
+                wheelState.wheelCenterLocalPosition
+            )
+        }
+
+        if (wheelState.steerable) {
+            wheelState.visual.pivot.rotation.y =
+                wheelState.steeringAngleRadians
+        }
     }
 
     if (wheelState.visual.rollingAssembly) {
@@ -2239,6 +2853,30 @@ function cloneVector3(value) {
     )
 }
 
+function createSlopeGravityState() {
+    return {
+        enabled: false,
+        isSupported: false,
+        supportSlopeDegrees: 0,
+        supportNormalWorld: new THREE.Vector3(0, 1, 0),
+        gravityTangentWorld: new THREE.Vector3(),
+        slopeGravityForceWorld: new THREE.Vector3(),
+        slopeGravityForceNewtons: 0,
+    }
+}
+
+function resetSlopeGravityState(slopeGravityState) {
+    slopeGravityState.enabled = false
+    slopeGravityState.isSupported = false
+    slopeGravityState.supportSlopeDegrees = 0
+    slopeGravityState.supportNormalWorld.set(0, 1, 0)
+    slopeGravityState.gravityTangentWorld.set(0, 0, 0)
+    slopeGravityState.slopeGravityForceWorld.set(0, 0, 0)
+    slopeGravityState.slopeGravityForceNewtons = 0
+
+    return slopeGravityState
+}
+
 function createEmptyForceSnapshot() {
     return {
         normalForceNewtons: 0,
@@ -2259,6 +2897,11 @@ function createEmptyForceSnapshot() {
         aerodynamicDragForceWorldZNewtons: 0,
         aerodynamicDragForceLocalForwardNewtons: 0,
         aerodynamicDragForceLocalLateralNewtons: 0,
+        slopeGravityForceNewtons: 0,
+        slopeGravityForceWorldXNewtons: 0,
+        slopeGravityForceWorldZNewtons: 0,
+        slopeGravityForceLocalForwardNewtons: 0,
+        slopeGravityForceLocalLateralNewtons: 0,
         netLongitudinalForceNewtons: 0,
         netLateralForceNewtons: 0,
         netForceWorldXNewtons: 0,

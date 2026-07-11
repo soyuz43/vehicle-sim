@@ -83,34 +83,56 @@ export function updateWheelLateralSlipAngleState(
     spec.lateralSlipMinGroundSpeedMetersPerSecond,
     DEFAULT_LATERAL_SLIP_THRESHOLDS.lateralSlipMinGroundSpeedMetersPerSecond
   )
-  const yawRateRadiansPerSecond = sanitizeNumber(
-    planarMotion?.yawRateRadiansPerSecond
-  )
-  const chassisLocalForwardVelocityMetersPerSecond = sanitizeNumber(
-    planarMotion?.localForwardVelocityMetersPerSecond
-  )
-  const chassisLocalLateralVelocityMetersPerSecond = sanitizeNumber(
-    planarMotion?.localLateralVelocityMetersPerSecond
-  )
-  const contactPatchLocal = wheelState.contactPatchLocal ?? wheelState.localPosition
-  const wheelOffsetRightMeters = sanitizeNumber(contactPatchLocal?.x)
-  const wheelOffsetForwardMeters = sanitizeNumber(contactPatchLocal?.z)
-  const steeringAngleRadians = sanitizeNumber(wheelState.steeringAngleRadians)
+  let wheelLocalForwardVelocityMetersPerSecond = 0
+  let wheelLocalLateralVelocityMetersPerSecond = 0
 
-  const contactPatchLocalForwardVelocityMetersPerSecond =
-    chassisLocalForwardVelocityMetersPerSecond -
-    yawRateRadiansPerSecond * wheelOffsetRightMeters
-  const contactPatchLocalLateralVelocityMetersPerSecond =
-    chassisLocalLateralVelocityMetersPerSecond +
-    yawRateRadiansPerSecond * wheelOffsetForwardMeters
-  const steeringSin = Math.sin(steeringAngleRadians)
-  const steeringCos = Math.cos(steeringAngleRadians)
-  const wheelLocalForwardVelocityMetersPerSecond =
-    contactPatchLocalForwardVelocityMetersPerSecond * steeringCos +
-    contactPatchLocalLateralVelocityMetersPerSecond * steeringSin
-  const wheelLocalLateralVelocityMetersPerSecond =
-    contactPatchLocalLateralVelocityMetersPerSecond * steeringCos -
-    contactPatchLocalForwardVelocityMetersPerSecond * steeringSin
+  if (
+    wheelState.isContactTangentBasisValid === true &&
+    hasFiniteVector3(wheelState.contactPatchVelocityWorld) &&
+    hasFiniteVector3(wheelState.contactForwardTangentWorld) &&
+    hasFiniteVector3(wheelState.contactLateralTangentWorld)
+  ) {
+    // Contact-plane basis v1: velocity remains planar because the chassis is
+    // planar, but its longitudinal/lateral projections now respect terrain
+    // slope and steering rather than assuming a world-up contact plane.
+    wheelLocalForwardVelocityMetersPerSecond = dotVector3(
+      wheelState.contactPatchVelocityWorld,
+      wheelState.contactForwardTangentWorld
+    )
+    wheelLocalLateralVelocityMetersPerSecond = dotVector3(
+      wheelState.contactPatchVelocityWorld,
+      wheelState.contactLateralTangentWorld
+    )
+  } else {
+    const yawRateRadiansPerSecond = sanitizeNumber(
+      planarMotion?.yawRateRadiansPerSecond
+    )
+    const chassisLocalForwardVelocityMetersPerSecond = sanitizeNumber(
+      planarMotion?.localForwardVelocityMetersPerSecond
+    )
+    const chassisLocalLateralVelocityMetersPerSecond = sanitizeNumber(
+      planarMotion?.localLateralVelocityMetersPerSecond
+    )
+    const contactPatchLocal = wheelState.contactPatchLocal ?? wheelState.localPosition
+    const wheelOffsetRightMeters = sanitizeNumber(contactPatchLocal?.x)
+    const wheelOffsetForwardMeters = sanitizeNumber(contactPatchLocal?.z)
+    const steeringAngleRadians = sanitizeNumber(wheelState.steeringAngleRadians)
+    const contactPatchLocalForwardVelocityMetersPerSecond =
+      chassisLocalForwardVelocityMetersPerSecond -
+      yawRateRadiansPerSecond * wheelOffsetRightMeters
+    const contactPatchLocalLateralVelocityMetersPerSecond =
+      chassisLocalLateralVelocityMetersPerSecond +
+      yawRateRadiansPerSecond * wheelOffsetForwardMeters
+    const steeringSin = Math.sin(steeringAngleRadians)
+    const steeringCos = Math.cos(steeringAngleRadians)
+
+    wheelLocalForwardVelocityMetersPerSecond =
+      contactPatchLocalForwardVelocityMetersPerSecond * steeringCos +
+      contactPatchLocalLateralVelocityMetersPerSecond * steeringSin
+    wheelLocalLateralVelocityMetersPerSecond =
+      contactPatchLocalLateralVelocityMetersPerSecond * steeringCos -
+      contactPatchLocalForwardVelocityMetersPerSecond * steeringSin
+  }
 
   wheelState.wheelLocalForwardVelocityMetersPerSecond =
     sanitizeNumber(wheelLocalForwardVelocityMetersPerSecond)
@@ -294,6 +316,21 @@ function selectDominantLateralSlipState(
   }
 
   return LATERAL_SLIP_STATES.UNAVAILABLE
+}
+
+function hasFiniteVector3(vector) {
+  return (
+    vector &&
+    Number.isFinite(vector.x) &&
+    Number.isFinite(vector.y) &&
+    Number.isFinite(vector.z)
+  )
+}
+
+function dotVector3(a, b) {
+  return sanitizeNumber(a.x) * sanitizeNumber(b.x) +
+    sanitizeNumber(a.y) * sanitizeNumber(b.y) +
+    sanitizeNumber(a.z) * sanitizeNumber(b.z)
 }
 
 function sanitizePositiveNumber(value, fallback) {

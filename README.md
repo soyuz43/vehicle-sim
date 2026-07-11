@@ -10,23 +10,22 @@ Simulation units:
 
 ## Simulation Loop
 
-Vehicle simulation advances in fixed `1 / 60` second physics steps while rendering remains driven by `requestAnimationFrame`. This prepares the simulation layer for later wheel contact, suspension, and tire-force work without tying physics integration directly to render frame rate.
+Vehicle simulation advances in fixed `1 / 60` second physics steps while rendering remains driven by `requestAnimationFrame`. Terrain contact, suspension support, tire force, and planar chassis integration remain fixed-step state; rendering only visualizes published snapshots without tying core physics to render frame rate.
 
 ## Vehicle Dynamics V2 Readiness / Step Trace
 
 Vehicle Dynamics Step Trace v1 is a telemetry and instrumentation layer only. It keeps one finite, JSON-serializable latest-step record and does not change the fixed timestep, force formulas, braking, ABS, powertrain, load transfer, suspension, aero drag, yaw integration, or vehicle motion.
 
-The trace records the current step dt and compact per-wheel data plus two force-budget stages: `integrationInput`, which is the force and yaw budget consumed by the current fixed step, and `postIntegration`, which is the refreshed state exposed after integration. Each stage summarizes grounded wheels, normal load, traction limit, longitudinal requested/target/relaxed/applied force, lateral force, planar force, yaw moment, aero drag, and force-derived acceleration/G. The Debug HUD shows a compact `Dynamics trace` line using the integration-input stage.
+The trace records the current step dt and compact per-wheel data plus two force-budget stages: `integrationInput`, which is the force and yaw budget consumed by the current fixed step, and `postIntegration`, which retains that same contact/force budget after planar integration for comparison. Each stage summarizes grounded wheels, normal load, traction limit, longitudinal requested/target/relaxed/applied force, lateral force, planar force, yaw moment, aero drag, slope gravity, and force-derived acceleration/G. The Debug HUD shows a compact `Dynamics trace` line using the integration-input stage.
 
 This source-of-truth seam prepares future V2 branches by making update-order and force-source regressions easier to detect without adding a history buffer or storing Three.js objects. True chassis heave, pitch, and roll plus richer combined tire modeling remain future work and are not implemented here.
 
 
 ## Wheel Contact State
 
-The simulation tracks finite per-wheel contact state against the current flat terrain placeholder. Each wheel records ground distance, tire penetration, contact point, contact normal, surface kind, and friction metadata as preparation for later suspension, surface friction, and tire slip work.
+Per-wheel contact now uses a deterministic heightfield query and a downward suspension ray rather than a wheel-center-versus-flat-ground shortcut. Every wheel records its suspension mount/axis, ray result, effective physical tire radius, terrain contact point/normal/slope, contact status, current suspension length, and grounded/airborne state. The physical tire radius comes from the existing tire-pressure handling state; rendered tire deformation remains visual-only.
 
-The bottom-right driver panel shows speed, the R/N/D selector, and compact per-wheel contact/placeholder available-traction status.
-
+The controller uses small acquire/release slop around maximum droop to avoid one-frame flicker. Airborne wheels receive zero normal force and no traction. The contact query remains an abstraction: `createFlatTerrainContactQuery` continues to support flat compatibility callers, while the normal application path uses the heightfield query.
 
 ## Wheel Rotational State
 
@@ -69,7 +68,7 @@ brake model, brake heat, fade, wear, or damage model.
 
 ## Longitudinal Slip Ratio Telemetry
 
-Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Current ground speed is approximated from planar local-forward velocity until per-wheel contact patch velocity exists. Slip ratio now feeds the basic longitudinal tire-force model, and the service-brake ABS v1 controller can also read it while richer wheel-lock detection and tire curves remain future work.
+Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with contact-plane longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Ground speed is projected from the planar contact-patch velocity into the current terrain/steering tangent basis. Slip ratio now feeds the basic longitudinal tire-force model, and the service-brake ABS v1 controller can also read it while richer wheel-lock detection and tire curves remain future work.
 
 
 ## Torque-Coupled Wheel Dynamics
@@ -86,7 +85,7 @@ Longitudinal tire force now comes from a simple linear/saturated slip-ratio mode
 
 Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, yaw acceleration, and planar acceleration telemetry. Per-wheel tire forces now sum into world-space planar body force, while `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
-Turning now generates actual lateral tire force and yaw moment from the existing per-wheel contact and slip state instead of relying on the earlier simplified steering-yaw shortcut. Quasi-static load transfer still produces the per-wheel `dynamicNormalForceNewtons` target from prior-step local acceleration, and the suspension normal-force foundation turns that target into finite spring/damper telemetry without adding body-motion feedback yet. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no chassis heave, pitch or roll dynamics, roll-center geometry, or visual chassis roll or pitch simulation.
+Turning generates lateral tire force and yaw moment from per-wheel contact/slip state instead of relying on the earlier simplified steering-yaw shortcut. Contact-plane tire forces may include a slope-induced Y component, but only their consistent X/Z projection enters this planar integrator and yaw budget. Suspension-derived base support is normalized before prior-step-acceleration load-transfer deltas produce final wheel normal force. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no dynamic chassis heave, pitch or roll dynamics, roll-center geometry, or visual chassis roll or pitch simulation.
 
 
 ## Aerodynamic Drag Foundation v1
@@ -115,20 +114,47 @@ The vehicle body now receives summed world-space planar tire force and a basic y
 
 ## Quasi-Static Load Transfer v1
 
-Each grounded wheel derives a requested dynamic normal load from a quasi-static baseline plus longitudinal and lateral load-transfer deltas driven by prior-step local acceleration. Positive forward acceleration shifts load rearward, braking shifts load forward, and lateral acceleration shifts load to the outside wheels under the project's local-axis convention.
+Each grounded wheel derives normalized geometric spring/damper base support before longitudinal and lateral load-transfer deltas driven by prior-step local acceleration are applied. Positive forward acceleration shifts load rearward, braking shifts load forward, and lateral acceleration shifts load to the outside wheels under the project's local-axis convention.
 
-The suspension normal-force foundation consumes that requested load without double-counting static weight. `tractionLimitNewtons` remains `frictionCoefficient * normalForceNewtons`, so available grip changes only through the resulting normal force. Friction coefficient and tire pressure semantics remain unchanged.
+The suspension normal-force foundation supplies the normalized base support; load transfer then owns the final redistributed normal force without double-counting static weight. `tractionLimitNewtons` remains `frictionCoefficient * normalForceNewtons`, so available grip changes only through the resulting normal force. Friction coefficient and tire pressure semantics remain unchanged.
 
 The debug HUD now also prints a compact per-wheel load distribution line (e.g. `Load distribution: FL 27% FR 27% RL 23% RR 23% | F/R 54/46`). This is telemetry only: it reads the existing per-wheel `normalForceNewtons` and renders finite, clamped percentages plus a front/rear split. It does not change load transfer, normal force, traction limits, or any other physics.
 
+## Uneven Terrain Contact + Quasi-Static Raycast Suspension v1
+
+The terrain is a deterministic mathematical proving-ground profile shared by rendering and physics. The rendered mesh samples that profile once at construction; simulation queries the same height function directly and never treats rendered triangles as the source of truth. Surface normals use stable central differences of that same height function with a `0.05 m` sample distance.
+
+The default lane runs in the vehicle's initial `+Z` direction:
+
+- Flat spawn and acceleration area through approximately `z = 16 m`.
+- Broad smooth rise from `z = 22–42 m`.
+- Alternating narrow left/right wheel bumps around `z = 52 m` and `z = 61 m`.
+- Bounded cross-slope from `z = 67–84 m`.
+- Shallow dip from `z = 89–108 m`.
+- Low-amplitude washboard from `z = 114–138 m`.
+
+All features use bounded cosine blends with no intended launch ramps or vertical discontinuities. Hold `W` from the flat spawn to reach the lane; `A`/`D` can be used to inspect different wheel paths.
+
+Each wheel ray starts at an authored suspension mount and follows the current chassis down axis. For a terrain normal `n` and ray-down direction `d`, contact uses the finite alignment `max(epsilon, -dot(d, n))`; the tire center offset along the suspension axis is `effectiveRollingRadiusMeters / alignment`. This keeps the pressure-adjusted physical radius consistent on a slope without treating visual torus deformation as collision geometry.
+
+Spring support is explicit and quasi-static:
+
+- `springForceNewtons = springRateNewtonsPerMeter * compressionMeters`.
+- Positive compression velocity adds compression damping; rebound damping is signed negative and cannot make raw terrain normal force negative.
+- Raw grounded-wheel spring/damper support is normalized to current vehicle weight before existing longitudinal/lateral load-transfer deltas are applied.
+- Load transfer therefore remains the single owner of final `normalForceNewtons`; it redistributes support rather than adding a second full vehicle weight.
+
+The chassis remains planar. It has a terrain-following support height derived from terrain beneath the reference point plus the authored baseline offset, with a bounded response time. There is no vertical velocity, heave, pitch, roll, free-fall, landing impulse, jump physics, suspension linkage solver, or rigid wheel-to-body constraint solver.
+
+Grounded tire speeds and tire forces use a contact-plane tangent basis: intended wheel forward is projected onto the terrain plane, lateral is `normal × forward`, and the planar chassis consumes only the resulting X/Z force components. Yaw uses the same horizontal wheel force/lever convention. A normal-force-weighted support normal also supplies a bounded horizontal slope-gravity term, so a supported vehicle rolls downhill and resists uphill without adding gravity twice. Slope gravity is zero on level terrain and while fully unsupported.
+
+The Debug HUD reports terrain profile/support height/slope, slope-gravity force, per-wheel ray/contact status, travel, compression, spring/damper/base/final load, and normal-force conservation diagnostics. The driver-facing R/N/D panel remains compact.
+
+Current limitations are intentional: this is not full suspension simulation, full raycast vehicle physics, full rigid-body terrain interaction, arbitrary mesh collision, dynamic chassis heave, pitch, roll, jumps, landing impulses, anti-roll bars, or full suspension geometry.
+
 ## Suspension Normal Force Foundation v1
 
-Each wheel now exposes finite suspension compression, compression ratio, compression velocity, spring force, damping force, final normal force, and top-out/bottom-out state. Quasi-static load transfer remains the requested per-wheel load target; a backward-Euler spring/damper step derives compression telemetry from that target, and the current implicit solve preserves final `normalForceNewtons` as the requested load-transfer value under the existing clamp bounds. The compression state is finite and smoothed, but it does not currently create transient normal-force lag or change traction feel by itself. At rest on flat ground, the derived spring rates target 40% travel and the total normal force remains approximately vehicle mass times standard gravity.
-
-Traction can still change through the existing `tractionLimitNewtons = frictionCoefficient * normalForceNewtons` path, and `normalForceNewtons` still follows the load-transfer target. The foundation does not change friction-coefficient meaning, tire-pressure handling, or the longitudinal and lateral tire-force formulas.
-
-This v1 model has no independent vertical chassis dynamics. It adds no jumps, terrain bumps, chassis pitch/roll visuals, anti-roll bars, active suspension, collision response, damage, tire heat or wear, surface friction zones, or downforce. Future branches must add chassis heave, pitch, and roll degrees of freedom before suspension compression can physically feed back into body motion and transient load response.
-
+The former normal-force telemetry foundation is now the support stage of Uneven Terrain Contact + Quasi-Static Raycast Suspension v1. Its persistent compression history is updated once per fixed step. Post-integration telemetry retains the contact and force state used by that step rather than re-sampling terrain or advancing spring/damper or tire-force-relaxation history a second time.
 
 ## G-Force HUD v1
 
@@ -187,7 +213,7 @@ The feedback is visual/debug only. It does not change tire force, friction, trac
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force comes from each wheel's capped slip-ratio longitudinal tire force plus the slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. Quasi-static load transfer provides the requested per-wheel load before the suspension helper updates normal force, so acceleration, braking, and cornering can redistribute available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and full suspension geometry. Service brake bias is implemented separately (see Service Brake Bias v1).
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force comes from each wheel's capped slip-ratio longitudinal tire force plus the slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. The suspension stage creates normalized geometric base support; quasi-static load transfer then redistributes that supported load using prior-step acceleration, so acceleration, braking, and cornering can change available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and full suspension geometry. Service brake bias is implemented separately (see Service Brake Bias v1).
 
 
 ## Longitudinal Tire Force Relaxation v1
@@ -220,7 +246,7 @@ Mode scope in this branch:
 
 This branch models the rear axle only. It does not add axle elasticity, driveline windup, transfer cases, center differentials, front differentials, AWD/4WD conversion, clutch packs, heat, wear, damage, or a full mechanical gear model.
 
-Braking, ABS, powertrain RPM telemetry, traction-limit definition, tire stiffness, slip ratio, tire-force relaxation, suspension, load transfer, terrain, and rendering architecture remain unchanged.
+Braking, ABS, powertrain RPM telemetry, traction-limit definition, tire stiffness, slip ratio, and tire-force relaxation remain unchanged by the differential modes. Terrain contact, suspension support, load transfer, and rendering follow their documented current implementations.
 ## Powertrain Profile Foundation
 
 This is a static data and telemetry foundation for future engine RPM, gear ratios, torque curves, and engine braking. It does NOT yet change vehicle behavior.

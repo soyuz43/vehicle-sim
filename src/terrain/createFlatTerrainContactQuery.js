@@ -29,12 +29,17 @@ export function createFlatTerrainContactQuery(config = {}) {
     target = fallbackQueryResult
   ) {
     target.groundHeightMeters = groundHeightMeters
+    target.terrainHeightMeters = groundHeightMeters
     target.surfaceKind = surfaceKind
     target.frictionCoefficient = frictionCoefficient
     target.isInsideTerrainBounds = isInsideTerrainBounds(
       worldXMeters,
       worldZMeters
     )
+    target.isWithinBounds = target.isInsideTerrainBounds
+    target.profileName = 'flat-terrain-contact-query'
+    target.slopeRadians = 0
+    target.slopeDegrees = 0
 
     if (!target.normalWorld) {
       target.normalWorld = new THREE.Vector3()
