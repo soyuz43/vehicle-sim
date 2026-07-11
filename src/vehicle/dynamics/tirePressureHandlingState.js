@@ -3,20 +3,21 @@
 const DEFAULT_TIRE_PRESSURE_HANDLING_SPEC = Object.freeze({
   tirePressureHandlingEnabled: true,
   recommendedTirePressureKpa: 220,
-  minimumEffectiveTirePressureKpa: 120,
+  minimumCalculationTirePressureKpa: 20,
+  minimumEffectiveTirePressureKpa: 0,
   maximumEffectiveTirePressureKpa: 280,
   baseTireRollingRadiusMeters: 0.48,
-  minimumEffectiveTireRollingRadiusMeters: 0.44,
-  underInflationRollingRadiusLossFraction: 0.06,
+  minimumEffectiveTireRollingRadiusMeters: 0.39,
+  underInflationRollingRadiusLossFraction: 0.1875,
   overInflationRollingRadiusGainFraction: 0.02,
-  minimumPressureLongitudinalStiffnessMultiplier: 0.72,
+  minimumPressureLongitudinalStiffnessMultiplier: 0.46,
   maximumPressureLongitudinalStiffnessMultiplier: 1.04,
-  minimumPressureLateralStiffnessMultiplier: 0.68,
+  minimumPressureLateralStiffnessMultiplier: 0.48,
   maximumPressureLateralStiffnessMultiplier: 1.06,
   longitudinalTireStiffnessNewtonsPerSlipRatio: 1600,
   lateralTireStiffnessNewtonsPerRadian: 6000,
   rollingResistanceCoefficient: 0.015,
-  underInflationRollingResistanceCoefficientGain: 0.012,
+  underInflationRollingResistanceCoefficientGain: 0.05,
   overInflationRollingResistanceCoefficientChange: -0.002,
   rollingResistanceDeadSpeedMetersPerSecond: 0.35,
 })
@@ -85,7 +86,7 @@ export function resetWheelTirePressureHandlingState(wheelState, spec = {}) {
     DEFAULT_TIRE_PRESSURE_HANDLING_SPEC.lateralTireStiffnessNewtonsPerRadian
   )
   const recommendedTirePressureKpa = getRecommendedTirePressureKpa(spec)
-  const currentTirePressureKpa = sanitizePositiveNumber(
+  const currentTirePressureKpa = sanitizePublicTirePressureKpa(
     wheelState.tirePressureKpa,
     recommendedTirePressureKpa
   )
@@ -94,6 +95,10 @@ export function resetWheelTirePressureHandlingState(wheelState, spec = {}) {
     recommendedTirePressureKpa > 0
       ? currentTirePressureKpa / recommendedTirePressureKpa
       : 1
+  wheelState.calculationTirePressureKpa = resolveCalculationTirePressureKpa(
+    currentTirePressureKpa,
+    spec
+  )
   wheelState.tirePressureState = TIRE_PRESSURE_STATES.NOMINAL
   wheelState.tirePressureStateReason = 'reset baseline pressure state'
   wheelState.effectiveTireRollingRadiusMeters = baseRollingRadiusMeters
@@ -281,7 +286,7 @@ function updateWheelTirePressureHandlingState(wheelState, spec = {}) {
   const tirePressureHandlingEnabled = spec.tirePressureHandlingEnabled !== false
   const recommendedTirePressureKpa = getRecommendedTirePressureKpa(spec)
   const minimumEffectiveTirePressureKpa = Math.min(
-    sanitizePositiveNumber(
+    sanitizeNonNegativeNumber(
       spec.minimumEffectiveTirePressureKpa,
       DEFAULT_TIRE_PRESSURE_HANDLING_SPEC.minimumEffectiveTirePressureKpa
     ),
@@ -294,9 +299,13 @@ function updateWheelTirePressureHandlingState(wheelState, spec = {}) {
     ),
     recommendedTirePressureKpa
   )
-  const currentTirePressureKpa = sanitizePositiveNumber(
+  const currentTirePressureKpa = sanitizePublicTirePressureKpa(
     wheelState.tirePressureKpa,
     recommendedTirePressureKpa
+  )
+  const calculationTirePressureKpa = resolveCalculationTirePressureKpa(
+    currentTirePressureKpa,
+    spec
   )
   const tirePressureRatio =
     recommendedTirePressureKpa > 0
@@ -309,30 +318,19 @@ function updateWheelTirePressureHandlingState(wheelState, spec = {}) {
         maximumEffectiveTirePressureKpa
       )
     : recommendedTirePressureKpa
-  const underPressureRangeKpa = Math.max(
-    recommendedTirePressureKpa - minimumEffectiveTirePressureKpa,
-    Number.EPSILON
-  )
-  const overPressureRangeKpa = Math.max(
-    maximumEffectiveTirePressureKpa - recommendedTirePressureKpa,
-    Number.EPSILON
-  )
-  const underInflationRatio01 =
-    tirePressureHandlingEnabled &&
-    effectiveTirePressureKpa < recommendedTirePressureKpa
-      ? clamp01(
-          (recommendedTirePressureKpa - effectiveTirePressureKpa) /
-            underPressureRangeKpa
-        )
-      : 0
-  const overInflationRatio01 =
-    tirePressureHandlingEnabled &&
-    effectiveTirePressureKpa > recommendedTirePressureKpa
-      ? clamp01(
-          (effectiveTirePressureKpa - recommendedTirePressureKpa) /
-            overPressureRangeKpa
-        )
-      : 0
+  const underInflationRatio01 = tirePressureHandlingEnabled
+    ? calculateNonlinearUnderInflationResponse(
+        currentTirePressureKpa,
+        recommendedTirePressureKpa
+      )
+    : 0
+  const overInflationRatio01 = tirePressureHandlingEnabled
+    ? calculateNonlinearOverInflationResponse(
+        currentTirePressureKpa,
+        recommendedTirePressureKpa,
+        maximumEffectiveTirePressureKpa
+      )
+    : 0
   const baseRollingRadiusMeters = getBaseRollingRadiusMeters(wheelState, spec)
   const minimumEffectiveTireRollingRadiusMeters = Math.min(
     sanitizePositiveNumber(
@@ -389,6 +387,7 @@ function updateWheelTirePressureHandlingState(wheelState, spec = {}) {
   )
 
   wheelState.tirePressureRatio = tirePressureRatio
+  wheelState.calculationTirePressureKpa = calculationTirePressureKpa
   wheelState.tirePressureState = classifyTirePressureState({
     currentTirePressureKpa,
     tirePressureRatio,
@@ -571,6 +570,55 @@ function clamp01(value) {
 
 function lerp(start, end, alpha) {
   return start + (end - start) * clamp01(alpha)
+}
+
+function sanitizePublicTirePressureKpa(value, fallback) {
+  return Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+function resolveCalculationTirePressureKpa(actualTirePressureKpa, spec = {}) {
+  const minimumCalculationTirePressureKpa = sanitizePositiveNumber(
+    spec.minimumCalculationTirePressureKpa,
+    DEFAULT_TIRE_PRESSURE_HANDLING_SPEC.minimumCalculationTirePressureKpa
+  )
+  const maximumEffectiveTirePressureKpa = sanitizePositiveNumber(
+    spec.maximumEffectiveTirePressureKpa,
+    DEFAULT_TIRE_PRESSURE_HANDLING_SPEC.maximumEffectiveTirePressureKpa
+  )
+  return clamp(
+    Math.max(actualTirePressureKpa, minimumCalculationTirePressureKpa),
+    minimumCalculationTirePressureKpa,
+    maximumEffectiveTirePressureKpa
+  )
+}
+
+function calculateNonlinearUnderInflationResponse(actualTirePressureKpa, recommendedTirePressureKpa) {
+  if (recommendedTirePressureKpa <= 0) return 0
+  const pressureRatio = actualTirePressureKpa / recommendedTirePressureKpa
+  const severeDeflation01 = 1 - smoothstep(0, 0.55, pressureRatio)
+  const moderateDeflation01 = 1 - smoothstep(0.35, 0.85, pressureRatio)
+  const nominalUnderinflation01 = 1 - smoothstep(0.82, 0.95, pressureRatio)
+  return clamp01(
+    nominalUnderinflation01 * 0.06 +
+      moderateDeflation01 * 0.37 +
+      severeDeflation01 * 0.57
+  )
+}
+
+function calculateNonlinearOverInflationResponse(actualTirePressureKpa, recommendedTirePressureKpa, maximumEffectiveTirePressureKpa) {
+  if (recommendedTirePressureKpa <= 0) return 0
+  return smoothstep(
+    1,
+    Math.max(1.01, maximumEffectiveTirePressureKpa / recommendedTirePressureKpa),
+    actualTirePressureKpa / recommendedTirePressureKpa
+  )
+}
+
+function smoothstep(edge0, edge1, value) {
+  const span = edge1 - edge0
+  if (span <= Number.EPSILON) return value >= edge1 ? 1 : 0
+  const t = clamp01((value - edge0) / span)
+  return t * t * (3 - 2 * t)
 }
 
 function sanitizePositiveNumber(value, fallback) {

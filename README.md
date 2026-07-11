@@ -190,6 +190,15 @@ Tire pressure now also affects tire mechanics before the traction cap. Each whee
 Tire pressure still does not directly alter `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. Traction limit still comes only from `frictionCoefficient * normalForceNewtons`, so pressure changes response and drag before saturation rather than acting as a hidden grip slider. There is still no tire temperature, wear, damage, puncture, blowout, visual chassis roll/pitch, or Pacejka tire model here.
 
 
+## Tire Rim / Bead Fit + Severe Deflation v1
+
+Each wheel now distinguishes its central hub disc from a rigid rim barrel, paired bead seats, and small rim flanges. The shared wheel/tire visual dimension contract defines every rigid and tire interface. The tire bead rings use a controlled 1.5 mm overlap with the bead seats to avoid visible daylight without z-fighting. Bead vertices are constrained to immutable baseline rings while adjacent carcass vertices blend smoothly into them.
+
+Developer pressure accepts 0–340 kPa. Actual pressure remains 0 when selected; a separately named 20 kPa calculation floor is telemetry for strictly-positive internal calculations only. Pressure response is smooth and nonlinear: normal pressures are restrained, moderate underinflation progressively increases compliance, and near-zero pressure produces loaded lower-sidewall collapse, broader tread contact, greater bulge, and a lower physical effective radius. Pressure affects only the existing rolling-radius, tire-stiffness, and rolling-resistance seams; it does not directly change friction, normal force, or traction cap.
+
+Tire deformation remains terrain-relative and visual-only: immutable per-wheel buffers are regenerated from baseline positions, while terrain contact and suspension continue to use the controller’s authoritative radius. At 0 kPa this is an intact, bead-seated collapsed-carcass approximation with a finite rim-to-ground carcass layer; it does not model leakage, puncture progression, bead unseating, destruction, rim-ground collision, rim damage, heat, wear, sound, or vibration.
+
+
 ## Developer Dynamics Tuning
 
 A developer dynamics tuning panel exposes live multipliers for drive torque, service brake torque, and longitudinal tire stiffness. This is for calibration, debugging, and deliberately provoking wheel spin, braking changes, or softer/stiffer tire response. The defaults are all `1.0`, which preserves the current baseline behavior.

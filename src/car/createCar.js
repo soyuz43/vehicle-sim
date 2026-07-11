@@ -3,13 +3,14 @@
 import * as THREE from 'three'
 import { createTirePressureVisuals } from './createTirePressureVisuals.js'
 import { createAnchoredToroidalTireGeometry } from './tireDeformationGeometry.js'
+import { WHEEL_TIRE_VISUAL_DIMENSIONS } from './wheelTireVisualDimensions.js'
 
 const BODY_LENGTH = 2.8
 const BODY_WIDTH = 1.45
 const BODY_HEIGHT = 0.65
 
-const WHEEL_RADIUS = 0.48
-const WHEEL_WIDTH = 0.38
+const WHEEL_RADIUS = WHEEL_TIRE_VISUAL_DIMENSIONS.tireOuterRadiusMeters
+const WHEEL_WIDTH = WHEEL_TIRE_VISUAL_DIMENSIONS.tireSectionWidthMeters
 const WHEEL_ROTATION_WITNESS_WIDTH = WHEEL_WIDTH * 1.08
 const WHEEL_ROTATION_WITNESS_HEIGHT = 0.028
 const WHEEL_ROTATION_WITNESS_DEPTH = WHEEL_RADIUS * 0.28
@@ -191,9 +192,14 @@ function createMaterials() {
       roughness: 0.9,
     }),
     hub: new THREE.MeshStandardMaterial({
-      color: 0x777777,
-      metalness: 0.8,
-      roughness: 0.25,
+      color: 0x666a70,
+      metalness: 0.82,
+      roughness: 0.28,
+    }),
+    rim: new THREE.MeshStandardMaterial({
+      color: 0x939aa3,
+      metalness: 0.86,
+      roughness: 0.22,
     }),
     wheelRotationWitness: new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -362,52 +368,84 @@ function createDriveshaft(material) {
 }
 
 function createWheel(id, x, z, materials) {
+  const dimensions = WHEEL_TIRE_VISUAL_DIMENSIONS
   const wheelPivot = new THREE.Group()
   wheelPivot.name = `wheel-pivot-${id}`
 
   const rollingAssembly = new THREE.Group()
   rollingAssembly.name = `wheel-rolling-assembly-${id}`
 
-  const hubRadiusMeters = WHEEL_RADIUS * 0.42
   const tireGeometryData = createAnchoredToroidalTireGeometry({
-    outerRadiusMeters: WHEEL_RADIUS,
-    widthMeters: WHEEL_WIDTH,
-    hubRadiusMeters,
+    visualDimensions: dimensions,
   })
-
   const tire = new THREE.Mesh(tireGeometryData.geometry, materials.tire)
   tire.name = `tire-${id}`
   tire.castShadow = true
 
-  const hubGeometry = new THREE.CylinderGeometry(
-    hubRadiusMeters,
-    hubRadiusMeters,
-    WHEEL_WIDTH * 1.08,
-    24
+  // The retained hub is the central mounting disc. The barrel, two bead seats,
+  // and flanges are distinct rigid rim components that share tire dimensions.
+  const hub = createRigidWheelCylinder(
+    `hub-${id}`,
+    dimensions.hubDiscRadiusMeters,
+    dimensions.hubDiscWidthMeters,
+    0,
+    materials.hub
   )
-
-  const hub = new THREE.Mesh(hubGeometry, materials.hub)
-  hub.name = `hub-${id}`
-  hub.castShadow = true
-  hub.rotation.z = Math.PI / 2
-
+  const rimBarrel = createRigidWheelCylinder(
+    `rim-barrel-${id}`,
+    dimensions.rimBarrelOuterRadiusMeters,
+    dimensions.rimBarrelWidthMeters,
+    0,
+    materials.rim
+  )
+  const leftBeadSeat = createRigidWheelCylinder(
+    `rim-bead-seat-left-${id}`,
+    dimensions.beadSeatRadiusMeters,
+    dimensions.beadSeatWidthMeters,
+    -dimensions.beadSeatAxialPositionMeters,
+    materials.rim
+  )
+  const rightBeadSeat = createRigidWheelCylinder(
+    `rim-bead-seat-right-${id}`,
+    dimensions.beadSeatRadiusMeters,
+    dimensions.beadSeatWidthMeters,
+    dimensions.beadSeatAxialPositionMeters,
+    materials.rim
+  )
+  const leftFlange = createRigidWheelCylinder(
+    `rim-flange-left-${id}`,
+    dimensions.rimFlangeRadiusMeters,
+    dimensions.rimFlangeWidthMeters,
+    -dimensions.rimFlangeAxialPositionMeters,
+    materials.rim
+  )
+  const rightFlange = createRigidWheelCylinder(
+    `rim-flange-right-${id}`,
+    dimensions.rimFlangeRadiusMeters,
+    dimensions.rimFlangeWidthMeters,
+    dimensions.rimFlangeAxialPositionMeters,
+    materials.rim
+  )
   const rotationWitness = createWheelRotationWitness(
     id,
     materials.wheelRotationWitness
   )
 
-  rollingAssembly.add(tire)
-  rollingAssembly.add(hub)
-  rollingAssembly.add(rotationWitness)
-
+  rollingAssembly.add(
+    tire,
+    hub,
+    rimBarrel,
+    leftBeadSeat,
+    rightBeadSeat,
+    leftFlange,
+    rightFlange,
+    rotationWitness
+  )
   wheelPivot.add(rollingAssembly)
   wheelPivot.position.set(x, WHEEL_Y, z)
 
   wheelPivot.userData.wheel = {
     id,
-    // localPosition remains the authored static wheel-center reference for
-    // geometry/load-transfer metadata. The controller transforms the separate
-    // suspension mount and moves the pivot from authoritative suspension state.
     localPosition: new THREE.Vector3(x, WHEEL_Y, z),
     suspensionMountLocal: new THREE.Vector3(
       x,
@@ -415,14 +453,32 @@ function createWheel(id, x, z, materials) {
       z
     ),
     suspensionAxisDownLocal: new THREE.Vector3(0, -1, 0),
-    radius: WHEEL_RADIUS,
-    width: WHEEL_WIDTH,
+    radius: dimensions.tireOuterRadiusMeters,
+    width: dimensions.tireSectionWidthMeters,
     tireGeometry: {
       kind: tireGeometryData.metadata.kind,
-      outerRadiusMeters: tireGeometryData.metadata.outerRadiusMeters,
-      innerBeadRadiusMeters: tireGeometryData.metadata.innerBeadRadiusMeters,
-      hubExclusionRadiusMeters: tireGeometryData.metadata.hubExclusionRadiusMeters,
-      widthMeters: tireGeometryData.metadata.widthMeters,
+      outerRadiusMeters: tireGeometryData.metadata.tireOuterRadiusMeters,
+      sectionWidthMeters: tireGeometryData.metadata.tireSectionWidthMeters,
+      beadRadiusMeters: tireGeometryData.metadata.tireBeadRadiusMeters,
+      beadAxialPositionMeters:
+        tireGeometryData.metadata.tireBeadAxialPositionMeters,
+      beadInterfaceOverlapMeters:
+        tireGeometryData.metadata.beadInterfaceOverlapMeters,
+      beadInterfaceToleranceMeters:
+        tireGeometryData.metadata.beadInterfaceToleranceMeters,
+    },
+    rigidWheelGeometry: {
+      kind: 'rim-barrel-bead-seat-and-flange-v1',
+      hubDiscRadiusMeters: dimensions.hubDiscRadiusMeters,
+      hubDiscWidthMeters: dimensions.hubDiscWidthMeters,
+      rimBarrelOuterRadiusMeters: dimensions.rimBarrelOuterRadiusMeters,
+      rimBarrelWidthMeters: dimensions.rimBarrelWidthMeters,
+      beadSeatRadiusMeters: dimensions.beadSeatRadiusMeters,
+      beadSeatWidthMeters: dimensions.beadSeatWidthMeters,
+      beadSeatAxialPositionMeters: dimensions.beadSeatAxialPositionMeters,
+      rimFlangeRadiusMeters: dimensions.rimFlangeRadiusMeters,
+      rimFlangeWidthMeters: dimensions.rimFlangeWidthMeters,
+      rimFlangeAxialPositionMeters: dimensions.rimFlangeAxialPositionMeters,
     },
     axle: z > 0 ? 'front' : 'rear',
     side: x < 0 ? 'left' : 'right',
@@ -436,11 +492,28 @@ function createWheel(id, x, z, materials) {
       rollingAssembly: rollingAssembly.name,
       tire: tire.name,
       hub: hub.name,
+      rimBarrel: rimBarrel.name,
+      beadSeatLeft: leftBeadSeat.name,
+      beadSeatRight: rightBeadSeat.name,
+      rimFlangeLeft: leftFlange.name,
+      rimFlangeRight: rightFlange.name,
       rotationWitness: rotationWitness.name,
     },
   }
 
   return wheelPivot
+}
+
+function createRigidWheelCylinder(name, radiusMeters, widthMeters, xMeters, material) {
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radiusMeters, radiusMeters, widthMeters, 24),
+    material
+  )
+  mesh.name = name
+  mesh.castShadow = true
+  mesh.rotation.z = Math.PI / 2
+  mesh.position.x = xMeters
+  return mesh
 }
 
 function createWheelRotationWitness(id, material) {

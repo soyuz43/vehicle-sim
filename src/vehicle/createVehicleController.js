@@ -380,6 +380,12 @@ export function createVehicleController(config = {}) {
         resetSuspensionNormalForceSummary(state.suspensionNormalForceSummary)
         resetSlopeGravityState(state.slopeGravityState)
         resetTirePressureHandlingSummary(state.tirePressureHandlingSummary)
+        updateTirePressureState(
+            state.tirePressureState,
+            spec.defaultTirePressureKpa,
+            spec
+        )
+        applyTirePressureStateToWheels()
         resetPlanarMotionState(state.planarMotion, {
             yawRadians: startRotation.y,
         })
@@ -668,6 +674,7 @@ export function createVehicleController(config = {}) {
         )
         applyTirePressureStateToWheels()
         syncAggregateTirePressureStateFromWheels()
+        updateWheelTirePressureHandlingState()
         applyTireInflationVisualState()
         refreshPostIntegrationTelemetry()
 
@@ -685,6 +692,7 @@ export function createVehicleController(config = {}) {
 
         updateTirePressureState(wheelState, nextTirePressureKpa, spec)
         syncAggregateTirePressureStateFromWheels()
+        updateWheelTirePressureHandlingState()
         applyTireInflationVisualState()
         refreshPostIntegrationTelemetry()
 
@@ -2684,6 +2692,7 @@ function createWheelRuntimeStates(vehicle, spec) {
                 width: 1,
                 length: 1,
             },
+            calculationTirePressureKpa: spec.defaultTirePressureKpa,
             tirePressureRatio:
                 spec.recommendedTirePressureKpa > 0
                     ? spec.defaultTirePressureKpa / spec.recommendedTirePressureKpa

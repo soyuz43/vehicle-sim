@@ -3,7 +3,7 @@
 const DEFAULT_TIRE_PRESSURE_STATE = Object.freeze({
   tirePressureKpa: 220,
   defaultTirePressureKpa: 220,
-  minTirePressureKpa: 80,
+  minTirePressureKpa: 0,
   maxTirePressureKpa: 340,
   tireInflationNormalized01: 0.54,
   visualTireDeflectionRatio: 0,
