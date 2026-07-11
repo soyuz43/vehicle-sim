@@ -227,6 +227,8 @@ export function createVehicleController(config = {}) {
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
     const rearDifferentialState = createRearDifferentialState(spec)
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
+    const wheelAxleVisualKinematics =
+        vehicle.userData.vehicle?.wheelAxleVisualKinematics ?? null
 
     const state = {
         controllerKind: 'uneven-terrain-raycast-suspension-v1',
@@ -402,6 +404,7 @@ export function createVehicleController(config = {}) {
         vehicle.position.y =
             state.chassisTerrainSupportState.currentChassisSupportHeightMeters
         syncVehicleYawFromPlanarState()
+        wheelAxleVisualKinematics?.reset()
 
         for (const wheelState of state.wheelStates) {
             resetWheelRotationalState(wheelState, spec)
@@ -536,6 +539,8 @@ export function createVehicleController(config = {}) {
                 state.forces.longitudinalAccelerationMetersPerSecondSquared,
             forces: state.forces,
             wheelStates: state.wheelStates,
+            wheelAxleVisualKinematics:
+                wheelAxleVisualKinematics?.getSnapshot() ?? null,
             tirePressureState: state.tirePressureState,
             tirePressureKpa: state.tirePressureState.tirePressureKpa,
             tireInflationNormalized01:
@@ -2384,6 +2389,8 @@ export function createVehicleController(config = {}) {
         for (const wheelState of state.wheelStates) {
             applyWheelVisualState(wheelState)
         }
+
+        wheelAxleVisualKinematics?.updateFromWheelStates(state.wheelStates)
     }
 
     function countGroundedWheels() {

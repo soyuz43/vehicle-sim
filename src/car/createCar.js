@@ -2,6 +2,7 @@
 
 import * as THREE from 'three'
 import { createTirePressureVisuals } from './createTirePressureVisuals.js'
+import { createWheelAxleVisualKinematics } from './createWheelAxleVisualKinematics.js'
 import { createAnchoredToroidalTireGeometry } from './tireDeformationGeometry.js'
 import { WHEEL_TIRE_VISUAL_DIMENSIONS } from './wheelTireVisualDimensions.js'
 
@@ -28,18 +29,21 @@ const WHEEL_SUSPENSION_MOUNT_Y =
 const BODY_Y = 1.36
 const FRAME_Y = 0.98
 
-const AXLE_LENGTH = WHEEL_X * 2.18
-const AXLE_RADIUS = 0.055
-
 const FRAME_RAIL_X = 0.52
 const FRAME_RAIL_WIDTH = 0.11
 const FRAME_RAIL_HEIGHT = 0.11
 const FRAME_RAIL_LENGTH = 3.65
 
-const AXLE_HANGER_WIDTH = 0.08
-const AXLE_HANGER_DEPTH = 0.08
-const AXLE_HANGER_TOP_Y = FRAME_Y - FRAME_RAIL_HEIGHT / 2
-const AXLE_HANGER_BOTTOM_Y = WHEEL_Y
+const SPINDLE_SUPPORT_WIDTH = 0.08
+const SPINDLE_SUPPORT_DEPTH = 0.08
+const SPINDLE_SUPPORT_TOP_Y = FRAME_Y - FRAME_RAIL_HEIGHT / 2
+const SPINDLE_SUPPORT_BOTTOM_Y = WHEEL_Y
+
+const ARTICULATED_SEGMENT_RADIUS = 0.045
+const REAR_DIFFERENTIAL_RADIUS = 0.19
+const REAR_HALF_SHAFT_INNER_X = 0.18
+const FRONT_SPINDLE_INNER_X = FRAME_RAIL_X
+const TRANSMISSION_OUTPUT_Z = 1.15
 
 const BRAKE_LIGHT_WIDTH = 0.22
 const BRAKE_LIGHT_HEIGHT = 0.16
@@ -69,16 +73,59 @@ export function createCar() {
     createCrossmember('center-crossmember', 0, materials.frame),
   ]
 
-  const axleHangers = [
-    createAxleHanger('front-left-axle-hanger', -FRAME_RAIL_X, FRONT_AXLE_Z, materials.frame),
-    createAxleHanger('front-right-axle-hanger', FRAME_RAIL_X, FRONT_AXLE_Z, materials.frame),
-    createAxleHanger('rear-left-axle-hanger', -FRAME_RAIL_X, REAR_AXLE_Z, materials.frame),
-    createAxleHanger('rear-right-axle-hanger', FRAME_RAIL_X, REAR_AXLE_Z, materials.frame),
+  const frontSpindleSupports = [
+    createSpindleInnerSupport(
+      'front-left-spindle-inner-support-placeholder',
+      -FRAME_RAIL_X,
+      FRONT_AXLE_Z,
+      materials.frame
+    ),
+    createSpindleInnerSupport(
+      'front-right-spindle-inner-support-placeholder',
+      FRAME_RAIL_X,
+      FRONT_AXLE_Z,
+      materials.frame
+    ),
   ]
 
-  const frontAxle = createAxle('front-axle', FRONT_AXLE_Z, materials.metal)
-  const rearAxle = createAxle('rear-axle', REAR_AXLE_Z, materials.metal)
+  const rearDifferentialHousing = createRearDifferentialHousing(
+    materials.drivetrain
+  )
   const driveshaft = createDriveshaft(materials.drivetrain)
+  const articulatedSegments = [
+    createArticulatedSegment(
+      'front-left-spindle-link',
+      'non-driven-spindle-link-placeholder',
+      'front-left',
+      new THREE.Vector3(-FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
+      new THREE.Vector3(-1, 0, 0),
+      materials.metal
+    ),
+    createArticulatedSegment(
+      'front-right-spindle-link',
+      'non-driven-spindle-link-placeholder',
+      'front-right',
+      new THREE.Vector3(FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
+      new THREE.Vector3(1, 0, 0),
+      materials.metal
+    ),
+    createArticulatedSegment(
+      'rear-left-half-shaft',
+      'driven-half-shaft-placeholder',
+      'rear-left',
+      new THREE.Vector3(-REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
+      new THREE.Vector3(-1, 0, 0),
+      materials.drivetrain
+    ),
+    createArticulatedSegment(
+      'rear-right-half-shaft',
+      'driven-half-shaft-placeholder',
+      'rear-right',
+      new THREE.Vector3(REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
+      new THREE.Vector3(1, 0, 0),
+      materials.drivetrain
+    ),
+  ]
 
   const wheels = [
     createWheel('front-left', -WHEEL_X, FRONT_AXLE_Z, materials),
@@ -111,13 +158,16 @@ export function createCar() {
     car.add(crossmember)
   }
 
-  for (const hanger of axleHangers) {
-    car.add(hanger)
+  for (const support of frontSpindleSupports) {
+    car.add(support)
   }
 
-  car.add(frontAxle)
-  car.add(rearAxle)
+  car.add(rearDifferentialHousing)
   car.add(driveshaft)
+
+  for (const segment of articulatedSegments) {
+    car.add(segment.node)
+  }
 
   for (const wheel of wheels) {
     car.add(wheel)
@@ -141,11 +191,25 @@ export function createCar() {
       railX: FRAME_RAIL_X,
       railY: FRAME_Y,
       railLength: FRAME_RAIL_LENGTH,
-      axleHangerNodes: axleHangers.map((hanger) => hanger.name),
+      spindleInnerSupportNodes: frontSpindleSupports.map(
+        (support) => support.name
+      ),
     },
     drivetrain: {
-      layout: 'rear-wheel-drive-placeholder',
+      layout: 'rear-wheel-drive-visual-placeholder',
       drivenWheels: ['rear-left', 'rear-right'],
+      representationKind: 'independent-half-shafts-and-front-spindle-links-v1',
+      differentialHousingNode: rearDifferentialHousing.name,
+      driveshaftNode: driveshaft.name,
+      articulatedSegments: articulatedSegments.map((segment) => ({
+        id: segment.id,
+        kind: segment.kind,
+        node: segment.node.name,
+        outerWheelId: segment.outerWheelId,
+        innerAttachmentLocalMeters: segment.innerAttachmentLocalMeters,
+        fallbackDirectionLocal: segment.fallbackDirectionLocal,
+      })),
+      note: 'Visual-only independent articulation; no CV-joint, control-arm, or driveshaft torque physics.',
     },
     lighting: {
       brakeLightNodes: brakeLights.map((brakeLight) => brakeLight.name),
@@ -153,7 +217,7 @@ export function createCar() {
     steering: {
       steerableWheels: ['front-left', 'front-right'],
       plannedMaxSteerRadians: Math.PI / 5,
-      note: 'Front wheel groups are centered on their wheel hubs so they can later pivot around local Y for steering.',
+      note: 'Front wheel pivots own local-Y steering at the authoritative wheel center.',
     },
     wheels: wheels.map((wheel) => ({
       ...wheel.userData.wheel,
@@ -166,6 +230,9 @@ export function createCar() {
       tirePressureVisuals.setTargetFromWheelStates(wheelStates)
     },
   }
+
+  const wheelAxleVisualKinematics = createWheelAxleVisualKinematics(car)
+  car.userData.vehicle.wheelAxleVisualKinematics = wheelAxleVisualKinematics
 
   const tirePressureVisuals = createTirePressureVisuals(car)
   car.userData.vehicle.tirePressureVisuals = tirePressureVisuals
@@ -316,55 +383,84 @@ function createCrossmember(name, z, material) {
   return crossmember
 }
 
-function createAxleHanger(name, x, z, material) {
-  const height = AXLE_HANGER_TOP_Y - AXLE_HANGER_BOTTOM_Y
+function createSpindleInnerSupport(name, x, z, material) {
+  const height = SPINDLE_SUPPORT_TOP_Y - SPINDLE_SUPPORT_BOTTOM_Y
 
   const geometry = new THREE.BoxGeometry(
-    AXLE_HANGER_WIDTH,
+    SPINDLE_SUPPORT_WIDTH,
     height,
-    AXLE_HANGER_DEPTH
+    SPINDLE_SUPPORT_DEPTH
   )
 
-  const hanger = new THREE.Mesh(geometry, material)
-  hanger.name = name
-  hanger.castShadow = true
-  hanger.position.set(
+  const support = new THREE.Mesh(geometry, material)
+  support.name = name
+  support.castShadow = true
+  support.position.set(
     x,
-    AXLE_HANGER_BOTTOM_Y + height / 2,
+    SPINDLE_SUPPORT_BOTTOM_Y + height / 2,
     z
   )
 
-  return hanger
+  return support
 }
 
-function createAxle(name, z, material) {
-  const geometry = new THREE.CylinderGeometry(
-    AXLE_RADIUS,
-    AXLE_RADIUS,
-    AXLE_LENGTH,
-    16
+function createRearDifferentialHousing(material) {
+  const housing = new THREE.Mesh(
+    new THREE.SphereGeometry(REAR_DIFFERENTIAL_RADIUS, 20, 12),
+    material
   )
-
-  const axle = new THREE.Mesh(geometry, material)
-  axle.name = name
-  axle.castShadow = true
-  axle.rotation.z = Math.PI / 2
-  axle.position.set(0, WHEEL_Y, z)
-
-  return axle
+  housing.name = 'rear-differential-housing-placeholder'
+  housing.castShadow = true
+  housing.position.set(0, WHEEL_Y, REAR_AXLE_Z)
+  housing.scale.set(1.35, 1, 1)
+  return housing
 }
 
 function createDriveshaft(material) {
-  const length = Math.abs(FRONT_AXLE_Z - REAR_AXLE_Z)
+  const length = Math.abs(TRANSMISSION_OUTPUT_Z - REAR_AXLE_Z)
   const geometry = new THREE.CylinderGeometry(0.045, 0.045, length, 16)
   const driveshaft = new THREE.Mesh(geometry, material)
 
   driveshaft.name = 'center-driveshaft-placeholder'
   driveshaft.castShadow = true
   driveshaft.rotation.x = Math.PI / 2
-  driveshaft.position.set(0, WHEEL_Y, 0)
+  driveshaft.position.set(
+    0,
+    WHEEL_Y,
+    (TRANSMISSION_OUTPUT_Z + REAR_AXLE_Z) * 0.5
+  )
 
   return driveshaft
+}
+
+function createArticulatedSegment(
+  id,
+  kind,
+  outerWheelId,
+  innerAttachmentLocalMeters,
+  fallbackDirectionLocal,
+  material
+) {
+  const node = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      ARTICULATED_SEGMENT_RADIUS,
+      ARTICULATED_SEGMENT_RADIUS,
+      1,
+      16
+    ),
+    material
+  )
+  node.name = id
+  node.castShadow = true
+
+  return {
+    id,
+    kind,
+    node,
+    outerWheelId,
+    innerAttachmentLocalMeters,
+    fallbackDirectionLocal,
+  }
 }
 
 function createWheel(id, x, z, materials) {
