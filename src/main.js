@@ -2,7 +2,8 @@
 
 import * as THREE from 'three'
 import { createTerrain } from './terrain/createTerrain.js'
-import { createFlatTerrainContactQuery } from './terrain/createFlatTerrainContactQuery.js'
+import { createTerrainSurfaceProfile } from './terrain/createTerrainSurfaceProfile.js'
+import { createHeightfieldTerrainContactQuery } from './terrain/createHeightfieldTerrainContactQuery.js'
 import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
@@ -66,24 +67,16 @@ scene.add(sun)
 /* =========================
    Terrain
 ========================= */
-const terrain = createTerrain()
+const terrainSurfaceProfile = createTerrainSurfaceProfile()
+const terrain = createTerrain({
+  surfaceProfile: terrainSurfaceProfile,
+})
 scene.add(terrain)
 
 const terrainInfo = terrain.userData.terrain
-const terrainContactQuery = createFlatTerrainContactQuery({
-  terrain,
+const terrainContactQuery = createHeightfieldTerrainContactQuery({
+  surfaceProfile: terrainSurfaceProfile,
 })
-
-const terrainGrid = new THREE.GridHelper(
-  terrainInfo.size,
-  200,
-  0x777777,
-  0x555555
-)
-terrainGrid.position.y = 0.02
-terrainGrid.material.transparent = true
-terrainGrid.material.opacity = 0.45
-scene.add(terrainGrid)
 
 /* =========================
    Car
@@ -306,6 +299,10 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
       vehicleSnapshot.worldSpeedMetersPerSecond,
     aerodynamicDrag: vehicleSnapshot.aerodynamicDrag,
     chassisMassProperties: vehicleSnapshot.chassisMassProperties,
+    chassisTerrainSupport: vehicleSnapshot.chassisTerrainSupport,
+    suspensionNormalForceSummary:
+      vehicleSnapshot.suspensionNormalForceSummary,
+    slopeGravity: vehicleSnapshot.slopeGravity,
     yawRadians: vehicleSnapshot.yawRadians,
     yawRateRadiansPerSecond:
       vehicleSnapshot.yawRateRadiansPerSecond,

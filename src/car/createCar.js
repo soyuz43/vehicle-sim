@@ -18,6 +18,11 @@ const FRONT_AXLE_Z = 1.45
 const REAR_AXLE_Z = -1.45
 const WHEEL_X = 1.25
 const WHEEL_Y = WHEEL_RADIUS
+// Authored visual mount height: with the default 0.35 m rest length and
+// 40% static compression, the static hub remains at the pre-feature 0.48 m.
+const WHEEL_STATIC_SUSPENSION_LENGTH_METERS = 0.262
+const WHEEL_SUSPENSION_MOUNT_Y =
+  WHEEL_Y + WHEEL_STATIC_SUSPENSION_LENGTH_METERS
 
 const BODY_Y = 1.36
 const FRAME_Y = 0.98
@@ -400,7 +405,16 @@ function createWheel(id, x, z, materials) {
 
   wheelPivot.userData.wheel = {
     id,
+    // localPosition remains the authored static wheel-center reference for
+    // geometry/load-transfer metadata. The controller transforms the separate
+    // suspension mount and moves the pivot from authoritative suspension state.
     localPosition: new THREE.Vector3(x, WHEEL_Y, z),
+    suspensionMountLocal: new THREE.Vector3(
+      x,
+      WHEEL_SUSPENSION_MOUNT_Y,
+      z
+    ),
+    suspensionAxisDownLocal: new THREE.Vector3(0, -1, 0),
     radius: WHEEL_RADIUS,
     width: WHEEL_WIDTH,
     tireGeometry: {

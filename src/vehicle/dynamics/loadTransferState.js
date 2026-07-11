@@ -34,6 +34,8 @@ export function createLoadTransferSummary() {
     maxWheelNormalForceNewtons: 0,
     minGroundedWheelNormalForceNewtons: 0,
     unloadedWheelCount: 0,
+    totalBaseSupportNormalForceNewtons: 0,
+    normalForceConservationErrorNewtons: 0,
   }
 }
 
@@ -49,6 +51,8 @@ export function resetLoadTransferSummary(loadTransferSummary) {
   loadTransferSummary.maxWheelNormalForceNewtons = 0
   loadTransferSummary.minGroundedWheelNormalForceNewtons = 0
   loadTransferSummary.unloadedWheelCount = 0
+  loadTransferSummary.totalBaseSupportNormalForceNewtons = 0
+  loadTransferSummary.normalForceConservationErrorNewtons = 0
 
   return loadTransferSummary
 }
@@ -91,8 +95,6 @@ export function updateLoadTransferState(
   const massKg = sanitizePositiveNumber(spec.massKg, 1)
   const totalStaticNormalForceNewtons =
     massKg * gravityMetersPerSecondSquared
-  const staticNormalForcePerGroundedWheelNewtons =
-    totalStaticNormalForceNewtons / groundedWheelStates.length
   const minimumNormalForceNewtons = sanitizeNonNegativeNumber(
     spec.minimumNormalForceNewtons,
     DEFAULT_LOAD_TRANSFER_SPEC.minimumNormalForceNewtons
@@ -102,8 +104,32 @@ export function updateLoadTransferState(
   loadTransferSummary.totalStaticNormalForceNewtons =
     totalStaticNormalForceNewtons
 
+  let rawBaseSupportNormalForceNewtons = 0
   for (const wheelState of groundedWheelStates) {
-    wheelState.staticNormalForceNewtons = staticNormalForcePerGroundedWheelNewtons
+    rawBaseSupportNormalForceNewtons += sanitizeNonNegativeNumber(
+      wheelState.baseNormalForceNewtons
+    )
+  }
+
+  const hasSuspensionBaseSupport =
+    rawBaseSupportNormalForceNewtons > NORMAL_FORCE_EPSILON_NEWTONS
+  const baseSupportScale = hasSuspensionBaseSupport
+    ? totalStaticNormalForceNewtons / rawBaseSupportNormalForceNewtons
+    : 0
+  const equalBaseSupportNormalForceNewtons =
+    totalStaticNormalForceNewtons / groundedWheelStates.length
+
+  for (const wheelState of groundedWheelStates) {
+    const staticNormalForceNewtons = hasSuspensionBaseSupport
+      ? sanitizeNonNegativeNumber(wheelState.baseNormalForceNewtons) *
+        baseSupportScale
+      : equalBaseSupportNormalForceNewtons
+
+    wheelState.baseNormalForceNewtons = staticNormalForceNewtons
+    wheelState.normalizedBaseNormalForceNewtons = staticNormalForceNewtons
+    wheelState.staticNormalForceNewtons = staticNormalForceNewtons
+    loadTransferSummary.totalBaseSupportNormalForceNewtons +=
+      staticNormalForceNewtons
   }
 
   if (!loadTransferEnabled) {
@@ -423,6 +449,9 @@ function finalizeWheelNormalForces(
       : 0
   loadTransferSummary.totalLongitudinalTransferAbsNewtons *= 0.5
   loadTransferSummary.totalLateralTransferAbsNewtons *= 0.5
+  loadTransferSummary.normalForceConservationErrorNewtons =
+    loadTransferSummary.totalDynamicNormalForceNewtons -
+    loadTransferSummary.totalStaticNormalForceNewtons
 }
 
 function averageAxisValue(offsets, axis) {

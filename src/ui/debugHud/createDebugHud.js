@@ -124,6 +124,10 @@ export function createDebugHud(config = {}) {
     const lateralSlipSummary = snapshot.lateralSlipSummary ?? {}
     const lateralTireForceSummary = snapshot.lateralTireForceSummary ?? {}
     const loadTransferSummary = snapshot.loadTransferSummary ?? {}
+    const suspensionNormalForceSummary =
+      snapshot.suspensionNormalForceSummary ?? {}
+    const chassisTerrainSupport = snapshot.chassisTerrainSupport ?? {}
+    const slopeGravity = snapshot.slopeGravity ?? {}
     const tirePressureHandlingSummary = snapshot.tirePressureHandlingSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
     const vehicleDynamicsStepTrace = snapshot.vehicleDynamicsStepTrace ?? {}
@@ -151,6 +155,8 @@ export function createDebugHud(config = {}) {
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
       `Rear diff: ${formatRearDifferentialTelemetry(rearDifferentialState)}`,
       `Chassis mass: ${formatChassisMassPropertiesTelemetry(snapshot.chassisMassProperties)}`,
+      `Terrain support: ${formatTerrainSupportTelemetry(chassisTerrainSupport)}`,
+      `Slope gravity: ${formatSlopeGravityTelemetry(slopeGravity)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
       `Service brake: ${formatNumber(snapshot.brakeInput)}`,
       `Parking brake: ${formatNumber(snapshot.parkingBrakeInput)}`,
@@ -198,6 +204,8 @@ export function createDebugHud(config = {}) {
       `Normal force bias: ${formatLoadTransferBiasTelemetry(loadTransferSummary)}`,
       `Load distribution: ${formatWheelLoadDistributionTelemetry(wheelStates)}`,
       `Suspension: ${formatSuspensionTelemetry(wheelStates)}`,
+      `Suspension support: ${formatSuspensionSupportTelemetry(suspensionNormalForceSummary)}`,
+      `Suspension wheels: ${formatSuspensionWheelTelemetry(wheelStates)}`,
       `Wheel normal force: ${formatWheelNormalForceTelemetry(loadTransferSummary)}`,
       `Traction state: ${formatTractionStateSummary(tractionStateSummary)}`,
       `Slip visuals: ${formatTireSlipFeedbackTelemetry(tireSlipFeedback)}`,
@@ -731,6 +739,81 @@ function formatSuspensionTelemetry(wheelStates = []) {
   if (!Number.isFinite(totalNormalForceNewtons)) return 'unavailable'
 
   return `${perWheelParts.join(' ')} | normal ${formatNumber(totalNormalForceNewtons / 1000, 1)} kN`
+}
+
+function formatTerrainSupportTelemetry(chassisTerrainSupport = {}) {
+  const profileName = chassisTerrainSupport.profileName ?? 'unavailable'
+  const terrainHeightMeters = Number(chassisTerrainSupport.supportTerrainHeightMeters)
+  const supportHeightMeters = Number(
+    chassisTerrainSupport.currentChassisSupportHeightMeters
+  )
+  const slopeDegrees = Number(chassisTerrainSupport.supportSlopeDegrees)
+  const boundsLabel = chassisTerrainSupport.isWithinTerrainBounds === false
+    ? 'outside'
+    : 'in-bounds'
+
+  return [
+    profileName,
+    `terrain ${formatNumber(terrainHeightMeters, 2)} m`,
+    `Y ${formatNumber(supportHeightMeters, 2)} m`,
+    `slope ${formatNumber(slopeDegrees, 1)} deg`,
+    boundsLabel,
+  ].join(' / ')
+}
+
+function formatSlopeGravityTelemetry(slopeGravity = {}) {
+  const forceWorld = slopeGravity.slopeGravityForceWorld ?? {}
+  const forceNewtons = Number(slopeGravity.slopeGravityForceNewtons)
+
+  if (slopeGravity.isSupported !== true) return 'unsupported / 0 N'
+
+  return [
+    `${formatNumber(forceNewtons / 1000, 2)} kN`,
+    `X ${formatNumber(forceWorld.x, 0)} N`,
+    `Z ${formatNumber(forceWorld.z, 0)} N`,
+    `support slope ${formatNumber(slopeGravity.supportSlopeDegrees, 1)} deg`,
+  ].join(' / ')
+}
+
+function formatSuspensionSupportTelemetry(summary = {}) {
+  const groundedWheelCount = Number(summary.groundedWheelCount)
+  const rawForceNewtons = Number(summary.totalRawSuspensionNormalForceNewtons)
+  const baseForceNewtons = Number(summary.totalBaseNormalForceNewtons)
+  const referenceWeightNewtons = Number(summary.vehicleWeightReferenceNewtons)
+  const conservationErrorNewtons = Number(
+    summary.normalForceConservationErrorNewtons
+  )
+
+  return [
+    `${formatNumber(groundedWheelCount, 0)} grounded`,
+    `raw ${formatNumber(rawForceNewtons / 1000, 1)} kN`,
+    `base ${formatNumber(baseForceNewtons / 1000, 1)} kN`,
+    `weight ${formatNumber(referenceWeightNewtons / 1000, 1)} kN`,
+    `error ${formatNumber(conservationErrorNewtons, 1)} N`,
+  ].join(' / ')
+}
+
+function formatSuspensionWheelTelemetry(wheelStates = []) {
+  if (!Array.isArray(wheelStates) || wheelStates.length === 0) {
+    return 'unavailable'
+  }
+
+  const parts = []
+  for (const wheelState of wheelStates) {
+    if (!wheelState.isGrounded) {
+      parts.push(`${formatWheelId(wheelState)} airborne`)
+      continue
+    }
+
+    parts.push(
+      `${formatWheelId(wheelState)} len ${formatNumber(wheelState.suspensionCurrentLengthMeters, 3)} m ` +
+      `comp ${formatNumber((wheelState.suspensionCompressionMeters ?? 0) * 1000, 0)} mm ` +
+      `spr ${formatNumber((wheelState.springForceNewtons ?? 0) / 1000, 1)} kN ` +
+      `dmp ${formatNumber((wheelState.damperForceNewtons ?? 0) / 1000, 1)} kN`
+    )
+  }
+
+  return parts.join(' | ')
 }
 
 function formatGForceTelemetry(snapshot = {}) {

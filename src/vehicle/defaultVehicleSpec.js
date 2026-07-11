@@ -5,7 +5,7 @@ import { EARTH_GRAVITY } from '../simulation/simulationConstants.js'
 const DEFAULT_VEHICLE_MASS_KG = 1400
 
 export const DEFAULT_VEHICLE_SPEC = Object.freeze({
-  kind: 'flat-ground-rwd-test-chassis',
+  kind: 'terrain-following-rwd-test-chassis',
 
   // Core physical properties
   massKg: DEFAULT_VEHICLE_MASS_KG,
@@ -20,18 +20,33 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   minimumNormalForceNewtons: 0,
   loadTransferEnabled: true,
 
-  // Suspension normal-force foundation v1 derives spring rate from static load,
-  // wheel count, travel, and target static compression. Backward-Euler
-  // suspension state preserves the requested quasi-static load target while
-  // exposing compression/velocity telemetry; it does not add chassis heave,
-  // pitch, roll, terrain bumps, or visual body motion.
+  // Raycast suspension contact v1 derives spring rate from static load, wheel
+  // count, travel, and target static compression. Spring/damper support is
+  // normalized before quasi-static load transfer; it has no dynamic chassis
+  // heave, pitch, roll, landing impulse, or suspension-geometry solver.
   suspensionEnabled: true,
+  // Rest length is the fully extended wheel-center distance below the authored
+  // suspension mount. Minimum length and travel bound this raycast v1 model;
+  // they do not add a rigid suspension linkage or body heave simulation.
   suspensionRestLengthMeters: 0.35,
+  suspensionMinimumLengthMeters: 0.13,
+  suspensionMaximumLengthMeters: 0.35,
   suspensionTravelMeters: 0.22,
   suspensionTargetStaticCompressionRatio01: 0.4,
   suspensionDampingRatio: 0.35,
+  suspensionContactAcquireSlopMeters: 0.004,
+  suspensionContactReleaseSlopMeters: 0.012,
+  minimumSuspensionNormalAlignmentCosine: 0.25,
+  maximumSuspensionRayDistanceMeters: 1.3,
   maximumSuspensionNormalForceNewtons:
     DEFAULT_VEHICLE_MASS_KG * EARTH_GRAVITY.standardMetersPerSecondSquared,
+
+  // Chassis terrain following is a bounded quasi-static support-height
+  // approximation. It deliberately does not create vertical velocity, heave,
+  // pitch, roll, gravity fall, landing impulses, or jump behavior.
+  chassisTerrainSupportBaselineOffsetMeters: 0,
+  chassisTerrainSupportHeightResponseSeconds: 0.1,
+  slopeGravityEnabled: true,
 
   // Speed limits are still controller-level guards for now.
   maxForwardSpeedMetersPerSecond: 60,
@@ -181,7 +196,7 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   frontalAreaSquareMeters: 2.2,
   airDensityKgPerCubicMeter: 1.225,
 
-  // Flat-ground placeholder until terrain surface queries exist.
+  // Fallback friction for compatibility queries or unavailable terrain metadata.
   defaultSurfaceFrictionCoefficient: 1.0,
 
   // Canonical gravity source.
