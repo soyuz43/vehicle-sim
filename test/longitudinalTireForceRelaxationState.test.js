@@ -75,6 +75,46 @@ test('explicit relaxation reset clears accumulated history', () => {
   assert.equal(wheelState.targetLongitudinalTireForceNewtons, 0)
 })
 
+
+test('zero target relaxes existing force toward zero without growing it', () => {
+  const wheelState = createGroundedWheelState({
+    relaxedLongitudinalTireForceNewtons: 250,
+    appliedLongitudinalForceNewtons: 250,
+    targetLongitudinalTireForceNewtons: 0,
+  })
+
+  updateWheelLongitudinalTireForceRelaxationState(
+    wheelState,
+    SPEC,
+    1 / 60
+  )
+
+  assert.ok(wheelState.relaxedLongitudinalTireForceNewtons >= 0)
+  assert.ok(wheelState.relaxedLongitudinalTireForceNewtons < 250)
+  assert.equal(
+    wheelState.appliedLongitudinalForceNewtons,
+    wheelState.relaxedLongitudinalTireForceNewtons
+  )
+})
+
+test('zero traction limit clamps relaxed and applied force to zero', () => {
+  const wheelState = createGroundedWheelState({
+    tractionLimitNewtons: 0,
+    relaxedLongitudinalTireForceNewtons: 250,
+    appliedLongitudinalForceNewtons: 250,
+    targetLongitudinalTireForceNewtons: 500,
+  })
+
+  updateWheelLongitudinalTireForceRelaxationState(
+    wheelState,
+    SPEC,
+    1 / 60
+  )
+
+  assert.equal(wheelState.relaxedLongitudinalTireForceNewtons, 0)
+  assert.equal(wheelState.appliedLongitudinalForceNewtons, 0)
+})
+
 function createGroundedWheelState(overrides = {}) {
   return {
     tractionLimitNewtons: 1000,
