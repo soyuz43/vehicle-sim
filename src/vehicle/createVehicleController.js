@@ -75,6 +75,11 @@ import {
     updateChassisTerrainSupportState,
 } from './dynamics/chassisTerrainSupportState.js'
 import {
+    createChassisAttitudeState,
+    resetChassisAttitudeState,
+    updateChassisAttitudeState,
+} from './dynamics/chassisAttitudeState.js'
+import {
     updateWheelContactPatchPlanarVelocity,
     updateWheelContactPlaneBasis,
 } from './dynamics/contactPlaneBasisState.js'
@@ -179,6 +184,11 @@ export function createVehicleController(config = {}) {
         ...(config.params ?? {}),
     }
 
+    const visualBodyHeightMeters = vehicle.userData.vehicle?.body?.centerY
+    if (Number.isFinite(visualBodyHeightMeters)) {
+        spec.chassisAttitudeVisualBodyHeightMeters = visualBodyHeightMeters
+    }
+
     const engineProfile = selectEngineProfile(config.engineId)
     const transmissionProfile = selectTransmissionProfile(config.transmissionId)
 
@@ -212,6 +222,7 @@ export function createVehicleController(config = {}) {
     })
     const aerodynamicDragState = createAerodynamicDragState()
     const wheelStates = createWheelRuntimeStates(vehicle, spec)
+    const chassisAttitudeState = createChassisAttitudeState(spec)
     const chassisMassPropertiesState = updateChassisMassPropertiesState(
         createChassisMassPropertiesState(),
         spec,
@@ -249,6 +260,7 @@ export function createVehicleController(config = {}) {
         planarMotion,
         aerodynamicDragState,
         chassisMassPropertiesState,
+        chassisAttitudeState,
         wheelStates,
         tirePressureState,
         dynamicsTuning,
@@ -334,6 +346,7 @@ export function createVehicleController(config = {}) {
         updateWheelSteeringAngles()
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateTerrainSupportAndWheelContactState(safeDt, true)
+        updateChassisAttitude(safeDt)
         calculatePerWheelLongitudinalForces(safeDt)
         // Explicit one-step coupling: tire force still uses slip measured before this
         // frame's wheel torque and body-state integration updates velocities.
@@ -380,6 +393,7 @@ export function createVehicleController(config = {}) {
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
         resetSuspensionNormalForceSummary(state.suspensionNormalForceSummary)
+        resetChassisAttitudeState(state.chassisAttitudeState, spec)
         resetSlopeGravityState(state.slopeGravityState)
         resetTirePressureHandlingSummary(state.tirePressureHandlingSummary)
         updateTirePressureState(
@@ -404,6 +418,7 @@ export function createVehicleController(config = {}) {
         vehicle.position.y =
             state.chassisTerrainSupportState.currentChassisSupportHeightMeters
         syncVehicleYawFromPlanarState()
+        applyChassisAttitudeVisualState()
         wheelAxleVisualKinematics?.reset()
 
         for (const wheelState of state.wheelStates) {
@@ -435,6 +450,7 @@ export function createVehicleController(config = {}) {
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateWheelSteeringAngles()
         updateTerrainSupportAndWheelContactState(0, true, true)
+        updateChassisAttitude(0)
         calculatePerWheelLongitudinalForces(0)
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
@@ -511,6 +527,7 @@ export function createVehicleController(config = {}) {
                 state.planarMotion.worldSpeedMetersPerSecond,
             aerodynamicDrag: state.aerodynamicDragState,
             chassisMassProperties: state.chassisMassPropertiesState,
+            chassisAttitude: state.chassisAttitudeState,
             chassisTerrainSupport: state.chassisTerrainSupportState,
             suspensionNormalForceSummary: state.suspensionNormalForceSummary,
             slopeGravity: state.slopeGravityState,
@@ -1211,6 +1228,21 @@ export function createVehicleController(config = {}) {
 
     function syncVehicleYawFromPlanarState() {
         vehicle.rotation.y = state.planarMotion.yawRadians
+    }
+
+    function updateChassisAttitude(dtSeconds) {
+        updateChassisAttitudeState(
+            state.chassisAttitudeState,
+            state.wheelStates,
+            spec,
+            dtSeconds
+        )
+    }
+
+    function applyChassisAttitudeVisualState() {
+        vehicle.userData.vehicle?.setChassisAttitudeVisualState?.(
+            state.chassisAttitudeState
+        )
     }
 
     function syncSpeedScalarFromPlanarState() {
@@ -2386,6 +2418,8 @@ export function createVehicleController(config = {}) {
     }
 
     function updateWheelVisualStates() {
+        applyChassisAttitudeVisualState()
+
         for (const wheelState of state.wheelStates) {
             applyWheelVisualState(wheelState)
         }
@@ -2447,6 +2481,7 @@ export function createVehicleController(config = {}) {
     applyTireInflationVisualState()
     updateWheelSteeringAngles()
     updateTerrainSupportAndWheelContactState(0, true, true)
+    updateChassisAttitude(0)
     calculatePerWheelLongitudinalForces(0)
     updateLateralSlipTelemetry()
     updateLongitudinalSlipTelemetry()

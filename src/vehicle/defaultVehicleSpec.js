@@ -46,6 +46,16 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // pitch, roll, gravity fall, landing impulses, or jump behavior.
   chassisTerrainSupportBaselineOffsetMeters: 0,
   chassisTerrainSupportHeightResponseSeconds: 0.1,
+
+  // Chassis attitude state v1 is a bounded support-plane visual foundation.
+  // It estimates heave/pitch/roll from existing grounded wheel-center offsets
+  // and does not solve multibody vertical, pitch, or roll dynamics.
+  chassisAttitudeEnabled: true,
+  chassisAttitudeVisualBodyHeightMeters: 1.36,
+  chassisAttitudeMaximumHeaveOffsetMeters: 0.18,
+  chassisAttitudeMaximumPitchRadians: 0.12,
+  chassisAttitudeMaximumRollRadians: 0.12,
+  chassisAttitudeResponseSeconds: 0.08,
   slopeGravityEnabled: true,
 
   // Speed limits are still controller-level guards for now.

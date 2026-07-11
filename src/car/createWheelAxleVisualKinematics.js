@@ -26,6 +26,8 @@ export function createWheelAxleVisualKinematics(vehicle) {
   const snapshot = createSnapshot(vehicleMetadata, wheelEntries, segmentEntries)
 
   function updateFromWheelStates(wheelStates = []) {
+    vehicle.updateMatrixWorld(true)
+
     for (const wheelState of wheelStates) {
       const wheelEntry = wheelEntryById.get(wheelState?.id)
       const wheelCenterLocalMeters =
@@ -40,10 +42,11 @@ export function createWheelAxleVisualKinematics(vehicle) {
     for (const segmentEntry of segmentEntries) {
       const wheelEntry = wheelEntryById.get(segmentEntry.outerWheelId)
       if (!wheelEntry) continue
+      resolveSegmentInnerAttachmentLocalMeters(vehicle, segmentEntry)
 
       updateSegmentBetweenPointsState(
         segmentEntry.kinematics,
-        segmentEntry.innerAttachmentLocalMeters,
+        segmentEntry.resolvedInnerAttachmentLocalMeters,
         wheelEntry.authoritativeWheelCenterLocalMeters
       )
       segmentEntry.isNodeTransformFinite = applySegmentBetweenPointsState(
@@ -156,6 +159,9 @@ export function createWheelAxleVisualKinematics(vehicle) {
       segmentEntry.snapshot.innerAttachmentLocalMeters.copy(
         segmentEntry.innerAttachmentLocalMeters
       )
+      segmentEntry.snapshot.resolvedInnerAttachmentLocalMeters.copy(
+        segmentEntry.resolvedInnerAttachmentLocalMeters
+      )
       segmentEntry.snapshot.outerAttachmentLocalMeters.copy(
         segmentEntry.kinematics.endLocalMeters
       )
@@ -260,9 +266,15 @@ function createSegmentEntry(vehicle, segment) {
     kind: segment?.kind ?? 'visual-segment',
     outerWheelId: segment?.outerWheelId ?? 'unknown',
     node: vehicle.getObjectByName(segment?.node) ?? null,
+    innerAttachmentNode:
+      vehicle.getObjectByName(segment?.innerAttachmentNode) ?? null,
     innerAttachmentLocalMeters: cloneFiniteVector3(
       segment?.innerAttachmentLocalMeters
     ),
+    resolvedInnerAttachmentLocalMeters: cloneFiniteVector3(
+      segment?.innerAttachmentLocalMeters
+    ),
+    innerAttachmentWorldMeters: new THREE.Vector3(),
     kinematics: createSegmentBetweenPointsState({
       fallbackDirection: segment?.fallbackDirectionLocal,
     }),
@@ -276,6 +288,8 @@ function createSegmentEntry(vehicle, segment) {
     kind: entry.kind,
     outerWheelId: entry.outerWheelId,
     innerAttachmentLocalMeters: new THREE.Vector3(),
+    resolvedInnerAttachmentLocalMeters: new THREE.Vector3(),
+    hasVisualInnerAttachmentNode: entry.innerAttachmentNode !== null,
     outerAttachmentLocalMeters: new THREE.Vector3(),
     midpointLocalMeters: new THREE.Vector3(),
     outerEndpointWorldMeters: new THREE.Vector3(),
@@ -302,6 +316,38 @@ function createSnapshot(vehicleMetadata, wheelEntries, segmentEntries) {
     wheels: wheelEntries.map((entry) => entry.snapshot),
     segments: segmentEntries.map((entry) => entry.snapshot),
   }
+}
+
+function resolveSegmentInnerAttachmentLocalMeters(vehicle, segmentEntry) {
+  if (!segmentEntry.innerAttachmentNode) {
+    segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
+      segmentEntry.innerAttachmentLocalMeters
+    )
+    return segmentEntry.resolvedInnerAttachmentLocalMeters
+  }
+
+  segmentEntry.innerAttachmentNode.getWorldPosition(
+    segmentEntry.innerAttachmentWorldMeters
+  )
+  if (!hasFiniteVector3(segmentEntry.innerAttachmentWorldMeters)) {
+    segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
+      segmentEntry.innerAttachmentLocalMeters
+    )
+    return segmentEntry.resolvedInnerAttachmentLocalMeters
+  }
+
+  segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
+    segmentEntry.innerAttachmentWorldMeters
+  )
+  vehicle.worldToLocal(segmentEntry.resolvedInnerAttachmentLocalMeters)
+
+  if (!hasFiniteVector3(segmentEntry.resolvedInnerAttachmentLocalMeters)) {
+    segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
+      segmentEntry.innerAttachmentLocalMeters
+    )
+  }
+
+  return segmentEntry.resolvedInnerAttachmentLocalMeters
 }
 
 function findSegmentForWheel(segmentEntries, wheelId) {
