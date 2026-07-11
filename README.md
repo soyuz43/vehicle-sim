@@ -199,6 +199,16 @@ Developer pressure accepts 0–340 kPa. Actual pressure remains 0 when selected;
 Tire deformation remains terrain-relative and visual-only: immutable per-wheel buffers are regenerated from baseline positions, while terrain contact and suspension continue to use the controller’s authoritative radius. At 0 kPa this is an intact, bead-seated collapsed-carcass approximation with a finite rim-to-ground carcass layer; it does not model leakage, puncture progression, bead unseating, destruction, rim-ground collision, rim damage, heat, wear, sound, or vibration.
 
 
+## Wheel / Axle Visual Kinematics Integrity v1
+
+The controller's per-wheel suspension/contact state is the sole wheel-center owner. Each vehicle-local `wheelCenterLocalPosition` is copied once to its root-owned wheel pivot; local-Y steering belongs to that pivot, while local-X spin belongs to its zero-offset rolling assembly. The tire, central hub disc, rim barrel, bead seats, rim flanges, and rotation witness share that rolling-assembly origin, so rigid centers remain concentric through suspension travel, steering, spin, terrain movement, pressure changes, and reset.
+
+The previous chassis-fixed full-width axle cylinders were incompatible with the independently solved wheel rays. They are replaced by an honest visual-only independent topology: a chassis-mounted rear differential housing and center driveshaft placeholder, one articulated half-shaft from the housing to each driven rear hub, and one non-driven spindle-link placeholder from each front chassis attachment to its hub. Every articulated cylinder is updated in vehicle-local space from its fixed inner attachment and the current authoritative wheel center; midpoint, length, and quaternion are regenerated from those endpoints without cumulative transforms or per-frame geometry creation.
+
+Pressure and load deformation remain tire-carcass-only vertex updates derived from immutable baseline geometry. They do not translate, rotate, or scale the wheel pivot, rolling assembly, hub, rim, or articulated driveline nodes. A pressure-dependent physical rolling radius may legitimately change suspension length and therefore the complete wheel-center position, after which the visual links simply follow that authoritative center.
+
+This representation is a visual kinematic approximation. It does not model CV-joint angles or limits, control-arm geometry, bump steer, live-axle constraints, driveshaft torque, axle compliance, differential-housing motion, or suspension linkage physics. Alignment telemetry is developer-only and reports maximum hub-to-wheel-center and articulated-endpoint-to-hub error.
+
 ## Developer Dynamics Tuning
 
 A developer dynamics tuning panel exposes live multipliers for drive torque, service brake torque, and longitudinal tire stiffness. This is for calibration, debugging, and deliberately provoking wheel spin, braking changes, or softer/stiffer tire response. The defaults are all `1.0`, which preserves the current baseline behavior.
@@ -314,4 +324,4 @@ The estimated engine RPM is computed from the average driven-wheel angular veloc
 
 The telemetry also reports the powertrain connection state (disconnected / forward_connected / reverse_connected) and the engine RPM state (idle / coupled / redline_clamped / unavailable).
 
-This RPM telemetry does not yet affect acceleration, drive torque, engine braking, shifting, or vehicle motion. No clutch, torque converter, automatic shift scheduling, manual shift controls, differential, or drivetrain physics model exists yet.
+This RPM telemetry does not yet affect acceleration, drive torque, engine braking, shifting, or vehicle motion. Existing rear-differential models remain a separate wheel-force and wheel-speed-coupling layer; there is still no clutch, torque converter, automatic shift scheduling, manual shift control, or full powertrain-to-driveshaft torque model.

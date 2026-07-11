@@ -331,6 +331,7 @@ function updateDebugHud(dt, fixedSimulationSnapshot) {
     tirePressureVisuals: tirePressureVisuals.getSnapshot(),
     dynamicsTuning: vehicleSnapshot.dynamicsTuning,
     rearDifferentialState: vehicleSnapshot.rearDifferentialState,
+    wheelAxleVisualKinematics: vehicleSnapshot.wheelAxleVisualKinematics,
     terrainSize: terrainInfo.size,
     outsideTerrain,
     engineProfile: vehicleSnapshot.engineProfile,

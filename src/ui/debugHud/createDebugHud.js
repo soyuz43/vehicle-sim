@@ -135,6 +135,8 @@ export function createDebugHud(config = {}) {
     const powertrain = snapshot.powertrain ?? {}
     const powertrainKinematics = snapshot.powertrainKinematics ?? {}
     const rearDifferentialState = snapshot.rearDifferentialState ?? {}
+    const wheelAxleVisualKinematics =
+      snapshot.wheelAxleVisualKinematics ?? {}
     const stockEngineCatalogTelemetry =
       snapshot.stockEngineCatalogTelemetry ??
       powertrain.engine?.stockEngineCatalogTelemetry ??
@@ -154,6 +156,7 @@ export function createDebugHud(config = {}) {
       `Pressure stiffness: ${formatTirePressureStiffnessTelemetry(tirePressureHandlingSummary)}`,
       `Dynamics tuning: ${formatDynamicsTuningTelemetry(snapshot.dynamicsTuning)}`,
       `Rear diff: ${formatRearDifferentialTelemetry(rearDifferentialState)}`,
+      `Wheel alignment: ${formatWheelAxleVisualKinematicsTelemetry(wheelAxleVisualKinematics)}`,
       `Chassis mass: ${formatChassisMassPropertiesTelemetry(snapshot.chassisMassProperties)}`,
       `Terrain support: ${formatTerrainSupportTelemetry(chassisTerrainSupport)}`,
       `Slope gravity: ${formatSlopeGravityTelemetry(slopeGravity)}`,
@@ -359,6 +362,24 @@ function formatRearDifferentialTelemetry(rearDifferentialState = {}) {
   }
 
   return `${modeLabel} / L ${leftPercent}% R ${rightPercent}% / ${suffixes.join(' / ')}`
+}
+
+function formatWheelAxleVisualKinematicsTelemetry(kinematics = {}) {
+  if (!kinematics.representationKind) return 'unavailable'
+
+  const hubErrorMillimeters =
+    (kinematics.maximumHubToWheelCenterErrorMeters ?? 0) * 1000
+  const shaftErrorMillimeters =
+    (kinematics.maximumAxleOrShaftEndpointToHubErrorMeters ?? 0) * 1000
+  const status =
+    kinematics.isFinite && kinematics.rigidAlignmentIsValid
+      ? 'valid'
+      : 'INVALID'
+  const representation = kinematics.representationKind.startsWith('independent-')
+    ? 'independent'
+    : kinematics.representationKind
+
+  return `${status} / max hub ${formatNumber(hubErrorMillimeters, 2)} mm / shaft ${formatNumber(shaftErrorMillimeters, 2)} mm / ${representation}`
 }
 
 function formatVehicleDynamicsStepTraceTelemetry(trace = {}) {
