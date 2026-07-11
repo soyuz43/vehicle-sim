@@ -69,6 +69,10 @@ export function createTirePressureVisuals(car, options = {}) {
       wheelVisual.targetReferenceNormalForceNewtons = nonNegative(
         wheelState.staticNormalForceNewtons
       )
+      wheelVisual.targetEffectivePhysicalRollingRadiusMeters = positiveOrFallback(
+        wheelState.effectiveTireRollingRadiusMeters,
+        wheelVisual.targetEffectivePhysicalRollingRadiusMeters
+      )
       copyFiniteVector3(
         wheelVisual.targetContactNormalWorld,
         wheelState.contactNormalWorld,
@@ -183,6 +187,8 @@ export function createTirePressureVisuals(car, options = {}) {
         deformation.pressureOnlySidewallBulgeMeters,
       contactFlatteningMeters: deformation.contactFlatteningMeters,
       sidewallBulgeMeters: deformation.sidewallBulgeMeters,
+      lowerSidewallCollapseMeters:
+        deformation.lowerSidewallCollapseMeters,
     })
 
     wheelVisual.maximumBeadAnchorDisplacementMeters =
@@ -191,6 +197,12 @@ export function createTirePressureVisuals(car, options = {}) {
       result.minimumObservedRadialDistanceMeters
     wheelVisual.maximumContactDisplacementMeters =
       result.maximumContactDisplacementMeters
+    wheelVisual.minimumRimClearanceMeters =
+      result.minimumRimClearanceMeters
+    wheelVisual.maximumRadialIntrusionMeters =
+      result.maximumRadialIntrusionMeters
+    wheelVisual.minimumTerrainFacingRadiusMeters =
+      result.minimumTerrainFacingRadiusMeters
     wheelVisual.positionAttribute.needsUpdate = true
     wheelVisual.tireNode.geometry.computeVertexNormals()
     wheelVisual.tireNode.geometry.computeBoundingSphere()
@@ -246,6 +258,8 @@ export function createTirePressureVisuals(car, options = {}) {
       wheelVisual.targetIsGrounded = false
       wheelVisual.targetNormalForceNewtons = 0
       wheelVisual.targetReferenceNormalForceNewtons = 0
+      wheelVisual.targetEffectivePhysicalRollingRadiusMeters =
+        wheelVisual.deformationData?.metadata?.tireOuterRadiusMeters ?? 0
       wheelVisual.referenceNormalForceNewtons = 0
       wheelVisual.targetContactNormalWorld.copy(LOCAL_UP)
       wheelVisual.targetContactPointWorld.set(0, 0, 0)
@@ -259,10 +273,16 @@ export function createTirePressureVisuals(car, options = {}) {
       wheelVisual.minimumObservedRadialDistanceMeters =
         wheelVisual.deformationData?.metadata?.innerBeadRadiusMeters ?? 0
       wheelVisual.maximumContactDisplacementMeters = 0
+      wheelVisual.minimumRimClearanceMeters = 0
+      wheelVisual.maximumRadialIntrusionMeters = 0
+      wheelVisual.minimumTerrainFacingRadiusMeters = 0
       wheelVisual.currentDeformation = computeLoadAwareTireDeformation(
         wheelVisual.nominalRatio01,
         wheelVisual.nominalRatio01,
-        {},
+        {
+          effectivePhysicalRollingRadiusMeters:
+            wheelVisual.targetEffectivePhysicalRollingRadiusMeters,
+        },
         config
       )
       resetGeometry(wheelVisual)
@@ -293,11 +313,29 @@ export function createTirePressureVisuals(car, options = {}) {
         contactFlatteningMeters:
           wheelVisual.currentDeformation.contactFlatteningMeters,
         sidewallBulgeMeters: wheelVisual.currentDeformation.sidewallBulgeMeters,
+        lowerSidewallCollapseMeters:
+          wheelVisual.currentDeformation.lowerSidewallCollapseMeters,
+        effectivePhysicalRollingRadiusMeters:
+          wheelVisual.currentDeformation.effectivePhysicalRollingRadiusMeters,
+        visualLoadedRadiusMeters:
+          wheelVisual.currentDeformation.visualLoadedRadiusMeters,
         contactPatchScale: { ...wheelVisual.currentDeformation.contactPatchScale },
         maximumBeadAnchorDisplacementMeters:
           wheelVisual.maximumBeadAnchorDisplacementMeters,
         minimumObservedRadialDistanceMeters:
           wheelVisual.minimumObservedRadialDistanceMeters,
+        minimumRimClearanceMeters: wheelVisual.minimumRimClearanceMeters,
+        maximumRadialIntrusionMeters: wheelVisual.maximumRadialIntrusionMeters,
+        maximumContactDisplacementMeters:
+          wheelVisual.maximumContactDisplacementMeters,
+        rimOuterRadiusMeters:
+          wheelVisual.deformationData?.metadata?.rimFlangeRadiusMeters ?? 0,
+        beadSeatRadiusMeters:
+          wheelVisual.deformationData?.metadata?.beadSeatRadiusMeters ?? 0,
+        beadInterfaceGapMeters:
+          wheelVisual.deformationData?.metadata?.beadInterfaceGapMeters ?? 0,
+        beadInterfaceOverlapMeters:
+          wheelVisual.deformationData?.metadata?.beadInterfaceOverlapMeters ?? 0,
         isVisualPressureSettled: wheelVisual.isVisualPressureSettled,
         isGeometrySettled: wheelVisual.isGeometrySettled,
       })),
@@ -336,6 +374,8 @@ function createWheelVisual(car, meta) {
     targetIsGrounded: false,
     targetNormalForceNewtons: 0,
     targetReferenceNormalForceNewtons: 0,
+    targetEffectivePhysicalRollingRadiusMeters:
+      deformationData?.metadata?.tireOuterRadiusMeters ?? meta?.radius ?? 0.48,
     referenceNormalForceNewtons: 0,
     targetNormalizedLoadRatio: 0,
     visualNormalizedLoadRatio: 0,
@@ -355,7 +395,13 @@ function createWheelVisual(car, meta) {
     minimumObservedRadialDistanceMeters:
       deformationData?.metadata?.innerBeadRadiusMeters ?? 0,
     maximumContactDisplacementMeters: 0,
-    currentDeformation: computeLoadAwareTireDeformation(1, 1),
+    minimumRimClearanceMeters: 0,
+    maximumRadialIntrusionMeters: 0,
+    minimumTerrainFacingRadiusMeters: 0,
+    currentDeformation: computeLoadAwareTireDeformation(1, 1, {
+      effectivePhysicalRollingRadiusMeters:
+        deformationData?.metadata?.tireOuterRadiusMeters ?? meta?.radius ?? 0.48,
+    }),
     lastPressureRatio01: Number.NaN,
     lastLoadRatio: Number.NaN,
     lastGrounded: null,
@@ -373,6 +419,8 @@ function createLoadInput(wheelVisual) {
     isGrounded: wheelVisual.targetIsGrounded,
     normalForceNewtons: wheelVisual.targetNormalForceNewtons,
     referenceNormalForceNewtons: wheelVisual.targetReferenceNormalForceNewtons,
+    effectivePhysicalRollingRadiusMeters:
+      wheelVisual.targetEffectivePhysicalRollingRadiusMeters,
   }
 }
 
@@ -491,4 +539,8 @@ function copyFiniteVector3(target, source, fallbackX, fallbackY, fallbackZ) {
 
 function nonNegative(value) {
   return Number.isFinite(value) && value >= 0 ? value : 0
+}
+
+function positiveOrFallback(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback
 }
