@@ -217,19 +217,61 @@ After recovering from source corruption, report:
 
 Do not claim the feature is complete merely because syntax was recovered.
 
-## 2.3 PowerShell / Windows Command Discipline
+## 2.3 Windows Shell / PowerShell Discipline
 
-When running commands in Windows PowerShell or PowerShell 7:
+When operating in Windows PowerShell or PowerShell 7:
 
-- Prefer `rg -n "pattern" src/ui src/vehicle src/car` over shell-style path globs like `src/ui/*.js`.
-- For ripgrep file filtering, use `-g "*.js"` instead of relying on shell glob expansion.
-- Do not treat a failed inspection command as evidence about the code. Correct the command and rerun it.
-- Use `Get-Content -Raw <path>` when reading a whole file.
-- Use `Get-Content <path> | Select-Object -Index (start..end)` only for read-only inspection snippets, not for editing.
-- For multi-line Node or validation scripts, prefer writing a temporary script outside the repo, such as under `C:\temp`, then run it and delete it if needed.
-- Do not leave temporary scripts, recovery scripts, or generated inspection files in the repository.
-- If `git fetch` fails only because the sandbox cannot write `.git/FETCH_HEAD`, verify refs with `git rev-parse main origin/main HEAD` and report the sandbox limitation accurately.
+### Inspection
 
+- Prefer `rg -n "pattern" src/ui src/vehicle src/car` over shell-style path globs such as `src/**/*.js`.
+- For ripgrep filtering, prefer `-g "*.js"` instead of relying on shell wildcard expansion.
+- Prefer `rg --files` or `Get-ChildItem` when enumerating files.
+- Do not assume Bash glob expansion (`test/*.test.js`, etc.) exists.
+- If an inspection command fails because of shell syntax, correct the command and rerun it. Do not treat the failed command as evidence about the code.
+
+### Reading source
+
+- Use `Get-Content -Raw <path>` when reading an entire file.
+- For partial inspection, use one of:
+  - `Get-Content <path> | Select-Object -Skip N -First M`
+  - `Get-Content <path> | Select-Object -Index (start..end)`
+  - small Node scripts
+  - `rg -n`
+- Do not use `Select-String -Pattern "."` merely to emulate line extraction.
+
+### Editing
+
+- Do not assume `apply_patch` is available.
+- Prefer small, deterministic Node scripts or exact PowerShell text replacements.
+- After every edit, immediately inspect the resulting diff before continuing.
+- Do not leave helper scripts, patch scripts, recovery scripts, or generated inspection files in the repository. Delete temporary files before finishing.
+
+### Temporary files
+
+- Prefer repository-local temporary scripts (for example `_patch.cjs`, `_inspect.cjs`) when scripting edits or inspections.
+- Remove temporary files immediately after successful execution.
+- Do not rely on `C:\temp` or `C:\tmp`; these locations may not exist or may be blocked by the execution environment.
+
+### Git
+
+- Run normal Git commands directly (`git status`, `git branch`, `git commit`, `git push`, `gh`, etc.).
+- If Git operations are denied by the execution environment (for example inability to write `.git/FETCH_HEAD`, `.git/index.lock`, or `.git/refs`), report the exact error and explain the sandbox limitation.
+- Do not silently substitute a different workflow because Git was restricted.
+- If `git fetch` fails only because the sandbox cannot write `.git/FETCH_HEAD`, verify repository state with commands such as `git rev-parse main origin/main HEAD` and report the limitation accurately.
+
+### Validation
+
+- Run normal build and test commands directly.
+- If the environment requires escalation to run builds or tests (for example `node --test` spawning child processes), request permission and rerun the exact command rather than replacing it with a weaker check.
+- Report genuine validation results separately from sandbox limitations.
+
+### General principles
+
+- The execution shell is PowerShell, not Bash.
+- Prefer native PowerShell syntax over Bash idioms.
+- Distinguish shell limitations from project defects.
+- Distinguish sandbox restrictions from repository problems.
+- Never infer behavior changes solely from command failures caused by the execution environment.
 
 ## 3. Architectural Direction & Staging
 We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
