@@ -127,6 +127,7 @@ export function createDebugHud(config = {}) {
     const suspensionNormalForceSummary =
       snapshot.suspensionNormalForceSummary ?? {}
     const chassisTerrainSupport = snapshot.chassisTerrainSupport ?? {}
+    const chassisAttitude = snapshot.chassisAttitude ?? {}
     const slopeGravity = snapshot.slopeGravity ?? {}
     const tirePressureHandlingSummary = snapshot.tirePressureHandlingSummary ?? {}
     const tireSlipFeedback = snapshot.tireSlipFeedback ?? {}
@@ -159,6 +160,7 @@ export function createDebugHud(config = {}) {
       `Wheel alignment: ${formatWheelAxleVisualKinematicsTelemetry(wheelAxleVisualKinematics)}`,
       `Chassis mass: ${formatChassisMassPropertiesTelemetry(snapshot.chassisMassProperties)}`,
       `Terrain support: ${formatTerrainSupportTelemetry(chassisTerrainSupport)}`,
+      `Chassis attitude: ${formatChassisAttitudeTelemetry(chassisAttitude)}`,
       `Slope gravity: ${formatSlopeGravityTelemetry(slopeGravity)}`,
       `Throttle: ${formatNumber(snapshot.throttleInput)}`,
       `Service brake: ${formatNumber(snapshot.brakeInput)}`,
@@ -782,6 +784,22 @@ function formatTerrainSupportTelemetry(chassisTerrainSupport = {}) {
   ].join(' / ')
 }
 
+function formatChassisAttitudeTelemetry(chassisAttitude = {}) {
+  const heaveOffsetMeters = Number(chassisAttitude.heaveOffsetMeters)
+  const pitchDegrees = radiansToDegrees(Number(chassisAttitude.pitchRadians))
+  const rollDegrees = radiansToDegrees(Number(chassisAttitude.rollRadians))
+  const groundedSupportCount = Number(chassisAttitude.groundedSupportCount)
+  const modeLabel = chassisAttitude.supportPlaneModeLabel ?? 'unavailable'
+
+  return [
+    `heave ${formatNumber(heaveOffsetMeters, 3)} m`,
+    `pitch ${formatNumber(pitchDegrees, 2)} deg`,
+    `roll ${formatNumber(rollDegrees, 2)} deg`,
+    `support ${formatNumber(groundedSupportCount, 0)}`,
+    modeLabel,
+  ].join(' / ')
+}
+
 function formatSlopeGravityTelemetry(slopeGravity = {}) {
   const forceWorld = slopeGravity.slopeGravityForceWorld ?? {}
   const forceNewtons = Number(slopeGravity.slopeGravityForceNewtons)
@@ -1066,6 +1084,10 @@ function formatWheelId(wheelState) {
   const side = wheelState.side === 'left' ? 'L' : 'R'
 
   return `${axle}${side}`
+}
+
+function radiansToDegrees(radians) {
+  return Number.isFinite(radians) ? radians * (180 / Math.PI) : NaN
 }
 
 function vectorMagnitude(vector) {

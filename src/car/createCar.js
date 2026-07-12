@@ -33,6 +33,8 @@ const FRAME_RAIL_X = 0.52
 const FRAME_RAIL_WIDTH = 0.11
 const FRAME_RAIL_HEIGHT = 0.11
 const FRAME_RAIL_LENGTH = 3.65
+const CHASSIS_ATTITUDE_VISUAL_ROOT_NAME = 'chassis-attitude-visual-root'
+const CHASSIS_ATTITUDE_PIVOT_Y = WHEEL_Y
 
 const SPINDLE_SUPPORT_WIDTH = 0.08
 const SPINDLE_SUPPORT_DEPTH = 0.08
@@ -44,6 +46,10 @@ const REAR_DIFFERENTIAL_RADIUS = 0.19
 const REAR_HALF_SHAFT_INNER_X = 0.18
 const FRONT_SPINDLE_INNER_X = FRAME_RAIL_X
 const TRANSMISSION_OUTPUT_Z = 1.15
+const REAR_DIFFERENTIAL_HANGER_X = 0.24
+const REAR_DIFFERENTIAL_HANGER_WIDTH = 0.075
+const REAR_DIFFERENTIAL_HANGER_DEPTH = 0.08
+const TRANSMISSION_OUTPUT_MOUNT_Y = FRAME_Y - 0.18
 
 const BRAKE_LIGHT_WIDTH = 0.22
 const BRAKE_LIGHT_HEIGHT = 0.16
@@ -57,6 +63,7 @@ export function createCar() {
   car.name = 'vehicle-root'
 
   const materials = createMaterials()
+  const chassisVisualRoot = createChassisAttitudeVisualRoot()
 
   const body = createBody(materials.body)
   const nose = createNose(materials.nose)
@@ -92,6 +99,60 @@ export function createCar() {
     materials.drivetrain
   )
   const driveshaft = createDriveshaft(materials.drivetrain)
+  const rearDifferentialHangers = [
+    createVerticalChassisBracket(
+      'rear-differential-left-hanger',
+      -REAR_DIFFERENTIAL_HANGER_X,
+      REAR_AXLE_Z,
+      FRAME_Y - FRAME_RAIL_HEIGHT / 2,
+      WHEEL_Y + REAR_DIFFERENTIAL_RADIUS * 0.65,
+      materials.frame
+    ),
+    createVerticalChassisBracket(
+      'rear-differential-right-hanger',
+      REAR_DIFFERENTIAL_HANGER_X,
+      REAR_AXLE_Z,
+      FRAME_Y - FRAME_RAIL_HEIGHT / 2,
+      WHEEL_Y + REAR_DIFFERENTIAL_RADIUS * 0.65,
+      materials.frame
+    ),
+    createVerticalChassisBracket(
+      'transmission-output-hanger',
+      0,
+      TRANSMISSION_OUTPUT_Z,
+      FRAME_Y - FRAME_RAIL_HEIGHT / 2,
+      TRANSMISSION_OUTPUT_MOUNT_Y,
+      materials.frame,
+      0.09,
+      0.09
+    ),
+  ]
+  const chassisAnchors = [
+    createChassisVisualAnchor(
+      'front-left-spindle-inner-anchor',
+      -FRONT_SPINDLE_INNER_X,
+      WHEEL_Y,
+      FRONT_AXLE_Z
+    ),
+    createChassisVisualAnchor(
+      'front-right-spindle-inner-anchor',
+      FRONT_SPINDLE_INNER_X,
+      WHEEL_Y,
+      FRONT_AXLE_Z
+    ),
+    createChassisVisualAnchor(
+      'rear-left-half-shaft-inner-anchor',
+      -REAR_HALF_SHAFT_INNER_X,
+      WHEEL_Y,
+      REAR_AXLE_Z
+    ),
+    createChassisVisualAnchor(
+      'rear-right-half-shaft-inner-anchor',
+      REAR_HALF_SHAFT_INNER_X,
+      WHEEL_Y,
+      REAR_AXLE_Z
+    ),
+  ]
   const articulatedSegments = [
     createArticulatedSegment(
       'front-left-spindle-link',
@@ -99,6 +160,7 @@ export function createCar() {
       'front-left',
       new THREE.Vector3(-FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
       new THREE.Vector3(-1, 0, 0),
+      'front-left-spindle-inner-anchor',
       materials.metal
     ),
     createArticulatedSegment(
@@ -107,6 +169,7 @@ export function createCar() {
       'front-right',
       new THREE.Vector3(FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
       new THREE.Vector3(1, 0, 0),
+      'front-right-spindle-inner-anchor',
       materials.metal
     ),
     createArticulatedSegment(
@@ -115,6 +178,7 @@ export function createCar() {
       'rear-left',
       new THREE.Vector3(-REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
       new THREE.Vector3(-1, 0, 0),
+      'rear-left-half-shaft-inner-anchor',
       materials.drivetrain
     ),
     createArticulatedSegment(
@@ -123,6 +187,7 @@ export function createCar() {
       'rear-right',
       new THREE.Vector3(REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
       new THREE.Vector3(1, 0, 0),
+      'rear-right-half-shaft-inner-anchor',
       materials.drivetrain
     ),
   ]
@@ -143,27 +208,36 @@ export function createCar() {
       contactPatches[index].name
   }
 
-  car.add(body)
-  car.add(nose)
+  car.add(chassisVisualRoot)
+  addToChassisVisualRoot(chassisVisualRoot, body)
+  addToChassisVisualRoot(chassisVisualRoot, nose)
 
   for (const brakeLight of brakeLights) {
-    car.add(brakeLight)
+    addToChassisVisualRoot(chassisVisualRoot, brakeLight)
   }
 
   for (const rail of frameRails) {
-    car.add(rail)
+    addToChassisVisualRoot(chassisVisualRoot, rail)
   }
 
   for (const crossmember of crossmembers) {
-    car.add(crossmember)
+    addToChassisVisualRoot(chassisVisualRoot, crossmember)
   }
 
   for (const support of frontSpindleSupports) {
-    car.add(support)
+    addToChassisVisualRoot(chassisVisualRoot, support)
   }
 
-  car.add(rearDifferentialHousing)
-  car.add(driveshaft)
+  addToChassisVisualRoot(chassisVisualRoot, rearDifferentialHousing)
+  addToChassisVisualRoot(chassisVisualRoot, driveshaft)
+
+  for (const hanger of rearDifferentialHangers) {
+    addToChassisVisualRoot(chassisVisualRoot, hanger)
+  }
+
+  for (const anchor of chassisAnchors) {
+    addToChassisVisualRoot(chassisVisualRoot, anchor)
+  }
 
   for (const segment of articulatedSegments) {
     car.add(segment.node)
@@ -195,6 +269,16 @@ export function createCar() {
         (support) => support.name
       ),
     },
+    chassisVisual: {
+      rootNode: chassisVisualRoot.name,
+      attitudePivotLocalMeters:
+        chassisVisualRoot.userData.chassisAttitudeVisual.pivotLocalMeters,
+      behaviorImpact: 'visual-only',
+      attitudeRepresentationKind:
+        'body-frame-drivetrain-anchor-root-v1',
+      anchorNodes: chassisAnchors.map((anchor) => anchor.name),
+      hangerNodes: rearDifferentialHangers.map((hanger) => hanger.name),
+    },
     drivetrain: {
       layout: 'rear-wheel-drive-visual-placeholder',
       drivenWheels: ['rear-left', 'rear-right'],
@@ -206,6 +290,7 @@ export function createCar() {
         kind: segment.kind,
         node: segment.node.name,
         outerWheelId: segment.outerWheelId,
+        innerAttachmentNode: segment.innerAttachmentNode,
         innerAttachmentLocalMeters: segment.innerAttachmentLocalMeters,
         fallbackDirectionLocal: segment.fallbackDirectionLocal,
       })),
@@ -225,6 +310,9 @@ export function createCar() {
     tireInflationVisuals: {
       contactPatchNodes: contactPatches.map((patch) => patch.name),
     },
+    setChassisAttitudeVisualState: (chassisAttitudeState) => {
+      applyChassisAttitudeVisualState(chassisVisualRoot, chassisAttitudeState)
+    },
     setTireInflationVisualState: (tirePressureState, wheelStates = null) => {
       tirePressureVisuals.setTargetFromPressureState(tirePressureState)
       tirePressureVisuals.setTargetFromWheelStates(wheelStates)
@@ -239,6 +327,39 @@ export function createCar() {
   tirePressureVisuals.reset()
 
   return car
+}
+
+function createChassisAttitudeVisualRoot() {
+  const root = new THREE.Group()
+  root.name = CHASSIS_ATTITUDE_VISUAL_ROOT_NAME
+  root.position.set(0, CHASSIS_ATTITUDE_PIVOT_Y, 0)
+  root.userData.chassisAttitudeVisual = {
+    pivotLocalMeters: new THREE.Vector3(0, CHASSIS_ATTITUDE_PIVOT_Y, 0),
+  }
+
+  return root
+}
+
+function addToChassisVisualRoot(chassisVisualRoot, node) {
+  const pivotLocalMeters =
+    chassisVisualRoot.userData.chassisAttitudeVisual.pivotLocalMeters
+  node.position.sub(pivotLocalMeters)
+  chassisVisualRoot.add(node)
+
+  return node
+}
+
+function applyChassisAttitudeVisualState(chassisVisualRoot, state = {}) {
+  const heaveOffsetMeters = sanitizeFiniteNumber(state.heaveOffsetMeters)
+  const pitchRadians = sanitizeFiniteNumber(state.pitchRadians)
+  const rollRadians = sanitizeFiniteNumber(state.rollRadians)
+
+  chassisVisualRoot.position.set(
+    0,
+    CHASSIS_ATTITUDE_PIVOT_Y + heaveOffsetMeters,
+    0
+  )
+  chassisVisualRoot.rotation.set(pitchRadians, 0, rollRadians)
 }
 
 function createMaterials() {
@@ -404,6 +525,36 @@ function createSpindleInnerSupport(name, x, z, material) {
   return support
 }
 
+function createVerticalChassisBracket(
+  name,
+  x,
+  z,
+  topY,
+  bottomY,
+  material,
+  width = REAR_DIFFERENTIAL_HANGER_WIDTH,
+  depth = REAR_DIFFERENTIAL_HANGER_DEPTH
+) {
+  const height = Math.max(0.01, topY - bottomY)
+  const bracket = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    material
+  )
+
+  bracket.name = name
+  bracket.castShadow = true
+  bracket.position.set(x, bottomY + height / 2, z)
+
+  return bracket
+}
+
+function createChassisVisualAnchor(name, x, y, z) {
+  const anchor = new THREE.Object3D()
+  anchor.name = name
+  anchor.position.set(x, y, z)
+  return anchor
+}
+
 function createRearDifferentialHousing(material) {
   const housing = new THREE.Mesh(
     new THREE.SphereGeometry(REAR_DIFFERENTIAL_RADIUS, 20, 12),
@@ -439,6 +590,7 @@ function createArticulatedSegment(
   outerWheelId,
   innerAttachmentLocalMeters,
   fallbackDirectionLocal,
+  innerAttachmentNode,
   material
 ) {
   const node = new THREE.Mesh(
@@ -460,6 +612,7 @@ function createArticulatedSegment(
     outerWheelId,
     innerAttachmentLocalMeters,
     fallbackDirectionLocal,
+    innerAttachmentNode,
   }
 }
 
@@ -641,4 +794,8 @@ function createContactPatch(wheelInfo, material) {
   patch.receiveShadow = true
 
   return patch
+}
+
+function sanitizeFiniteNumber(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback
 }

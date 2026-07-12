@@ -85,7 +85,7 @@ Longitudinal tire force now comes from a simple linear/saturated slip-ratio mode
 
 Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, yaw acceleration, and planar acceleration telemetry. Per-wheel tire forces now sum into world-space planar body force, while `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
-Turning generates lateral tire force and yaw moment from per-wheel contact/slip state instead of relying on the earlier simplified steering-yaw shortcut. Contact-plane tire forces may include a slope-induced Y component, but only their consistent X/Z projection enters this planar integrator and yaw budget. Suspension-derived base support is normalized before prior-step-acceleration load-transfer deltas produce final wheel normal force. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no dynamic chassis heave, pitch or roll dynamics, roll-center geometry, or visual chassis roll or pitch simulation.
+Turning generates lateral tire force and yaw moment from per-wheel contact/slip state instead of relying on the earlier simplified steering-yaw shortcut. Contact-plane tire forces may include a slope-induced Y component, but only their consistent X/Z projection enters this planar integrator and yaw budget. Suspension-derived base support is normalized before prior-step-acceleration load-transfer deltas produce final wheel normal force. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no dynamic solved chassis heave, pitch or roll dynamics, roll-center geometry, or suspension linkage solver.
 
 
 ## Aerodynamic Drag Foundation v1
@@ -99,6 +99,14 @@ This v1 foundation adds no downforce, lift, wind, drafting, damage, or heat mode
 Chassis mass properties are now surfaced as explicit finite telemetry derived from the existing vehicle specification and wheel layout. The snapshot reports mass, center-of-mass height and offset, static front/rear weight bias, wheelbase, front/rear track width, and yaw moment of inertia. Existing flat spec fields such as `massKg`, `centerOfMassHeightMeters`, `wheelbaseMeters`, `frontTrackWidthMeters`, `rearTrackWidthMeters`, and `yawMomentOfInertiaKgMeterSquared` remain the source data rather than being duplicated into a separate tuning model.
 
 Center of mass and yaw inertia are foundation data for yaw, load transfer, and suspension work. The suspension normal-force foundation reads the existing mass and gravity inputs without changing mass-property behavior. Full chassis heave, pitch and roll dynamics, jumps, collision response, surface friction zones, aero downforce, and damage remain outside the current model.
+
+## Chassis Visual Attachment + Attitude State Foundation v1
+
+The car body, frame rails, crossmembers, front spindle supports, rear differential housing, driveshaft placeholder, and rear drivetrain hangers now live under a dedicated `chassis-attitude-visual-root`. Wheel pivots and contact patches remain direct `vehicle-root` children because the controller's per-wheel suspension/contact state remains the sole wheel-center owner.
+
+The chassis attitude state exposes finite `heaveOffsetMeters`, `heaveVelocityMetersPerSecond`, `pitchRadians`, `pitchRateRadiansPerSecond`, `rollRadians`, `rollRateRadiansPerSecond`, `visualBodyHeightMeters`, grounded support count, and a support-plane mode label. The v1 update estimates a bounded visual support plane from grounded wheel-center offsets, then the body/frame visual root reads that state. Reset returns the attitude state and visual root to neutral.
+
+This is an honest visual/state foundation, not a full multibody chassis model. It does not change tire force, normal force, load transfer, contact, drivetrain, braking, ABS, differential behavior, tire pressure, planar motion, yaw integration, anti-roll bars, free-fall, landing impulses, or suspension linkage physics. The Debug HUD reports a compact chassis attitude line for developer inspection.
 
 ## Lateral Slip Angle Telemetry
 
@@ -144,13 +152,13 @@ Spring support is explicit and quasi-static:
 - Raw grounded-wheel spring/damper support is normalized to current vehicle weight before existing longitudinal/lateral load-transfer deltas are applied.
 - Load transfer therefore remains the single owner of final `normalForceNewtons`; it redistributes support rather than adding a second full vehicle weight.
 
-The chassis remains planar. It has a terrain-following support height derived from terrain beneath the reference point plus the authored baseline offset, with a bounded response time. There is no vertical velocity, heave, pitch, roll, free-fall, landing impulse, jump physics, suspension linkage solver, or rigid wheel-to-body constraint solver.
+The chassis remains a planar physics body. It has a terrain-following support height derived from terrain beneath the reference point plus the authored baseline offset, with a bounded response time. A separate bounded visual attitude state can estimate support-plane heave, pitch, and roll for the body/frame visual root, but there is no solved vertical velocity, multibody heave/pitch/roll dynamics, free-fall, landing impulse, jump physics, suspension linkage solver, or rigid wheel-to-body constraint solver.
 
 Grounded tire speeds and tire forces use a contact-plane tangent basis: intended wheel forward is projected onto the terrain plane, lateral is `normal × forward`, and the planar chassis consumes only the resulting X/Z force components. Yaw uses the same horizontal wheel force/lever convention. A normal-force-weighted support normal also supplies a bounded horizontal slope-gravity term, so a supported vehicle rolls downhill and resists uphill without adding gravity twice. Slope gravity is zero on level terrain and while fully unsupported.
 
 The Debug HUD reports terrain profile/support height/slope, slope-gravity force, per-wheel ray/contact status, travel, compression, spring/damper/base/final load, and normal-force conservation diagnostics. The driver-facing R/N/D panel remains compact.
 
-Current limitations are intentional: this is not full suspension simulation, full raycast vehicle physics, full rigid-body terrain interaction, arbitrary mesh collision, dynamic chassis heave, pitch, roll, jumps, landing impulses, anti-roll bars, or full suspension geometry.
+Current limitations are intentional: this is not full suspension simulation, full raycast vehicle physics, full rigid-body terrain interaction, arbitrary mesh collision, solved dynamic chassis heave/pitch/roll, jumps, landing impulses, anti-roll bars, or full suspension geometry.
 
 ## Suspension Normal Force Foundation v1
 
@@ -187,7 +195,7 @@ This remains visual-only. It does not change physical rolling radius, wheel angu
 
 Tire pressure now also affects tire mechanics before the traction cap. Each wheel derives a conservative effective rolling radius, a pressure-adjusted longitudinal tire stiffness, a pressure-adjusted lateral tire stiffness, and a pressure-aware rolling resistance coefficient from its current pressure state. Underinflated tires therefore roll on a slightly smaller effective radius, build longitudinal and lateral force more softly, and add more rolling resistance; mild overinflation can sharpen stiffness slightly within conservative caps.
 
-Tire pressure still does not directly alter `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. Traction limit still comes only from `frictionCoefficient * normalForceNewtons`, so pressure changes response and drag before saturation rather than acting as a hidden grip slider. There is still no tire temperature, wear, damage, puncture, blowout, visual chassis roll/pitch, or Pacejka tire model here.
+Tire pressure still does not directly alter `frictionCoefficient`, `normalForceNewtons`, or `tractionLimitNewtons`. Traction limit still comes only from `frictionCoefficient * normalForceNewtons`, so pressure changes response and drag before saturation rather than acting as a hidden grip slider. There is still no tire temperature, wear, damage, puncture, blowout, tire-pressure-driven chassis attitude, or Pacejka tire model here.
 
 
 ## Tire Rim / Bead Fit + Severe Deflation v1
@@ -203,7 +211,7 @@ Tire deformation remains terrain-relative and visual-only: immutable per-wheel b
 
 The controller's per-wheel suspension/contact state is the sole wheel-center owner. Each vehicle-local `wheelCenterLocalPosition` is copied once to its root-owned wheel pivot; local-Y steering belongs to that pivot, while local-X spin belongs to its zero-offset rolling assembly. The tire, central hub disc, rim barrel, bead seats, rim flanges, and rotation witness share that rolling-assembly origin, so rigid centers remain concentric through suspension travel, steering, spin, terrain movement, pressure changes, and reset.
 
-The previous chassis-fixed full-width axle cylinders were incompatible with the independently solved wheel rays. They are replaced by an honest visual-only independent topology: a chassis-mounted rear differential housing and center driveshaft placeholder, one articulated half-shaft from the housing to each driven rear hub, and one non-driven spindle-link placeholder from each front chassis attachment to its hub. Every articulated cylinder is updated in vehicle-local space from its fixed inner attachment and the current authoritative wheel center; midpoint, length, and quaternion are regenerated from those endpoints without cumulative transforms or per-frame geometry creation.
+The previous chassis-fixed full-width axle cylinders were incompatible with the independently solved wheel rays. They are replaced by an honest visual-only independent topology: a chassis-mounted rear differential housing and center driveshaft placeholder, one articulated half-shaft from a chassis visual anchor to each driven rear hub, and one non-driven spindle-link placeholder from each front chassis visual anchor to its hub. Every articulated cylinder is updated in vehicle-local space from its current chassis-owned inner anchor and the current authoritative wheel center; midpoint, length, and quaternion are regenerated from those endpoints without cumulative transforms or per-frame geometry creation.
 
 Pressure and load deformation remain tire-carcass-only vertex updates derived from immutable baseline geometry. They do not translate, rotate, or scale the wheel pivot, rolling assembly, hub, rim, or articulated driveline nodes. A pressure-dependent physical rolling radius may legitimately change suspension length and therefore the complete wheel-center position, after which the visual links simply follow that authoritative center.
 
