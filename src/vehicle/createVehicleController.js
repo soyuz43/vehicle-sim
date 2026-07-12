@@ -229,7 +229,18 @@ export function createVehicleController(config = {}) {
         wheelStates
     )
     const tirePressureState = createTirePressureState(spec)
-    const dynamicsTuning = createDynamicsTuningState(config.dynamicsTuning)
+    const dynamicsTuning = createDynamicsTuningState({
+      chassisAttitudeResponseSeconds: spec.chassisAttitudeResponseSeconds,
+      chassisAttitudeMaximumHeaveOffsetMeters:
+        spec.chassisAttitudeMaximumHeaveOffsetMeters,
+      chassisAttitudeMaximumPitchRadians:
+        spec.chassisAttitudeMaximumPitchRadians,
+      chassisAttitudeMaximumRollRadians:
+        spec.chassisAttitudeMaximumRollRadians,
+      ...config.dynamicsTuning,
+    })
+
+    const chassisAttitudeSpecOverride = { ...spec }
     const lateralSlipSummary = createLateralSlipSummary()
     const lateralTireForceSummary = createLateralTireForceSummary()
     const loadTransferSummary = createLoadTransferSummary()
@@ -1231,10 +1242,18 @@ export function createVehicleController(config = {}) {
     }
 
     function updateChassisAttitude(dtSeconds) {
+        chassisAttitudeSpecOverride.chassisAttitudeResponseSeconds =
+            state.dynamicsTuning.chassisAttitudeResponseSeconds
+        chassisAttitudeSpecOverride.chassisAttitudeMaximumHeaveOffsetMeters =
+            state.dynamicsTuning.chassisAttitudeMaximumHeaveOffsetMeters
+        chassisAttitudeSpecOverride.chassisAttitudeMaximumPitchRadians =
+            state.dynamicsTuning.chassisAttitudeMaximumPitchRadians
+        chassisAttitudeSpecOverride.chassisAttitudeMaximumRollRadians =
+            state.dynamicsTuning.chassisAttitudeMaximumRollRadians
         updateChassisAttitudeState(
             state.chassisAttitudeState,
             state.wheelStates,
-            spec,
+            chassisAttitudeSpecOverride,
             dtSeconds
         )
     }

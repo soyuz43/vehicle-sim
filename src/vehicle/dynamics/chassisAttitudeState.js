@@ -46,6 +46,24 @@ export function resetChassisAttitudeState(state, spec = {}) {
   return state
 }
 
+// Visual-attitude composition (verified by trace, not inferred intent):
+// The chassis body world height is the SUM of three independent terms:
+//   1. terrain-support vehicle height (vehicle.position.y, set from
+//      chassisTerrainSupportState.currentChassisSupportHeightMeters),
+//   2. the authored body height BODY_Y, and
+//   3. heaveOffsetMeters, applied as
+//      chassisVisualRoot.position.y = CHASSIS_ATTITUDE_PIVOT_Y + heaveOffsetMeters.
+// heaveOffsetMeters is the average grounded-wheel suspension
+// compression deviation (wheelCenterLocalPosition.y - localPosition.y); it is
+// POSITIVE under symmetric compression (body rises) and NEGATIVE under
+// rebound (body drops). It does NOT cancel terrain motion: a terrain-
+// height change moves the body 1:1 while heave stays ~0. So the
+// visible attitude signal is vertical heave PLUS pitch/roll, not
+// pitch/roll alone. This is a visual foundation, not solved multibody
+// chassis dynamics: no sprung-mass ODE, no load-transfer coupling
+// into tire forces, no suspension linkage. Do not present
+// heaveOffsetMeters as physical suspension travel.
+
 export function updateChassisAttitudeState(
   state,
   wheelStates = [],

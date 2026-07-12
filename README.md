@@ -106,6 +106,8 @@ The car body, frame rails, crossmembers, front spindle supports, rear differenti
 
 The chassis attitude state exposes finite `heaveOffsetMeters`, `heaveVelocityMetersPerSecond`, `pitchRadians`, `pitchRateRadiansPerSecond`, `rollRadians`, `rollRateRadiansPerSecond`, `visualBodyHeightMeters`, grounded support count, and a support-plane mode label. The v1 update estimates a bounded visual support plane from grounded wheel-center offsets, then the body/frame visual root reads that state. Reset returns the attitude state and visual root to neutral.
 
+Heave is a vertical body offset, not a terrain canceller: the body world height is the terrain-support vehicle height plus the authored body height plus heaveOffsetMeters. Under a terrain-height change with no suspension asymmetry, the body rides the terrain 1:1 while heave stays near zero. heaveOffsetMeters is the average grounded-wheel suspension compression deviation (positive under symmetric compression, which raises the body; negative under rebound, which lowers it), so the visible attitude signal is vertical heave together with pitch and roll. This is a visual foundation, not solved multibody chassis dynamics.
+
 This is an honest visual/state foundation, not a full multibody chassis model. It does not change tire force, normal force, load transfer, contact, drivetrain, braking, ABS, differential behavior, tire pressure, planar motion, yaw integration, anti-roll bars, free-fall, landing impulses, or suspension linkage physics. The Debug HUD reports a compact chassis attitude line for developer inspection.
 
 ## Lateral Slip Angle Telemetry
