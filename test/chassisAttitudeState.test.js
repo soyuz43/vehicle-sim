@@ -112,17 +112,104 @@ test('pitch, roll, and heave clamps prevent extreme attitude output', () => {
   assert.ok(Number.isFinite(estimate.rollRadians))
 })
 
-function createWheelStates({ leftOffsetMeters = 0, frontOffsetMeters = 0 } = {}) {
+test('symmetric compression heaves the body upward (positive offset)', () => {
+  const estimate = estimateSupportPlaneFromWheelStates(
+    createWheelStates({ uniformOffsetMeters: 0.08 }),
+    SPEC
+  )
+
+  assert.ok(estimate.heaveOffsetMeters > 0)
+  assert.ok(Math.abs(estimate.pitchRadians) < 1e-12)
+  assert.ok(Math.abs(estimate.rollRadians) < 1e-12)
+})
+
+test('symmetric rebound drops the body downward (negative offset)', () => {
+  const estimate = estimateSupportPlaneFromWheelStates(
+    createWheelStates({ uniformOffsetMeters: -0.08 }),
+    SPEC
+  )
+
+  assert.ok(estimate.heaveOffsetMeters < 0)
+  assert.ok(Math.abs(estimate.pitchRadians) < 1e-12)
+  assert.ok(Math.abs(estimate.rollRadians) < 1e-12)
+})
+
+test('front load yields negative pitch and rear load yields positive pitch', () => {
+  const frontEstimate = estimateSupportPlaneFromWheelStates(
+    createWheelStates({ frontOffsetMeters: 0.08 }),
+    SPEC
+  )
+  const rearEstimate = estimateSupportPlaneFromWheelStates(
+    createWheelStates({ rearOffsetMeters: 0.08 }),
+    SPEC
+  )
+
+  // The visual layer consumes these signs directly via
+  // chassisVisualRoot.rotation.set(pitchRadians, 0, rollRadians) in
+  // src/car/createCar.js. These assertions lock the EXISTING sign
+  // convention (front-loaded support -> negative pitch, rear-loaded support
+  // -> positive pitch) so a future sign flip is caught by the suite. This is
+  // a regression lock of the published convention, not a claim about the
+  // physical rotation direction the visual layer applies.
+  assert.ok(frontEstimate.pitchRadians < 0)
+  assert.ok(rearEstimate.pitchRadians > 0)
+  assert.ok(Math.abs(frontEstimate.rollRadians) < 1e-12)
+  assert.ok(Math.abs(rearEstimate.rollRadians) < 1e-12)
+})
+
+test('multi-step update approaches the target exponentially without overshoot', () => {
+  const RESPONSE_SPEC = { ...SPEC, chassisAttitudeResponseSeconds: 0.08 }
+  const state = createChassisAttitudeState(RESPONSE_SPEC)
+  const wheelStates = createWheelStates({ uniformOffsetMeters: 0.08 })
+  const targetHeaveOffsetMeters = 0.08
+
+  let previousHeaveOffsetMeters = state.heaveOffsetMeters
+
+  for (let step = 0; step < 10; step += 1) {
+    updateChassisAttitudeState(state, wheelStates, RESPONSE_SPEC, 1 / 60)
+
+    assert.ok(Number.isFinite(state.heaveOffsetMeters))
+    assert.ok(state.heaveOffsetMeters > previousHeaveOffsetMeters)
+    assert.ok(state.heaveOffsetMeters <= targetHeaveOffsetMeters + 1e-12)
+    assert.equal(state.isFinite, true)
+    previousHeaveOffsetMeters = state.heaveOffsetMeters
+  }
+
+  assert.ok(state.heaveOffsetMeters > 0)
+  assert.ok(state.heaveOffsetMeters < targetHeaveOffsetMeters)
+})
+
+function createWheelStates({
+  leftOffsetMeters = 0,
+  frontOffsetMeters = 0,
+  rearOffsetMeters = 0,
+  uniformOffsetMeters = 0,
+} = {}) {
   return [
     createWheelState(
       'front-left',
       -1.25,
       1.45,
-      leftOffsetMeters + frontOffsetMeters
+      uniformOffsetMeters + leftOffsetMeters + frontOffsetMeters
     ),
-    createWheelState('front-right', 1.25, 1.45, frontOffsetMeters),
-    createWheelState('rear-left', -1.25, -1.45, leftOffsetMeters),
-    createWheelState('rear-right', 1.25, -1.45, 0),
+    createWheelState(
+      'front-right',
+      1.25,
+      1.45,
+      uniformOffsetMeters + frontOffsetMeters
+    ),
+    createWheelState(
+      'rear-left',
+      -1.25,
+      -1.45,
+      uniformOffsetMeters + leftOffsetMeters + rearOffsetMeters
+    ),
+    createWheelState(
+      'rear-right',
+      1.25,
+      -1.45,
+      uniformOffsetMeters + rearOffsetMeters
+    ),
   ]
 }
 

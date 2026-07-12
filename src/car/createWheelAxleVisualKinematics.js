@@ -23,10 +23,15 @@ export function createWheelAxleVisualKinematics(vehicle) {
   const segmentEntries = segmentMetadata.map((segment) =>
     createSegmentEntry(vehicle, segment)
   )
+  const chassisVisualRoot = resolveChassisVisualRoot(vehicle, vehicleMetadata)
   const snapshot = createSnapshot(vehicleMetadata, wheelEntries, segmentEntries)
 
   function updateFromWheelStates(wheelStates = []) {
-    vehicle.updateMatrixWorld(true)
+    if (chassisVisualRoot) {
+      chassisVisualRoot.updateWorldMatrix(true, true)
+    } else {
+      vehicle.updateMatrixWorld(true)
+    }
 
     for (const wheelState of wheelStates) {
       const wheelEntry = wheelEntryById.get(wheelState?.id)
@@ -268,6 +273,8 @@ function createSegmentEntry(vehicle, segment) {
     node: vehicle.getObjectByName(segment?.node) ?? null,
     innerAttachmentNode:
       vehicle.getObjectByName(segment?.innerAttachmentNode) ?? null,
+    innerAttachmentNodeName: segment?.innerAttachmentNode ?? 'unknown',
+    didWarnMissingInnerAttachment: false,
     innerAttachmentLocalMeters: cloneFiniteVector3(
       segment?.innerAttachmentLocalMeters
     ),
@@ -320,6 +327,7 @@ function createSnapshot(vehicleMetadata, wheelEntries, segmentEntries) {
 
 function resolveSegmentInnerAttachmentLocalMeters(vehicle, segmentEntry) {
   if (!segmentEntry.innerAttachmentNode) {
+    warnOnceMissingInnerAttachment(segmentEntry, 'inner attachment node not found')
     segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
       segmentEntry.innerAttachmentLocalMeters
     )
@@ -330,6 +338,10 @@ function resolveSegmentInnerAttachmentLocalMeters(vehicle, segmentEntry) {
     segmentEntry.innerAttachmentWorldMeters
   )
   if (!hasFiniteVector3(segmentEntry.innerAttachmentWorldMeters)) {
+    warnOnceMissingInnerAttachment(
+      segmentEntry,
+      'non-finite inner attachment world position'
+    )
     segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
       segmentEntry.innerAttachmentLocalMeters
     )
@@ -342,12 +354,38 @@ function resolveSegmentInnerAttachmentLocalMeters(vehicle, segmentEntry) {
   vehicle.worldToLocal(segmentEntry.resolvedInnerAttachmentLocalMeters)
 
   if (!hasFiniteVector3(segmentEntry.resolvedInnerAttachmentLocalMeters)) {
+    warnOnceMissingInnerAttachment(
+      segmentEntry,
+      'non-finite inner attachment local position'
+    )
     segmentEntry.resolvedInnerAttachmentLocalMeters.copy(
       segmentEntry.innerAttachmentLocalMeters
     )
   }
 
   return segmentEntry.resolvedInnerAttachmentLocalMeters
+}
+
+function warnOnceMissingInnerAttachment(segmentEntry, reason) {
+  if (segmentEntry.didWarnMissingInnerAttachment) return
+  segmentEntry.didWarnMissingInnerAttachment = true
+  console.warn(
+    'createWheelAxleVisualKinematics: segment "' +
+      segmentEntry.id +
+      '" inner attachment node "' +
+      (segmentEntry.innerAttachmentNodeName ?? 'unknown') +
+      '": ' +
+      reason +
+      '; falling back to authored innerAttachmentLocalMeters (visual-only).'
+  )
+}
+
+function resolveChassisVisualRoot(vehicle, vehicleMetadata) {
+  const rootNodeName = vehicleMetadata?.chassisVisual?.rootNode
+  if (typeof rootNodeName === 'string') {
+    return vehicle?.getObjectByName(rootNodeName) ?? null
+  }
+  return null
 }
 
 function findSegmentForWheel(segmentEntries, wheelId) {
