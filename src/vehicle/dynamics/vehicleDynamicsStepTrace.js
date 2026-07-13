@@ -173,6 +173,21 @@ export function captureVehicleDynamicsStepTraceStage(
     )
     wheelTrace.isContactTangentBasisValid =
       wheelState.isContactTangentBasisValid === true
+    wheelTrace.longitudinalSlipRatio = sanitizeNumber(
+      wheelState.longitudinalSlipRatio
+    )
+    wheelTrace.longitudinalGroundSpeedMetersPerSecond = sanitizeNumber(
+      wheelState.longitudinalGroundSpeedMetersPerSecond
+    )
+    wheelTrace.wheelSurfaceSpeedMetersPerSecond = sanitizeNumber(
+      wheelState.wheelSurfaceSpeedMetersPerSecond
+    )
+    wheelTrace.angularVelocityRadiansPerSecond = sanitizeNumber(
+      wheelState.angularVelocityRadiansPerSecond
+    )
+    wheelTrace.netTorqueNewtonMeters = sanitizeNumber(
+      wheelState.netTorqueNewtonMeters
+    )
 
     if (isGrounded) {
       stage.groundedWheelCount += 1
@@ -405,6 +420,11 @@ function resetStageTrace(stage, wheelStates) {
     wheelTrace.baseNormalForceNewtons = 0
     wheelTrace.contactSlopeDegrees = 0
     wheelTrace.isContactTangentBasisValid = false
+    wheelTrace.longitudinalSlipRatio = 0
+    wheelTrace.longitudinalGroundSpeedMetersPerSecond = 0
+    wheelTrace.wheelSurfaceSpeedMetersPerSecond = 0
+    wheelTrace.angularVelocityRadiansPerSecond = 0
+    wheelTrace.netTorqueNewtonMeters = 0
   }
 }
 
@@ -426,6 +446,11 @@ function ensureWheelTraceCount(wheelTraces, wheelCount) {
       baseNormalForceNewtons: 0,
       contactSlopeDegrees: 0,
       isContactTangentBasisValid: false,
+      longitudinalSlipRatio: 0,
+      longitudinalGroundSpeedMetersPerSecond: 0,
+      wheelSurfaceSpeedMetersPerSecond: 0,
+      angularVelocityRadiansPerSecond: 0,
+      netTorqueNewtonMeters: 0,
     })
   }
 

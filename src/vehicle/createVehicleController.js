@@ -155,10 +155,7 @@ const DEFAULT_CONTROLLER_PARAMS = {
 }
 
 const DEFAULT_SUSPENSION_DOWN_LOCAL = new THREE.Vector3(0, -1, 0)
-const TRACTION_LIMIT_EPSILON_NEWTONS = 0.001
-const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = 0.1
 const WHEEL_ANGULAR_SPEED_EPSILON_RADIANS_PER_SECOND = 0.001
-const TEMPORARY_ROLLING_CONSTRAINT_CORRECTION_TIME_SECONDS = 1.5
 
 const BRAKE_LIGHT_OFF_COLOR = 0x330000
 const BRAKE_LIGHT_ON_COLOR = 0xff1111
@@ -183,6 +180,26 @@ export function createVehicleController(config = {}) {
         ...DEFAULT_CONTROLLER_PARAMS,
         ...(config.params ?? {}),
     }
+
+    // Low-speed numerical stabilization constants are specification-owned.
+    // Fallbacks equal the previous controller-local literals so specs that
+    // omit them retain existing default behavior. The slip-speed epsilon and
+    // rolling-correction time are denominators, so non-finite, zero, or
+    // negative values fall back to the literal instead of producing
+    // division by zero or a negative time constant. Traction-limit epsilon
+    // is additive, so a non-negative fallback is sufficient.
+    const TRACTION_LIMIT_EPSILON_NEWTONS = sanitizeNonNegativeNumber(
+      spec.tractionLimitEpsilonNewtons,
+      0.001
+    )
+    const SLIP_RATIO_SPEED_EPSILON_METERS_PER_SECOND = sanitizePositiveNumber(
+      spec.slipRatioSpeedEpsilonMetersPerSecond,
+      0.1
+    )
+    const TEMPORARY_ROLLING_CONSTRAINT_CORRECTION_TIME_SECONDS = sanitizePositiveNumber(
+      spec.rollingConstraintCorrectionTimeSeconds,
+      1.5
+    )
 
     const visualBodyHeightMeters = vehicle.userData.vehicle?.body?.centerY
     if (Number.isFinite(visualBodyHeightMeters)) {
@@ -2154,6 +2171,13 @@ export function createVehicleController(config = {}) {
         ) / slipDenominatorMetersPerSecond
     }
 
+    // Angular-velocity dual ownership: wheel rotational integration
+    // (updateWheelTorqueCoupledRotationalState) writes
+    // angularVelocityRadiansPerSecond first; rear-differential wheel-speed
+    // coupling may then modify it through direct state adjustment and
+    // related torque accounting. The post-integration trace must capture
+    // after both, and netTorqueNewtonMeters alone does not fully reconstruct
+    // the final angular velocity when coupling performs a direct adjustment.
     function updateWheelRotationalStates(dt) {
         for (const wheelState of state.wheelStates) {
             resetWheelDifferentialCouplingState(wheelState)
@@ -2539,6 +2563,14 @@ export function createVehicleController(config = {}) {
         getTirePressureState,
         getSnapshot,
     }
+}
+
+function sanitizeNonNegativeNumber(value, fallback = 0) {
+    return Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+function sanitizePositiveNumber(value, fallback) {
+    return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 function sanitizeDeltaTime(dt, params) {

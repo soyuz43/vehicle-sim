@@ -134,6 +134,15 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   longitudinalTireForceRelaxationLengthMeters: 0.35,
   minimumLongitudinalTireForceRelaxationSpeedMetersPerSecond: 1,
 
+  // Low-speed numerical stabilization constants (specification-owned).
+  // Diagnostic/regularization parameters, not tuning multipliers. They
+  // clamp the slip denominator near zero speed, bound the traction limit,
+  // and set the time constant of the temporary wheel rolling-constraint
+  // correction. Defaults match the previous controller-local literals.
+  slipRatioSpeedEpsilonMetersPerSecond: 0.1,
+  rollingConstraintCorrectionTimeSeconds: 1.5,
+  tractionLimitEpsilonNewtons: 0.001,
+
   // Longitudinal traction-state thresholds classify/debug wheel behavior only.
   // They do not change tire force, friction, brake torque, ABS, or traction caps.
   tractionSlipRatioWarningThreshold: 0.08,

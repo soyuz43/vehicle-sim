@@ -18,6 +18,8 @@ Vehicle Dynamics Step Trace v1 is a telemetry and instrumentation layer only. It
 
 The trace records the current step dt and compact per-wheel data plus two force-budget stages: `integrationInput`, which is the force and yaw budget consumed by the current fixed step, and `postIntegration`, which retains that same contact/force budget after planar integration for comparison. Each stage summarizes grounded wheels, normal load, traction limit, longitudinal requested/target/relaxed/applied force, lateral force, planar force, yaw moment, aero drag, slope gravity, and force-derived acceleration/G. The Debug HUD shows a compact `Dynamics trace` line using the integration-input stage.
 
+The trace also records per-wheel longitudinal slip ratio, longitudinal ground speed, wheel surface speed, wheel angular velocity, and net wheel torque in both the `integrationInput` and `postIntegration` stages. These additions improve diagnosis and experimentation only; they do not change physics, the fixed timestep, or vehicle motion. In the `postIntegration` stage, wheel angular velocity reflects the final value after the rotational update and any rear-differential wheel-speed coupling, so update order is load-bearing for that field. The longitudinal slip ratio, longitudinal ground speed, and wheel surface speed fields come from the single pre-integration slip sample and are not recomputed after integration, so they are identical in both stages; only wheel angular velocity and net wheel torque advance between `integrationInput` and `postIntegration`. Consequently, in the `postIntegration` stage wheel surface speed is not derived from the final angular velocity.
+
 This source-of-truth seam prepares future V2 branches by making update-order and force-source regressions easier to detect without adding a history buffer or storing Three.js objects. True chassis heave, pitch, and roll plus richer combined tire modeling remain future work and are not implemented here.
 
 
@@ -30,6 +32,8 @@ The controller uses small acquire/release slop around maximum droop to avoid one
 ## Wheel Rotational State
 
 Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel lock and richer tire curves remain future work.
+
+The low-speed numerical stabilization constants that bound slip computation and the temporary rolling correction are now specification-owned (see `defaultVehicleSpec`), not controller-local literals, so they are inspectable through the snapshot/spec path and overridable at specification construction.
 
 Each tire includes a high-contrast visual witness mark attached to the rotating wheel assembly. The mark is a debugging aid for inspecting wheel spin, rolling, braking, and skating artifacts; it does not affect physics.
 
