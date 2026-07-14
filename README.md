@@ -293,9 +293,9 @@ This branch models the rear axle only. It does not add axle elasticity, drivelin
 Braking, ABS, powertrain RPM telemetry, traction-limit definition, tire stiffness, slip ratio, and tire-force relaxation remain unchanged by the differential modes. Terrain contact, suspension support, load transfer, and rendering follow their documented current implementations.
 ## Powertrain Profile Foundation
 
-This is a static data and telemetry foundation for future engine RPM, gear ratios, torque curves, and engine braking. It does NOT yet change vehicle behavior.
+This is a static data and telemetry foundation. The selected engine torque curve, idle RPM, redline RPM, representative transmission ratio, and final-drive ratio are now read by the active powertrain drive-torque source v1 (see below) to derive profile-owned per-wheel drive torque.
 
-The simulation now carries a selected piston-engine profile and a selected transmission profile as plain data. Both are exposed through the vehicle snapshot and the Debug HUD so the chosen powertrain can be represented and inspected, but neither profile feeds any physics integration yet.
+The simulation carries a selected piston-engine profile and a selected transmission profile as plain data, exposed through the vehicle snapshot and the Debug HUD. The active drive-torque source reads the selected profiles; the remaining profile fields remain telemetry-only.
 
 Engine scope (v1):
 - Common piston car families only: inline-3, inline-4, inline-5, inline-6, V6, V8, V10, V12.
@@ -304,7 +304,7 @@ Engine scope (v1):
 
 Transmission scope (v1):
 - Simple static profile types only: manual-4, manual-5, manual-6, manual-6-granny, automatic-6, automatic-8, dct-7, dct-8, cvt.
-- These are data profiles only. They do not drive gear selection, shift scheduling, torque-converter behavior, clutch behavior, or any gear-ratio force multiplication.
+- These are data profiles. The selected representative forward ratio (first forward gear), absolute reverse ratio, and final-drive ratio multiply engine torque into axle torque via the active drive-torque source. They do NOT drive gear selection, shift scheduling, torque-converter behavior, or clutch behavior.
 
 Default selection:
 - Engine: inline-4 gasoline turbo (2.0L I4 Turbo).
@@ -314,10 +314,10 @@ Profile data is immutable and frozen. Unknown engine or transmission ids fall ba
 
 What this foundation does NOT do yet:
 - No engine braking.
-- No active engine RPM.
+- No active engine RPM control (the engine has no rotational state of its own).
 - No clutch, shift scheduling, or automatic shift logic.
-- No torque-converter behavior, differential behavior, or gear-ratio force multiplication.
-- No change to acceleration, braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, or surface contact.
+- No torque-converter behavior.
+- No change to braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, or surface contact.
 - No UI selection menus or tuning sliders.
 ### Stock Engine Catalog Seed Data
 
@@ -338,7 +338,7 @@ What the catalog does NOT do:
 The schema is intentionally shaped so future work can add more local records, imported catalog data, or user-supplied records without replacing the current engine profile system.
 ### Engine RPM Telemetry
 
-Engine RPM is now derived as inert telemetry from the selected powertrain profiles, the current R/N/D selector, and driven-wheel rotational speed. It is telemetry only and does not change vehicle behavior.
+Engine RPM is derived as telemetry from the selected powertrain profiles, the current R/N/D selector, and driven-wheel rotational speed. The displayed estimated engine RPM is clamped telemetry; the active drive-torque source (below) computes its own raw coupled RPM for redline limiting.
 
 The estimated engine RPM is computed from the average driven-wheel angular velocity multiplied by the effective drive ratio (selected transmission ratio times final drive ratio). RPM is clamped between idle RPM and redline RPM when the powertrain is connected:
 
@@ -349,4 +349,27 @@ The estimated engine RPM is computed from the average driven-wheel angular veloc
 
 The telemetry also reports the powertrain connection state (disconnected / forward_connected / reverse_connected) and the engine RPM state (idle / coupled / redline_clamped / unavailable).
 
-This RPM telemetry does not yet affect acceleration, drive torque, engine braking, shifting, or vehicle motion. Existing rear-differential models remain a separate wheel-force and wheel-speed-coupling layer; there is still no clutch, torque converter, automatic shift scheduling, manual shift control, or full powertrain-to-driveshaft torque model.
+The displayed estimated engine RPM remains clamped telemetry and does not directly drive acceleration. The active drive-torque source computes its own raw (unclamped) coupled engine RPM from the entering-step driven-wheel angular velocity and the shared effective drive ratio, and uses that raw RPM for redline limiting. Existing rear-differential models remain the wheel-force and wheel-speed-coupling layer; there is still no clutch, torque converter, automatic shift scheduling, manual shift control, or full powertrain-to-driveshaft rotational model.
+
+### Active Powertrain Drive Torque (v1)
+
+The default drive source is now profile-derived. When `spec.powertrainDriveTorqueEnabled` is true (default), the active source replaces the old fixed per-wheel drive force with finite engine-curve torque that falls to zero at redline.
+
+- The selected engine torque curve is interpolated (piecewise-linear, endpoint-clamped) at the idle-floored lookup RPM.
+- One fixed representative ratio is used: first forward gear for fixed transmissions, the absolute reverse ratio for reverse, and the same CVT midpoint as telemetry for CVT. Active physics and RPM telemetry share this ratio via `computeEffectiveDriveRatio`, so they cannot silently disagree.
+- Launch uses an idealized idle-RPM lookup floor (not a clutch or torque converter): torque-lookup RPM is `max(rawCoupledRpm, idleRpm)`.
+- Torque tapers linearly to zero between `(redlineRpm - powertrainRedlineTorqueTaperRpm)` and redline (`powertrainRedlineTorqueTaperRpm`, spec-owned).
+- A staged constant drivetrain efficiency (`powertrainDrivetrainEfficiency01`, clamped to `[0,1]`) scales engine output torque before the axle split.
+- The signed axle torque is resolved and split through the rear-differential torque wrapper (`resolveRearDifferentialDriveTorqueShares`) and applied split (`updateRearDifferentialDriveTorqueSplitWithShares`), so left + right always sum to the axle torque.
+- The wheel rotational integrator consumes per-wheel torque directly; the compatibility drive force is derived once as `torque / rollingRadius`.
+- When `spec.powertrainDriveTorqueEnabled` is false, the previous fixed-force drive path is used verbatim for A/B compatibility.
+
+Predictive redline axle-torque cap (staged numerical/controls bound, not an engine-inertia, clutch, torque-converter, shifting, or ECU model):
+
+- Before splitting, the controller resolves the differential shares ONCE from the requested (uncapped) axle torque, then computes the predictive cap and splits the applied (capped) axle torque through those exact shares, so the cap and the final split never disagree and axle torque is conserved.
+- The active torque path is dimensionally honest: the torque wrapper converts the active axle torque to an equivalent axle force using the arithmetic-mean rear effective rolling radius, resolves dimensionless shares in the existing force domain (`resolveRearDifferentialDriveForceShares`), and never feeds that equivalent force into wheel or chassis force integration. Newtons and Newton-meters are never mixed in one addition, comparison, or ratio.
+- The cap uses entering-step wheel angular velocity, wheel inertia, fixed `dt`, redline, effective ratio, gear direction, and the resolved per-wheel shares. For each participating wheel it computes the remaining angular headroom to the redline-consistent wheel speed and the maximum axle torque that would not advance that wheel past redline in one step; the predictive axle limit is the minimum valid participating-wheel result and the applied axle torque magnitude is `min(requested, limit)`.
+- The cap intentionally ignores the opposing contact/rolling/brake torque so it stays conservative: drive torque alone cannot overshoot redline in one step, while opposing torque can only leave the wheel below redline.
+- Fail-closed safety: invalid or non-positive `dt`, wheel inertia, effective ratio, or redline, a missing driven wheel, an invalid share, or a wheel already at/above redline collapses the applied torque to zero rather than silently allowing the full requested torque. Neutral also yields zero. Legacy mode (`powertrainDriveTorqueEnabled === false`) bypasses the predictor entirely.
+
+Explicitly excluded from v1: automatic shifting, manual shift control beyond R/N/D, clutch, torque converter, engine rotational integration, engine braking, driveline compliance, traction control, launch control, and any tire-model or friction change.

@@ -82,11 +82,30 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   differentialSlipSpeedEpsilonRadiansPerSecond: 0.5,
   rearDifferentialHardCouplingEpsilonRadiansPerSecond: 0.001,
 
-  // Longitudinal driver request budgets. Tire force now comes from slip ratio;
-  // these requests remain command telemetry and torque inputs, not direct body force.
+  // Longitudinal driver request budgets.
+  //
+  // Active powertrain drive torque v1: selected engine torque curves,
+  // transmission ratios, and final-drive ratios now own the authoritative
+  // per-wheel drive torque (see src/vehicle/powertrain/createPowertrainDriveTorqueState.js).
+  // When powertrainDriveTorqueEnabled is true (default), maxDriveForceNewtons is a
+  // legacy fallback budget only and is NOT used as an independent simultaneous torque source.
+  // When powertrainDriveTorqueEnabled is false, the previous fixed-force drive path is
+  // preserved exactly for compatibility and A/B regression tests.
   maxDriveForceNewtons: 6500,
   maxReverseDriveForceNewtons: 2500,
   maxBrakeForceNewtons: 12000,
+
+  // Active powertrain drive torque v1 switch. Default true: engine/transmission
+  // profiles own active drive torque. When false, the legacy fixed-force drive
+  // path is used verbatim (A/B compatibility). Do not blend both sources.
+  powertrainDriveTorqueEnabled: true,
+  // Staged drivetrain efficiency applied to engine output torque before the
+  // axle split. Clamped to [0, 1]. Not a transmission-loss curve.
+  powertrainDrivetrainEfficiency01: 0.9,
+  // Redline torque taper band (RPM). Engine output torque is multiplied by a
+  // linear 1 -> 0 taper between (redlineRpm - taperBandRpm) and redlineRpm,
+  // reaching zero at redline. Conservative staged default, not an ECU model.
+  powertrainRedlineTorqueTaperRpm: 800,
 
   // Wheel inertia used by the current simple wheel angular dynamics.
   // This is not drivetrain inertia or a full rotating assembly model.

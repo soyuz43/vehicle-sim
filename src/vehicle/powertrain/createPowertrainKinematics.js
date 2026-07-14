@@ -1,18 +1,26 @@
 // src/vehicle/powertrain/createPowertrainKinematics.js
 
-// Inert powertrain kinematics / engine-RPM telemetry foundation.
+// Inert powertrain kinematics / engine-RPM telemetry foundation, plus the
+// shared representative-ratio helpers used by both telemetry and the active
+// drive-torque source.
 //
-// This module derives an ESTIMATED engine RPM and driveline connection state
-// purely from existing static profile data and current wheel/selector state.
-// It is TELEMETRY ONLY. The result is never fed back into drive force, wheel
-// torque, braking, tire behavior, or any vehicle motion. No engine braking,
-// torque-curve drive behavior, shifting, clutch, torque converter, gear-ratio
-// force multiplication, differential, or drivetrain physics is implemented here.
+// This module derives an ESTIMATED (clamped) engine RPM and driveline connection
+// state purely from static profile data and current wheel/selector state. The
+// estimated engine RPM is TELEMETRY ONLY and is never fed back into drive force,
+// wheel torque, braking, tire behavior, or vehicle motion.
+//
+// The representative-ratio helpers (selectRepresentativeForwardRatio,
+// selectReverseDriveRatio, computeEffectiveDriveRatio) are shared: the same
+// single fixed ratio is used by the estimated-RPM telemetry and by the active
+// powertrain drive-torque source to multiply engine torque into axle torque.
+// No engine braking, shifting, clutch, torque converter, or other drivetrain
+// physics is implemented here beyond ratio ownership and the clamped RPM
+// estimate.
 
 const TWO_PI = Math.PI * 2
 
 // Radians/second -> revolutions/minute.
-const RPM_PER_RADIAN_PER_SECOND = 60 / TWO_PI
+export const RPM_PER_RADIAN_PER_SECOND = 60 / TWO_PI
 
 const CONNECTION_STATES = Object.freeze({
   DISCONNECTED: 'disconnected',
@@ -44,7 +52,7 @@ function finiteOrZero(value) {
 // For CVT, use a fixed representative midpoint ratio for telemetry only.
 // For fixed-ratio transmissions, use the first forward gear ratio for telemetry
 // only. No automatic shifting or speed-based gear selection is performed.
-function selectRepresentativeForwardRatio(transmissionProfile) {
+export function selectRepresentativeForwardRatio(transmissionProfile) {
   if (transmissionProfile.transmissionKind === 'cvt') {
     const minRatio = transmissionProfile.cvtMinRatio
     const maxRatio = transmissionProfile.cvtMaxRatio
@@ -63,6 +71,24 @@ function selectRepresentativeForwardRatio(transmissionProfile) {
   }
 
   return forwardGearRatios[0]
+}
+
+// Absolute reverse gear ratio used by active drive torque and telemetry.
+export function selectReverseDriveRatio(transmissionProfile) {
+  return Math.abs(finiteOrZero(transmissionProfile?.reverseGearRatio))
+}
+
+// Single authoritative effective drive ratio shared by telemetry and active
+// torque so they cannot silently select different ratios.
+export function computeEffectiveDriveRatio(transmissionProfile, isReverse) {
+  const finalDriveRatio = finiteOrZero(transmissionProfile?.finalDriveRatio)
+  const transmissionRatio = isReverse
+    ? selectReverseDriveRatio(transmissionProfile)
+    : selectRepresentativeForwardRatio(transmissionProfile)
+
+  if (!Number.isFinite(transmissionRatio)) return 0
+
+  return transmissionRatio * finalDriveRatio
 }
 
 function selectForwardGearIndex(transmissionProfile) {
@@ -123,7 +149,7 @@ export function computePowertrainKinematics({
   let selectedForwardGearLabel
 
   if (isReverse) {
-    transmissionRatio = Math.abs(finiteOrZero(transmissionProfile?.reverseGearRatio))
+    transmissionRatio = selectReverseDriveRatio(transmissionProfile)
     selectedRatioKind = RATIO_KINDS.REVERSE
     selectedForwardGearIndex = DEFAULT_GEAR_INDEX
     selectedForwardGearLabel = 'R'
@@ -135,7 +161,7 @@ export function computePowertrainKinematics({
     selectedForwardGearLabel = selectForwardGearLabel(transmissionProfile)
   }
 
-  const effectiveDriveRatio = transmissionRatio * finalDriveRatio
+  const effectiveDriveRatio = computeEffectiveDriveRatio(transmissionProfile, isReverse)
 
   // Raw estimated engine RPM from driven wheel speed and the effective drive
   // ratio. Absolute value keeps direction-agnostic wheel speed finite/positive.

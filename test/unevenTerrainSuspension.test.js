@@ -592,7 +592,11 @@ test('a deterministic proving-lane traverse remains finite through every terrain
   let maximumCompressionMeters = 0
   let stepCount = 0
 
-  while (snapshot.position.z < 150 && stepCount < 900) {
+  // The active source now respects the redline, so sustained top speed is
+  // lower than the old fixed-force / overshoot behavior. The 960-step budget
+  // gives the corrected car enough room to clear the full 150 m traverse
+  // while every sampled quantity stays finite through the terrain features.
+  while (snapshot.position.z < 150 && stepCount < 960) {
     snapshot = controller.update(STEP_SECONDS, { throttle: true })
     let groundedWheelCount = 0
 

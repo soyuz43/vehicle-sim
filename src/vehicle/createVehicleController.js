@@ -55,6 +55,8 @@ import {
     resetRearDifferentialStepState,
     setRearDifferentialType as setActiveRearDifferentialType,
     updateRearDifferentialDriveForceSplit,
+    resolveRearDifferentialDriveTorqueShares,
+    updateRearDifferentialDriveTorqueSplitWithShares,
     updateRearDifferentialWheelSpeedCoupling,
 } from './dynamics/rearDifferentialState.js'
 import {
@@ -119,6 +121,12 @@ import {
     selectEngineProfile,
     selectTransmissionProfile,
 } from './powertrain/createPowertrainSelection.js'
+import {
+    createPowertrainDriveTorqueState,
+    resetPowertrainDriveTorqueState,
+    updatePowertrainDriveTorqueSource,
+    computePredictiveRedlineAxleTorqueCap,
+} from './powertrain/createPowertrainDriveTorqueState.js'
 
 import {
     computePowertrainKinematics,
@@ -265,6 +273,8 @@ export function createVehicleController(config = {}) {
     const tractionStateSummary = createTractionStateSummary()
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
     const rearDifferentialState = createRearDifferentialState(spec)
+    const activePowertrainDriveTorque = createPowertrainDriveTorqueState()
+    let totalAxleDriveTorqueNewtonMeters = 0
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
     const wheelAxleVisualKinematics =
         vehicle.userData.vehicle?.wheelAxleVisualKinematics ?? null
@@ -302,6 +312,8 @@ export function createVehicleController(config = {}) {
         tractionStateSummary,
         serviceBrakeAbsSummary,
         rearDifferentialState,
+        activePowertrainDriveTorque,
+        totalAxleDriveTorqueNewtonMeters: 0,
         vehicleDynamicsStepTrace: createVehicleDynamicsStepTrace(wheelStates),
         forces: createEmptyForceSnapshot(),
     }
@@ -417,6 +429,8 @@ export function createVehicleController(config = {}) {
         resetTractionStateSummary(state.tractionStateSummary)
         resetServiceBrakeAbsSummary(state.serviceBrakeAbsSummary)
         resetRearDifferentialState(state.rearDifferentialState, spec)
+        resetPowertrainDriveTorqueState(state.activePowertrainDriveTorque)
+        state.totalAxleDriveTorqueNewtonMeters = 0
         resetLateralSlipSummary(state.lateralSlipSummary)
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
@@ -456,6 +470,9 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
+            wheelState.requestedDriveTorqueNewtonMeters = 0
+            wheelState.appliedDriveTorqueNewtonMeters = 0
+            wheelState.driveTorqueNewtonMeters = 0
             resetWheelLongitudinalTireForceState(wheelState, spec)
             resetWheelLongitudinalSlipState(wheelState)
             resetWheelLateralSlipAngleState(wheelState)
@@ -675,6 +692,13 @@ export function createVehicleController(config = {}) {
                 state.transmissionProfile
             ),
             powertrainKinematics: state.powertrainKinematics,
+            powertrainDriveTorqueEnabled: spec.powertrainDriveTorqueEnabled !== false,
+            powertrainDriveTorque: state.activePowertrainDriveTorque,
+            totalAxleDriveTorqueNewtonMeters: state.totalAxleDriveTorqueNewtonMeters,
+            rearDifferentialLeftOutputDriveTorqueNewtonMeters:
+                state.rearDifferentialState.rearDifferentialLeftOutputDriveTorqueNewtonMeters,
+            rearDifferentialRightOutputDriveTorqueNewtonMeters:
+                state.rearDifferentialState.rearDifferentialRightOutputDriveTorqueNewtonMeters,
             stockEngineCatalogTelemetry: createStockEngineCatalogTelemetry(
                 state.engineProfile
             ),
@@ -1798,9 +1822,182 @@ export function createVehicleController(config = {}) {
         updateLongitudinalTractionStates()
     }
 
+
+    function applyRequestedDriveTorque(wheelState, torqueNewtonMeters) {
+        const rollingRadiusMeters = getWheelRollingRadiusMeters(wheelState)
+        const safeRadiusMeters =
+            Number.isFinite(rollingRadiusMeters) && rollingRadiusMeters > 0
+                ? rollingRadiusMeters
+                : (Number.isFinite(spec.baseTireRollingRadiusMeters) &&
+                   spec.baseTireRollingRadiusMeters > 0
+                    ? spec.baseTireRollingRadiusMeters
+                    : 1)
+        const requestedDriveTorqueNewtonMeters = Number.isFinite(torqueNewtonMeters)
+            ? torqueNewtonMeters
+            : 0
+        const requestedDriveForceNewtons =
+            safeRadiusMeters > 0
+                ? requestedDriveTorqueNewtonMeters / safeRadiusMeters
+                : 0
+
+        // Authoritative torque first; the drive force is derived once for
+        // compatibility telemetry. Exactly one force<->torque conversion.
+        wheelState.requestedDriveTorqueNewtonMeters = requestedDriveTorqueNewtonMeters
+        wheelState.appliedDriveTorqueNewtonMeters = requestedDriveTorqueNewtonMeters
+        wheelState.driveTorqueNewtonMeters = requestedDriveTorqueNewtonMeters
+        wheelState.requestedDriveForceNewtons = requestedDriveForceNewtons
+        wheelState.requestedLongitudinalForceNewtons += requestedDriveForceNewtons
+    }
+
+    function assignActiveDriveTorqueRequest(dt) {
+        const gearDirection = getGearDirection(state.gear)
+        const averageDrivenWheelAngularVelocityRadiansPerSecond =
+            computeAverageDrivenWheelAngularVelocityRadiansPerSecond()
+        const speedAlongSelectedGearMetersPerSecond =
+            state.speedScalar * gearDirection
+
+        // Pre-integration active drive torque source from entering-step wheel
+        // state. Returns the signed total REQUESTED axle output torque
+        // (positive drive, negative reverse, zero neutral). The predictive
+        // redline cap applied below turns this into the applied axle torque.
+        const requestedAxleDriveTorqueNewtonMeters = updatePowertrainDriveTorqueSource({
+            state: state.activePowertrainDriveTorque,
+            spec,
+            engineProfile: state.engineProfile,
+            transmissionProfile: state.transmissionProfile,
+            gearDirection,
+            throttleInput: state.throttleInput,
+            averageDrivenWheelAngularVelocityRadiansPerSecond,
+            speedAlongSelectedGearMetersPerSecond,
+        })
+
+        // Honest distinction: the active powertrain source owns the requested
+        // (uncapped profile) torque; the differential integration owns the
+        // applied (capped) limit. Compatibility drive force is derived from
+        // the APPLIED per-wheel torque, never the requested torque.
+        state.activePowertrainDriveTorque.requestedAxleDriveTorqueNewtonMeters =
+            requestedAxleDriveTorqueNewtonMeters
+
+        const drivenRearWheelStates = state.wheelStates.filter(
+            (wheelState) => wheelState.driven && wheelState.axle === 'rear'
+        )
+        const powertrain = state.activePowertrainDriveTorque
+
+        // Predictive discrete-time redline axle-torque cap. Uses entering-step
+        // wheel angular velocity, wheel inertia, fixed dt, redline, effective
+        // ratio, gear direction, and per-wheel resolved differential shares. The
+        // opposing contact/rolling/brake torque is intentionally ignored so the
+        // cap is conservative: the drive-torque contribution alone cannot
+        // advance a driven wheel past the redline-consistent angular velocity in
+        // one fixed step. This is a staged numerical/controls bound, NOT an
+        // engine-inertia, clutch, torque-converter, shifting, or ECU model.
+        // Resolve differential shares ONCE from the requested axle torque. The
+        // active torque magnitude is converted to an equivalent axle force
+        // inside the torque wrapper using the arithmetic-mean rear rolling
+        // radius; the resulting shares are dimensionless and are reused for
+        // both the predictive cap and the applied torque split so the two never
+        // disagree and axle torque is conserved.
+        let resolvedDriveShares = { leftShare01: 0.5, rightShare01: 0.5 }
+        if (drivenRearWheelStates.length === 2) {
+            resolvedDriveShares = resolveRearDifferentialDriveTorqueShares(
+                state.rearDifferentialState,
+                drivenRearWheelStates,
+                requestedAxleDriveTorqueNewtonMeters,
+                spec
+            )
+        }
+
+        // Build predictive descriptors with the EXACT resolved differential
+        // shares so the redline cap and the final split consume one share set.
+        const predictiveWheelDescriptors = drivenRearWheelStates.map(
+            (wheelState) => ({
+                angularVelocityRadiansPerSecond:
+                    wheelState.angularVelocityRadiansPerSecond,
+                wheelInertiaKgMeterSquared: wheelState.wheelInertiaKgMeterSquared,
+                share01:
+                    wheelState.side === 'left'
+                        ? resolvedDriveShares.leftShare01
+                        : resolvedDriveShares.rightShare01,
+            })
+        )
+        const predictive = computePredictiveRedlineAxleTorqueCap({
+            requestedAxleDriveTorqueMagnitudeNewtonMeters: Math.abs(
+                requestedAxleDriveTorqueNewtonMeters
+            ),
+            gearDirection,
+            redlineRpm: powertrain.redlineRpm,
+            effectiveDriveRatio: powertrain.effectiveDriveRatio,
+            drivenWheelDescriptors: predictiveWheelDescriptors,
+            dtSeconds: dt,
+        })
+        const appliedSign = gearDirection === 0 ? 0 : Math.sign(gearDirection)
+        const appliedAxleDriveTorqueNewtonMeters =
+            predictive.appliedAxleDriveTorqueMagnitudeNewtonMeters * appliedSign
+        // The signed applied axle torque is what actually drives the wheels.
+        state.totalAxleDriveTorqueNewtonMeters = appliedAxleDriveTorqueNewtonMeters
+
+        if (drivenRearWheelStates.length === 2) {
+            // Split the CAPPED axle torque through the exact resolved shares so
+            // the applied split is preserved and axle torque is conserved.
+            updateRearDifferentialDriveTorqueSplitWithShares(
+                state.rearDifferentialState,
+                drivenRearWheelStates,
+                appliedAxleDriveTorqueNewtonMeters,
+                resolvedDriveShares,
+                spec
+            )
+            state.rearDifferentialState.requestedLeftOutputDriveTorqueNewtonMeters =
+                requestedAxleDriveTorqueNewtonMeters * resolvedDriveShares.leftShare01
+            state.rearDifferentialState.requestedRightOutputDriveTorqueNewtonMeters =
+                requestedAxleDriveTorqueNewtonMeters -
+                state.rearDifferentialState.requestedLeftOutputDriveTorqueNewtonMeters
+
+            for (const wheelState of drivenRearWheelStates) {
+                const outputDriveTorqueNewtonMeters =
+                    wheelState.side === 'left'
+                        ? state.rearDifferentialState.rearDifferentialLeftOutputDriveTorqueNewtonMeters
+                        : state.rearDifferentialState.rearDifferentialRightOutputDriveTorqueNewtonMeters
+
+                applyRequestedDriveTorque(wheelState, outputDriveTorqueNewtonMeters)
+            }
+        } else {
+            // Non-two-wheel fallback (kept for completeness): apply the
+            // predictive cap to the equal-share per-wheel torque. Differential
+            // shares are only modeled for the rear-wheel pair, so no per-side
+            // requested torque is published here.
+            const perWheelTorqueNewtonMeters =
+                drivenRearWheelStates.length > 0
+                    ? appliedAxleDriveTorqueNewtonMeters / drivenRearWheelStates.length
+                    : 0
+
+            for (const wheelState of drivenRearWheelStates) {
+                applyRequestedDriveTorque(wheelState, perWheelTorqueNewtonMeters)
+            }
+        }
+
+        // Publish post-cap predictive telemetry onto the differential state,
+        // which owns the applied limit. These are cleared at the next step so
+        // they never survive into brake/coast steps.
+        state.rearDifferentialState.predictiveMaximumAxleDriveTorqueNewtonMeters =
+            predictive.maximumPredictiveAxleTorqueMagnitudeNewtonMeters
+        state.rearDifferentialState.appliedAxleDriveTorqueNewtonMeters =
+            appliedAxleDriveTorqueNewtonMeters
+        state.rearDifferentialState.isPredictiveRedlineLimiterActive =
+            predictive.isPredictiveLimiterActive
+        state.rearDifferentialState.redlineWheelAngularVelocityRadiansPerSecond =
+            predictive.redlineWheelAngularVelocityRadiansPerSecond
+        state.rearDifferentialState.minimumWheelAngularVelocityHeadroomRadiansPerSecond =
+            predictive.minimumWheelAngularVelocityHeadroomRadiansPerSecond
+        state.rearDifferentialState.predictiveLimiterReason =
+            predictive.predictiveLimiterReason
+    }
+
     function calculatePerWheelLongitudinalForces(dt) {
         resetWheelForceAndBrakeTorqueRequests()
         resetRearDifferentialStepState(state.rearDifferentialState, spec)
+        // Clear transient drive-torque telemetry every step so it does not
+        // survive into brake/coast steps where the active source is not called.
+        state.totalAxleDriveTorqueNewtonMeters = 0
         updateBrakeTorqueStates(dt)
 
         const speedDirection = getSignWithDeadzone(
@@ -1816,6 +2013,8 @@ export function createVehicleController(config = {}) {
                     state.brakeInput
                 )
             }
+        } else if (spec.powertrainDriveTorqueEnabled) {
+            assignActiveDriveTorqueRequest(dt)
         } else {
             distributeDriveForceRequestToWheels(
                 calculateDriveForceRequestNewtons()
@@ -1828,6 +2027,9 @@ export function createVehicleController(config = {}) {
             wheelState.requestedDriveForceNewtons = 0
             wheelState.requestedBrakeForceNewtons = 0
             wheelState.requestedLongitudinalForceNewtons = 0
+            wheelState.requestedDriveTorqueNewtonMeters = 0
+            wheelState.appliedDriveTorqueNewtonMeters = 0
+            wheelState.driveTorqueNewtonMeters = 0
             resetWheelLongitudinalTireForceStepState(wheelState, spec)
             resetWheelLateralTireForceState(wheelState)
             wheelState.isSlipping = false
@@ -1978,9 +2180,11 @@ export function createVehicleController(config = {}) {
                         ? state.rearDifferentialState.rearDifferentialLeftOutputDriveForceNewtons
                         : state.rearDifferentialState.rearDifferentialRightOutputDriveForceNewtons
 
-                wheelState.requestedDriveForceNewtons = outputDriveForceNewtons
-                wheelState.requestedLongitudinalForceNewtons +=
-                    outputDriveForceNewtons
+                applyRequestedDriveTorque(
+                    wheelState,
+                    outputDriveForceNewtons *
+                        getWheelRollingRadiusMeters(wheelState)
+                )
             }
 
             return
@@ -2010,9 +2214,11 @@ export function createVehicleController(config = {}) {
         for (const wheelState of state.wheelStates) {
             if (!wheelState.driven) continue
 
-            wheelState.requestedDriveForceNewtons = driveForcePerWheelNewtons
-            wheelState.requestedLongitudinalForceNewtons +=
-                driveForcePerWheelNewtons
+            applyRequestedDriveTorque(
+                wheelState,
+                driveForcePerWheelNewtons *
+                    getWheelRollingRadiusMeters(wheelState)
+            )
         }
     }
 
@@ -2243,11 +2449,26 @@ export function createVehicleController(config = {}) {
     }
 
     function calculateWheelDriveTorqueNewtonMeters(wheelState) {
+        // Authoritative per-wheel drive torque is set directly by the active
+        // powertrain drive-torque source (or derived from the legacy fixed
+        // force request) before rotational integration. Do not recompute it
+        // from the compatibility derived force in the same path.
+        const requestedDriveTorqueNewtonMeters =
+            wheelState.requestedDriveTorqueNewtonMeters
+
+        if (Number.isFinite(requestedDriveTorqueNewtonMeters)) {
+            return requestedDriveTorqueNewtonMeters
+        }
+
         const rollingRadiusMeters = getWheelRollingRadiusMeters(wheelState)
 
         if (!Number.isFinite(rollingRadiusMeters) || rollingRadiusMeters <= 0) return 0
 
-        return wheelState.requestedDriveForceNewtons * rollingRadiusMeters
+        return (
+            (Number.isFinite(wheelState.requestedDriveForceNewtons)
+                ? wheelState.requestedDriveForceNewtons
+                : 0) * rollingRadiusMeters
+        )
     }
 
     function calculateWheelBrakeTorqueNewtonMeters(wheelState, dt) {
@@ -2730,6 +2951,8 @@ function createWheelRuntimeStates(vehicle, spec) {
             normalForceNewtons: 0,
             tractionLimitNewtons: 0,
             requestedDriveForceNewtons: 0,
+            requestedDriveTorqueNewtonMeters: 0,
+            appliedDriveTorqueNewtonMeters: 0,
             requestedBrakeForceNewtons: 0,
             requestedLongitudinalForceNewtons: 0,
             uncappedLongitudinalTireForceNewtons: 0,
