@@ -2,10 +2,11 @@
 
 // Static piston-engine profile data for common car engine families.
 //
-// This is PROFILE DATA ONLY. These profiles are surfaced through snapshots/HUD
-// and documented for future engine RPM, gear-ratio, torque-curve, and engine
-// braking work. They do NOT drive vehicle acceleration, braking, RPM, shifting,
-// or engine braking in the current simulation. No physics reads these values.
+// This is PROFILE DATA. The active powertrain drive-torque source v1
+// (src/vehicle/powertrain/createPowertrainDriveTorqueState.js) reads the
+// selected engine torque curve, idle RPM, and redline RPM to derive
+// profile-owned per-wheel drive torque. These profiles do NOT drive braking,
+// shifting, or engine braking in the current simulation.
 //
 // Scope (v1): inline-3, inline-4, inline-5, inline-6, V6, V8, V10, V12.
 // Explicitly excluded: W engines, H engines, flat/boxer engines, rotary/Wankel,

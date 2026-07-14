@@ -1,5 +1,6 @@
 // src/vehicle/dynamics/rearDifferentialState.js
 
+
 export const REAR_DIFFERENTIAL_TYPES = Object.freeze({
   OPEN: 'open',
   LIMITED_SLIP: 'limited-slip',
@@ -37,6 +38,9 @@ export function resetRearDifferentialStepState(state = {}, spec = {}) {
   state.rearDifferentialInputDriveForceNewtons = 0
   state.rearDifferentialLeftOutputDriveForceNewtons = 0
   state.rearDifferentialRightOutputDriveForceNewtons = 0
+  state.rearDifferentialInputDriveTorqueNewtonMeters = 0
+  state.rearDifferentialLeftOutputDriveTorqueNewtonMeters = 0
+  state.rearDifferentialRightOutputDriveTorqueNewtonMeters = 0
   state.rearDifferentialLeftShare01 = 0.5
   state.rearDifferentialRightShare01 = 0.5
   state.rearDifferentialLeftAngularVelocityRadiansPerSecond = 0
@@ -58,6 +62,17 @@ export function resetRearDifferentialStepState(state = {}, spec = {}) {
   state.isRearDifferentialLockedApproximation = false
   state.isRearDifferentialHardSpeedCouplingApplied = false
 
+  // Predictive redline axle-torque cap telemetry (owned by the differential
+  // integration; the active powertrain source owns the requested torque).
+  state.predictiveMaximumAxleDriveTorqueNewtonMeters = 0
+  state.appliedAxleDriveTorqueNewtonMeters = 0
+  state.isPredictiveRedlineLimiterActive = false
+  state.redlineWheelAngularVelocityRadiansPerSecond = 0
+  state.minimumWheelAngularVelocityHeadroomRadiansPerSecond = 0
+  state.predictiveLimiterReason = 'none'
+  state.requestedLeftOutputDriveTorqueNewtonMeters = 0
+  state.requestedRightOutputDriveTorqueNewtonMeters = 0
+
   return state
 }
 
@@ -77,6 +92,156 @@ export function setRearDifferentialType(state = {}, spec = {}, nextType) {
   )
 
   return state
+}
+
+export function resolveRearDifferentialDriveForceShares(
+  state,
+  leftWheelState,
+  rightWheelState,
+  inputDriveForceMagnitudeNewtons,
+  spec
+) {
+  const resolvedRearDifferentialType = state.rearDifferentialType
+  let leftShare01 = 0.5
+  let rightShare01 = 0.5
+  const supportScores = {
+    left: calculateWheelSupportScore(leftWheelState),
+    right: calculateWheelSupportScore(rightWheelState),
+  }
+
+  if (resolvedRearDifferentialType === REAR_DIFFERENTIAL_TYPES.LIMITED_SLIP) {
+    const biasSide = selectPreferredBiasSide({
+      leftWheelState,
+      rightWheelState,
+      supportScores,
+      differentialSlipSpeedEpsilonRadiansPerSecond:
+        resolveDifferentialSlipSpeedEpsilonRadiansPerSecond(spec),
+    })
+    const maxBiasShareDelta01 =
+      clamp01(resolveLimitedSlipDifferentialLockFactor01(spec)) * 0.5
+    const preloadForceNewtons = calculatePreloadForceNewtons(
+      leftWheelState,
+      rightWheelState,
+      spec
+    )
+    const biasSignal01 = calculateBiasSignal01({
+      leftWheelState,
+      rightWheelState,
+      supportScores,
+      differentialSlipSpeedEpsilonRadiansPerSecond:
+        resolveDifferentialSlipSpeedEpsilonRadiansPerSecond(spec),
+    })
+    const maximumBiasForceNewtons =
+      inputDriveForceMagnitudeNewtons * maxBiasShareDelta01
+    const biasForceMagnitudeNewtons =
+      biasSide === null
+        ? 0
+        : Math.min(
+            maximumBiasForceNewtons,
+            maximumBiasForceNewtons * biasSignal01 + preloadForceNewtons
+          )
+    const biasShareDelta01 =
+      inputDriveForceMagnitudeNewtons > 0
+        ? Math.min(
+            maxBiasShareDelta01,
+            biasForceMagnitudeNewtons / inputDriveForceMagnitudeNewtons
+          )
+        : 0
+
+    if (biasSide === 'left') {
+      leftShare01 = 0.5 + biasShareDelta01
+      rightShare01 = 0.5 - biasShareDelta01
+    } else if (biasSide === 'right') {
+      leftShare01 = 0.5 - biasShareDelta01
+      rightShare01 = 0.5 + biasShareDelta01
+    }
+  } else if (resolvedRearDifferentialType === REAR_DIFFERENTIAL_TYPES.TORSEN) {
+    const torqueBiasRatio = resolveTorsenDifferentialTorqueBiasRatio(spec)
+    const strongSide = selectSupportDominantSide(
+      supportScores,
+      leftWheelState,
+      rightWheelState,
+      resolveDifferentialSlipSpeedEpsilonRadiansPerSecond(spec)
+    )
+    const totalSupportScore = supportScores.left + supportScores.right
+    const maximumStrongShare01 = clamp(
+      torqueBiasRatio / (1 + torqueBiasRatio),
+      0.5,
+      1
+    )
+
+    state.rearDifferentialTorqueBiasRatio = torqueBiasRatio
+
+    if (strongSide !== null && totalSupportScore > SUPPORT_EPSILON) {
+      const desiredStrongShare01 =
+        strongSide === 'left'
+          ? supportScores.left / totalSupportScore
+          : supportScores.right / totalSupportScore
+      const boundedStrongShare01 = clamp(
+        desiredStrongShare01,
+        0.5,
+        maximumStrongShare01
+      )
+
+      if (strongSide === 'left') {
+        leftShare01 = boundedStrongShare01
+        rightShare01 = 1 - boundedStrongShare01
+      } else {
+        rightShare01 = boundedStrongShare01
+        leftShare01 = 1 - boundedStrongShare01
+      }
+    }
+  } else if (
+    resolvedRearDifferentialType === REAR_DIFFERENTIAL_TYPES.LOCKED ||
+    resolvedRearDifferentialType === REAR_DIFFERENTIAL_TYPES.WELDED
+  ) {
+    const supportWeightedLeftShare01 = calculateSupportWeightedLeftShare01(
+      supportScores
+    )
+    const lockFactor01 = clamp01(resolveLockedDifferentialLockFactor01(spec))
+
+    leftShare01 = lerp(0.5, supportWeightedLeftShare01, lockFactor01)
+    rightShare01 = 1 - leftShare01
+    state.isRearDifferentialLockedApproximation = true
+  }
+
+  leftShare01 = clamp01(leftShare01)
+  rightShare01 = clamp01(1 - leftShare01)
+
+  return { leftShare01, rightShare01 }
+}
+
+export function resolveRearDifferentialDriveTorqueShares(
+  state = {},
+  rearWheelStates = [],
+  totalAxleDriveTorqueNewtonMeters = 0,
+  spec = {}
+) {
+  const rearWheelPair = resolveRearWheelPair(rearWheelStates)
+  const leftWheelState = normalizeRearWheelState(rearWheelPair.leftWheelState)
+  const rightWheelState = normalizeRearWheelState(rearWheelPair.rightWheelState)
+  const referenceRollingRadiusMeters =
+    (leftWheelState.effectiveTireRollingRadiusMeters +
+      rightWheelState.effectiveTireRollingRadiusMeters) /
+    2
+  const equivalentAxleDriveForceMagnitudeNewtons =
+    referenceRollingRadiusMeters > 0
+      ? Math.abs(sanitizeNumber(totalAxleDriveTorqueNewtonMeters)) /
+        referenceRollingRadiusMeters
+      : 0
+
+  // The existing share-selection model is force-domain: its limited-slip
+  // preload and maximum bias are both Newton values. Active axle torque is
+  // converted only for share selection using the arithmetic-mean effective
+  // rolling radius of the rear pair. The resulting shares are dimensionless;
+  // this equivalent force never enters wheel or chassis force integration.
+  return resolveRearDifferentialDriveForceShares(
+    state,
+    leftWheelState,
+    rightWheelState,
+    equivalentAxleDriveForceMagnitudeNewtons,
+    spec
+  )
 }
 
 export function updateRearDifferentialDriveForceSplit(
@@ -219,6 +384,101 @@ export function updateRearDifferentialDriveForceSplit(
   state.rearDifferentialRightOutputDriveForceNewtons =
     safeTotalDriveForceNewtons -
     state.rearDifferentialLeftOutputDriveForceNewtons
+  state.isRearDifferentialBiasing =
+    Math.abs(state.rearDifferentialLeftShare01 - 0.5) > SHARE_EPSILON_01 ||
+    Math.abs(state.rearDifferentialRightShare01 - 0.5) > SHARE_EPSILON_01
+
+  return state
+}
+
+export function updateRearDifferentialDriveTorqueSplit(
+  state = {},
+  rearWheelStates = [],
+  totalAxleDriveTorqueNewtonMeters = 0,
+  spec = {}
+) {
+  resetRearDifferentialStepState(state, spec)
+
+  const safeTotalAxleTorqueNewtonMeters = sanitizeNumber(
+    totalAxleDriveTorqueNewtonMeters
+  )
+  const rearWheelPair = resolveRearWheelPair(rearWheelStates)
+  const leftWheelState = normalizeRearWheelState(rearWheelPair.leftWheelState)
+  const rightWheelState = normalizeRearWheelState(rearWheelPair.rightWheelState)
+
+  state.rearDifferentialInputDriveTorqueNewtonMeters =
+    safeTotalAxleTorqueNewtonMeters
+  assignRearDifferentialWheelSpeedTelemetry(
+    state,
+    leftWheelState.angularVelocityRadiansPerSecond,
+    rightWheelState.angularVelocityRadiansPerSecond
+  )
+
+  const shares = resolveRearDifferentialDriveTorqueShares(
+    state,
+    rearWheelStates,
+    safeTotalAxleTorqueNewtonMeters,
+    spec
+  )
+  const leftShare01 = shares.leftShare01
+  const rightShare01 = shares.rightShare01
+
+  state.rearDifferentialLeftShare01 = leftShare01
+  state.rearDifferentialRightShare01 = rightShare01
+  state.rearDifferentialLeftOutputDriveTorqueNewtonMeters =
+    safeTotalAxleTorqueNewtonMeters * leftShare01
+  state.rearDifferentialRightOutputDriveTorqueNewtonMeters =
+    safeTotalAxleTorqueNewtonMeters -
+    state.rearDifferentialLeftOutputDriveTorqueNewtonMeters
+  state.isRearDifferentialBiasing =
+    Math.abs(state.rearDifferentialLeftShare01 - 0.5) > SHARE_EPSILON_01 ||
+    Math.abs(state.rearDifferentialRightShare01 - 0.5) > SHARE_EPSILON_01
+
+  return state
+}
+
+export function updateRearDifferentialDriveTorqueSplitWithShares(
+  state = {},
+  rearWheelStates = [],
+  totalAxleDriveTorqueNewtonMeters = 0,
+  shares = {},
+  spec = {}
+) {
+  resetRearDifferentialStepState(state, spec)
+
+  const safeTotalAxleTorqueNewtonMeters = sanitizeNumber(
+    totalAxleDriveTorqueNewtonMeters
+  )
+  const rearWheelPair = resolveRearWheelPair(rearWheelStates)
+  const leftWheelState = normalizeRearWheelState(rearWheelPair.leftWheelState)
+  const rightWheelState = normalizeRearWheelState(rearWheelPair.rightWheelState)
+
+  state.rearDifferentialInputDriveTorqueNewtonMeters =
+    safeTotalAxleTorqueNewtonMeters
+  assignRearDifferentialWheelSpeedTelemetry(
+    state,
+    leftWheelState.angularVelocityRadiansPerSecond,
+    rightWheelState.angularVelocityRadiansPerSecond
+  )
+
+  // Shares are resolved ONCE by the caller (from the requested axle torque)
+  // and passed here so the capped axle torque is distributed through the EXACT
+  // same resolved shares. This avoids a second, potentially state-dependent
+  // share resolution and keeps axle-torque conservation exact.
+  const leftShare01 = Number.isFinite(shares?.leftShare01)
+    ? shares.leftShare01
+    : 0.5
+  const rightShare01 = Number.isFinite(shares?.rightShare01)
+    ? shares.rightShare01
+    : 1 - leftShare01
+
+  state.rearDifferentialLeftShare01 = leftShare01
+  state.rearDifferentialRightShare01 = rightShare01
+  state.rearDifferentialLeftOutputDriveTorqueNewtonMeters =
+    safeTotalAxleTorqueNewtonMeters * leftShare01
+  state.rearDifferentialRightOutputDriveTorqueNewtonMeters =
+    safeTotalAxleTorqueNewtonMeters -
+    state.rearDifferentialLeftOutputDriveTorqueNewtonMeters
   state.isRearDifferentialBiasing =
     Math.abs(state.rearDifferentialLeftShare01 - 0.5) > SHARE_EPSILON_01 ||
     Math.abs(state.rearDifferentialRightShare01 - 0.5) > SHARE_EPSILON_01

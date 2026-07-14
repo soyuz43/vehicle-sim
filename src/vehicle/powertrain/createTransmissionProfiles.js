@@ -2,11 +2,11 @@
 
 // Static transmission profile data for common car transmission types.
 //
-// This is PROFILE DATA ONLY. These profiles are surfaced through snapshots/HUD
-// and documented for future gear-ratio, shifting, torque-converter, clutch, and
-// differential work. They do NOT drive vehicle acceleration, braking, RPM,
-// shifting, or any drivetrain behavior in the current simulation. No physics
-// reads these values.
+// This is PROFILE DATA. The active powertrain drive-torque source v1 and the
+// shared representative-ratio helper read the selected representative forward
+// gear ratio, absolute reverse ratio, and final-drive ratio to multiply engine
+// torque into axle torque. These profiles do NOT drive shifting, clutch,
+// torque-converter, or any other drivetrain behavior in the current simulation.
 //
 // Scope (v1): manual-4, manual-5, manual-6, manual-6-granny, automatic-6,
 // automatic-8, dct-7, dct-8, cvt. All static data profiles only.

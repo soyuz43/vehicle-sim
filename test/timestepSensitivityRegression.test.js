@@ -31,10 +31,21 @@ const STOPPED_SPEED_METERS_PER_SECOND = 0.05
 
 // Corruption / runaway guards. Values come from a fresh baseline measurement
 // plus headroom; passing them does NOT make the current behavior realistic.
-// Baseline peaks (default car, these scenarios): wheel angular velocity
-// ~908 rad/s, wheel surface speed ~436 m/s, |slip| ~1.71.
-const WHEEL_ANGULAR_VELOCITY_CEILING_RADIANS_PER_SECOND = 1100
-const WHEEL_SURFACE_SPEED_CEILING_METERS_PER_SECOND = 600
+// C2 is a regression guard, not proof of physical fidelity. The default car now
+// uses the active profile-derived powertrain drive-torque source v1. Its
+// full-throttle LAUNCH peaks near ~62 rad/s wheel angular velocity and ~30 m/s
+// wheel surface speed at 60 Hz (lower at higher rates) - materially below the
+// old fixed-force launch (~908 rad/s / ~436 m/s, preserved only under
+// spec.powertrainDriveTorqueEnabled === false; see
+// test/vehicleControllerLegacyDriveForceCompatibility.test.js). The braking
+// scenarios still exhibit this suite's documented hard-braking transient
+// artifact (slip overshoot under discrete braking integration), which peaks
+// higher (~425 rad/s / ~204 m/s at 480 Hz). The ceilings below add modest
+// headroom over that worst case and remain far below the legacy fixed-force
+// launch, so they catch a regression back toward the old unbalanced behavior
+// without certifying the braking transient as correct.
+const WHEEL_ANGULAR_VELOCITY_CEILING_RADIANS_PER_SECOND = 500
+const WHEEL_SURFACE_SPEED_CEILING_METERS_PER_SECOND = 250
 const SLIP_CORRUPTION_CEILING = 3.0
 
 // Braking regression guards. The 60 Hz hard-braking transient currently
@@ -140,6 +151,7 @@ function runScenarioAtRate(scenario, rateHz) {
     minWheelCount: Number.POSITIVE_INFINITY,
     maxAbsSlipRatio: 0,
     maxAbsAngularVelocityRadiansPerSecond: 0,
+    peakRawRpm: 0,
     maxAbsWheelSurfaceSpeedMetersPerSecond: 0,
     brakeStarted: false,
     firstStoppedTimeSeconds: null,
@@ -199,6 +211,16 @@ function runScenarioAtRate(scenario, rateHz) {
       !Number.isFinite(latestSnapshot.position.z)
     ) {
       metrics.allFinite = false
+    }
+
+    // Active powertrain telemetry: track peak raw coupled engine RPM so the
+    // active-launch guard can reject a redline overshoot regression.
+    const activePowertrain = latestSnapshot.powertrainDriveTorque
+    if (activePowertrain && Number.isFinite(activePowertrain.rawCoupledEngineRpm)) {
+      metrics.peakRawRpm = Math.max(
+        metrics.peakRawRpm,
+        activePowertrain.rawCoupledEngineRpm
+      )
     }
 
     if (input.brake) {
