@@ -44,8 +44,19 @@ const BRAKE_PEAK_SLIP_CEILING = 2.0
 const BRAKE_RESIDUAL_SPEED_CEILING_METERS_PER_SECOND = 0.5
 // The stopping state is a known timestep-sensitive artifact. We bound the
 // absolute spread of first-stop times (never a relative error against zero
-// speed) rather than asserting convergence. Baseline spread ~0.48 s.
-const STOP_TIME_SPREAD_CEILING_SECONDS = 2.0
+// speed) rather than asserting convergence. Fresh baseline spread ~0.475 s.
+// The previous 2.0 s bound was broad enough that a major regression could pass
+// unnoticed; 0.60 s keeps modest headroom over the current behavior without
+// canonizing it as correct.
+const STOP_TIME_SPREAD_CEILING_SECONDS = 0.60
+// Long-brake cross-rate final-position (stopping-distance) spread guard. The
+// current model shows known timestep sensitivity in long braking (wheel
+// rotational integration, discretely refreshed slip/traction state, the staged
+// ABS approximation, and the low-speed stopped gate), so rates stop at different
+// final positions. This ceiling detects material worsening of that spread; it
+// does NOT establish physical correctness and does NOT treat 480 Hz as ground
+// truth. Fresh baseline spread ~1.41 m; 1.60 m keeps modest headroom.
+const MAXIMUM_LONG_BRAKE_POSITION_SPREAD_METERS = 1.6
 
 // Sensitivity tolerances vs the 480 Hz reference. Baseline worst-case (60 Hz)
 // divergences are far smaller than these bounds: launch speed ~0.014 m/s,
@@ -452,5 +463,47 @@ test('longer throttle-then-brake reaches a stop at every rate and records bounde
     `longBrake stop-time spread ${stopTimeSpreadSeconds.toFixed(
       3
     )}s exceeded bounded-sensitivity guard ${STOP_TIME_SPREAD_CEILING_SECONDS}s (${report})`
+  )
+})
+
+// --- Longer throttle-then-brake: cross-rate final-position spread regression guard ---
+
+test('longer throttle-then-brake final-position spread stays within cross-rate regression guard', () => {
+  const results = runScenarioAcrossRates(SCENARIOS.longThrottleThenBrake)
+
+  const perRate = TIMESTEP_RATES_HZ.map((rateHz) => {
+    const metrics = results.get(rateHz)
+    assert.ok(
+      metrics.firstStoppedTimeSeconds !== null,
+      `longBrake at ${rateHz}Hz never reached the stopped threshold within ${SCENARIOS.longThrottleThenBrake.durationSeconds}s`
+    )
+    // Per-rate scalar: final planar distance traveled from the start. The
+    // scenario is straight-line, so this is effectively the braking/stopping
+    // distance. We guard the cross-rate SPREAD, not any single rate as truth.
+    const finalPositionMeters = planarDistanceMeters(metrics.finalPosition, {
+      x: 0,
+      z: 0,
+    })
+    return { rateHz, finalPositionMeters }
+  })
+
+  const values = perRate.map((entry) => entry.finalPositionMeters)
+  const positionSpreadMeters = Math.max(...values) - Math.min(...values)
+  const report = perRate
+    .map((entry) => `${entry.rateHz}Hz=${entry.finalPositionMeters.toFixed(3)}m`)
+    .join(', ')
+
+  // Regression ceiling, not a physical-correctness claim. The current model
+  // shows known timestep sensitivity in long braking (wheel rotational
+  // integration + discretely refreshed slip/traction + the staged ABS
+  // approximation + the low-speed stopped gate), so rates land at different
+  // final stopping positions. We only detect material worsening of that spread;
+  // the ceiling does NOT canonize the current ~1.41 m spread as correct, and
+  // 480 Hz is a comparison reference, not ground truth.
+  assert.ok(
+    positionSpreadMeters < MAXIMUM_LONG_BRAKE_POSITION_SPREAD_METERS,
+    `longBrake final-position spread ${positionSpreadMeters.toFixed(
+      3
+    )}m exceeded cross-rate regression ceiling ${MAXIMUM_LONG_BRAKE_POSITION_SPREAD_METERS}m (allowed ${MAXIMUM_LONG_BRAKE_POSITION_SPREAD_METERS}m; ${report})`
   )
 })
