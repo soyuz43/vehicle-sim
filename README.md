@@ -22,6 +22,10 @@ The trace also records per-wheel longitudinal slip ratio, longitudinal ground sp
 
 This source-of-truth seam prepares future V2 branches by making update-order and force-source regressions easier to detect without adding a history buffer or storing Three.js objects. True chassis heave, pitch, and roll plus richer combined tire modeling remain future work and are not implemented here.
 
+## Timestep Sensitivity Regression Suite
+
+`test/timestepSensitivityRegression.test.js` runs deterministic vehicle-controller scenarios (full-throttle launch, throttle then hard braking, low-speed powered cornering, and a longer throttle then braking) at `60`, `120`, `240`, and `480` Hz and compares them using the Step Trace fields above. It is a multi-rate timestep-sensitivity regression and boundedness guard, not a proof of numerical convergence or physical fidelity; the `480` Hz run is only a finer-step comparison reference, not ground truth. Every rate simulates the same physical duration with input transitions on exact integer steps, so each rate receives an identical input schedule. The suite separates invariant checks (finite state, stable wheel count, exact step counts, and wheel angular-velocity / surface-speed / slip runaway ceilings) from sensitivity checks (endpoint speed, planar position, yaw, and yaw rate against the reference, plus braking peak-slip, residual-speed, and bounded stop-time-spread guards). Known artifacts — timestep-dependent hard-braking slip overshoot, a stopping-state discrepancy across rates, and large sustained wheelspin wheel angular velocity — remain in place; the guards detect material worsening rather than certifying current behavior.
+
 
 ## Wheel Contact State
 
