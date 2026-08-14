@@ -273,30 +273,48 @@ When operating in Windows PowerShell or PowerShell 7:
 - Distinguish sandbox restrictions from repository problems.
 - Never infer behavior changes solely from command failures caused by the execution environment.
 
-## 3. Architectural Direction & Staging
-We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
+## 3. Inference & Quality-Control Contract
 
-### Current Progression Roadmap
-1.  [x] Visual chassis & Debug HUD
-2.  [x] Extracted Vehicle Controller & Units/Gravity
-3.  [x] Force-based flat-ground longitudinal motion
-4.  [x] Simple R/N/D Gear Selector
-5.  [x] Fixed Timestep Simulation Loop
-6.  [x] Surface Queries (Flat Terrain)
-7.  [x] Per-Wheel Contact State (Finite Grounded/Airborne)
-8.  [x] Per-Wheel Longitudinal Force Pipeline
-9.  [x] Wheel Rotational State Foundation (Visual Sync)
-10. [x] Per-Wheel Brake Torque Foundation (Telemetry/Seams)
-11. [ ] **Next**: Torque-Based Wheel Dynamics (Slip Ratio, Lockup)
-12. [ ] Lateral Dynamics & Tire Curves
-13. [ ] Suspension & Weight Transfer
+This document is a **quality-control and inference contract**, not a roadmap. It records the verified current state of the simulation and the discipline required to reason about it. The project's actual implementation has advanced beyond any linear "next layer" list; treat this file as the baseline every claim about the codebase must reconcile against, and verify against source before asserting.
 
-### Design Prohibitions (Unless Explicitly Requested)
-- **No Premature Physics**: Do not implement the next realism layer until its prerequisites exist. If a system already exists in `src/vehicle`, preserve and extend it according to the current code rather than treating older roadmap text as authoritative.
-- **No Gameplay Creep**: No laps, scores, or AI.
-- **No "Magic" Numbers**: Do not tune mass, drag, or friction to "feel good" if it breaks physical consistency. Tune for realism first.
-- **No Dependency Bloat**: Use only Three.js and standard JS APIs. Ask before adding any new package.
-- **Current Code Wins**: Roadmap text may lag behind implementation. Verify current source before deciding whether a system exists or is prohibited.
+### 3.1 Verified Current State (Inference Baseline)
+Confirmed present against `src/` and the passing test suite (Section 6). This is the reference for "does the sim already do X?":
+- Fixed-timestep physics (1/60 s) decoupled from render (`src/simulation/createFixedTimestepRunner.js`, `src/main.js`).
+- Deterministic heightfield terrain plus per-wheel suspension raycast contact with hysteresis (`src/terrain/*`, `src/vehicle/createVehicleController.js`).
+- Torque-coupled wheel rotational dynamics (angular velocity, inertia, net torque).
+- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap.
+- Quasi-static longitudinal and lateral load transfer redistributing normal force.
+- Planar chassis motion: world/local velocity, yaw, yaw rate, summed planar force and yaw moment.
+- Aerodynamic drag (quadratic, no downforce), chassis mass properties, and a visual chassis-attitude foundation (heave/pitch/roll, visual only).
+- Rear differential models (open, limited-slip, torsen, locked, welded), powertrain profiles and active drive torque v1 with predictive redline cap (`src/vehicle/powertrain/*`).
+- Service brake bias, ABS v1, and longitudinal traction-state classification.
+- Tire pressure handling and visual deformation, a developer tuning panel, step-trace instrumentation, and a multi-rate timestep-sensitivity regression suite.
+
+### 3.2 Documented Unfinished Seams
+The genuine next-layer gaps, self-identified in source comments and `README.md` (not assumed). Any "future work" claim must map to one of these or be evidenced in code:
+- Realistic tire model: the current model is `not Pacejka, not combined-slip` (`src/vehicle/defaultVehicleSpec.js`).
+- True multibody chassis heave/pitch/roll dynamics (roll centers, landing impulses, suspension-geometry solver); the current attitude state is a visual foundation only.
+- Wheel-lock behavior and richer ABS: `src/vehicle/createVehicleController.js` notes "Wheel lock behavior remains future work"; ABS is a staged approximation.
+- Traction/stability control and drift models: explicitly excluded in source.
+- Powertrain depth: no automatic shifting, clutch, torque converter, engine rotational inertia, or engine braking.
+- Aero depth: no downforce, lift, or wind; surface friction zones (everything is `flat-asphalt-placeholder`).
+- Timestep sensitivity: documented long-brake stopping-distance and stop-time spread across 60 to 480 Hz.
+
+### 3.3 Inference Discipline (Core Contract)
+When analyzing or describing this repository, you MUST:
+- **Separate claim types**: state Facts (evidence-backed), Observations (directly visible), Inferences (reasoned conclusions), Assumptions (unverified), Recommendations, and Speculation distinctly. Never present an assumption as a fact.
+- **Verify against source before asserting**: search the codebase (prefer `rg`) and, when claiming a system is present or absent, confirm the search ran successfully and searched the intended roots. Distinguish absence-of-evidence, evidence-of-absence, command failure, and incomplete scope; they are not equivalent.
+- **Current Code Wins**: source is authoritative over this file, `README.md`, and any older roadmap text. When they disagree, inspect the actual implementation and report the discrepancy rather than trusting the prose.
+- **State confidence**: label conclusions as confirmed, probable, or unknown, and identify the files you inspected.
+- **No silent scope expansion**: respect the user's stated scope; stop once sufficient evidence is collected.
+
+### 3.4 Staging & Design Prohibitions
+- **No Premature Physics**: Do not implement a realism layer whose prerequisites are not yet stable. Preserve and extend existing `src/vehicle` systems per current code.
+- **No Gameplay Creep**: No laps, scores, AI, or arcade objectives (see Scope Boundary).
+- **No "Magic" Numbers**: Tune for physical consistency first; do not tune mass, drag, or friction to "feel good" at the expense of realism.
+- **No Dependency Bloat**: Three.js and standard JS APIs only; ask before adding a package.
+- **Seams Over Solutions**: When a requested system is not ready, implement the interface (seam) and leave logic empty or commented; flag it honestly.
+- **Correctness > Features**: A broken realistic system is worse than a working simple one. Flag "realistic" code that relies on hardcoded multipliers.
 
 ## 4. Hard Simulation Conventions
 - **Units**:
@@ -348,9 +366,10 @@ We build in strict layers. Do not implement Layer N+1 until Layer N is stable.
   ```
 - **Validation Checklist** (Before Pushing):
   1. `npm run build` passes.
-  2. `rg` confirms no prohibited feature implementation was introduced. Future-work mentions in README, AGENTS.md, skill docs, or comments are allowed; executable-code matches must be inspected and explained.
-  3. Manual check: Driving, Braking, Reset, and HUD updates work.
-  4. No unintended behavior regression.
+  2. `node --test "test/*.test.js"` passes (note: `node --test test/` fails here because the directory is not treated as a glob; `npm test` is not currently defined).
+  3. `rg` confirms no prohibited feature implementation was introduced. Future-work mentions in README, AGENTS.md, skill docs, or comments are allowed; executable-code matches must be inspected and explained.
+  4. Manual check: Driving, Braking, Reset, and HUD updates work.
+  5. No unintended behavior regression.
 
 ## 7. Review Posture
 - **Correctness > Features**: A broken realistic system is worse than a working simple one.
