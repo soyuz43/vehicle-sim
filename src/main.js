@@ -4,6 +4,9 @@ import * as THREE from 'three'
 import { createTerrain } from './terrain/createTerrain.js'
 import { createTerrainSurfaceProfile } from './terrain/createTerrainSurfaceProfile.js'
 import { createHeightfieldTerrainContactQuery } from './terrain/createHeightfieldTerrainContactQuery.js'
+import { createTerrainSelection } from './terrain/createTerrainSelection.js'
+import { createObstacleFieldVisuals } from './terrain/obstacles/createObstacleFieldVisuals.js'
+import { createTerrainSelector } from './ui/terrainSelector/createTerrainSelector.js'
 import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
@@ -67,7 +70,13 @@ scene.add(sun)
 /* =========================
    Terrain
 ========================= */
-const terrainSurfaceProfile = createTerrainSurfaceProfile()
+// Terrain selection. The default (no ?terrain= param) reproduces the
+// original proving-ground behavior exactly; ?terrain=offroad composes the
+// catalog-driven enhanced profile, the procedural playground generator, and
+// the static obstacle field.
+const terrainSelection = createTerrainSelection()
+const terrainSurfaceProfile = terrainSelection.surfaceProfile
+
 const terrain = createTerrain({
   surfaceProfile: terrainSurfaceProfile,
 })
@@ -77,6 +86,19 @@ const terrainInfo = terrain.userData.terrain
 const terrainContactQuery = createHeightfieldTerrainContactQuery({
   surfaceProfile: terrainSurfaceProfile,
 })
+
+// Static obstacle visuals (offroad mode only). Purely visual; the physics uses
+// the same obstacle geometry through the obstacle-aware surface profile.
+let obstacleVisuals = null
+if (terrainSelection.obstacleField) {
+  obstacleVisuals = createObstacleFieldVisuals(terrainSelection.obstacleField, {
+    baseProfile: terrainSelection.baseProfile,
+  })
+  scene.add(obstacleVisuals.group)
+}
+
+// Minimal terrain selector UI; reloads with the chosen ?terrain= parameter.
+createTerrainSelector({ selection: terrainSelection })
 
 /* =========================
    Car
@@ -383,6 +405,12 @@ function animate() {
 
   cameraManager.update(clampedRenderDeltaSeconds)
   const vehicleSnapshot = vehicleController.getSnapshot()
+  if (obstacleVisuals) {
+    const wheelContactPoints = (vehicleSnapshot.wheelStates || [])
+      .map((wheelState) => (wheelState ? wheelState.contactPointWorldPosition : null))
+      .filter(Boolean)
+    obstacleVisuals.updateContactVisuals(wheelContactPoints)
+  }
   tireSlipFeedback.update(
     vehicleSnapshot,
     car,
