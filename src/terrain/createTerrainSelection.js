@@ -1,7 +1,7 @@
 // src/terrain/createTerrainSelection.js
 
 /**
- * Terrain selection for the virtual 4x4 playground (Phase 1).
+ * Terrain selection for the virtual 4x4 playground (Phase 2).
  *
  * Reads an optional ?terrain=<name> URL parameter and returns the surface
  * profile (and obstacle field, when applicable) to drive both the render mesh
@@ -9,32 +9,54 @@
  * proving-ground behavior exactly (createTerrainSurfaceProfile with no
  * arguments), so existing driving/braking/reset on the flat + heightfield sim
  * is unaffected. Selecting "offroad" composes the catalog-driven enhanced
- * profile, the procedural playground generator, and the static obstacle field.
+ * profile, the procedural playground generator, and the movable obstacle field.
+ * Selecting "offroad-water" adds water features to the offroad playground.
  */
 
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
 import { createOffroadPlaygroundProfile } from './createEnhancedTerrainSurfaceProfile.js'
-import { createObstacleField } from './obstacles/createObstacleField.js'
+import { createMovableObstacleField } from './obstacles/createMovableObstacleField.js'
 import { createObstacleAwareSurfaceProfile } from './createObstacleAwareSurfaceProfile.js'
+import { createWaterSurface } from './water/createWaterSurface.js'
+import { createWeatherState } from './createWeatherState.js'
 
-const SUPPORTED_NAMES = Object.freeze(['proving-ground', 'offroad'])
+const SUPPORTED_NAMES = Object.freeze(['proving-ground', 'offroad', 'offroad-water'])
 
 export function createTerrainSelection(config = {}) {
   const requestedName = readUrlParam(config.paramName ?? 'terrain')
-  const name =
-    requestedName === 'offroad' ? 'offroad' : 'proving-ground'
+  let name = 'proving-ground'
+  if (requestedName === 'offroad') {
+    name = 'offroad'
+  } else if (requestedName === 'offroad-water') {
+    name = 'offroad-water'
+  }
   const displayName =
-    name === 'offroad' ? 'Offroad Playground' : 'Proving Ground'
+    name === 'offroad' ? 'Offroad Playground' : 
+    name === 'offroad-water' ? 'Offroad Playground with Water' : 
+    'Proving Ground'
 
   let surfaceProfile
   let enhancedProfile = null
   let obstacleField = null
+  let waterSurface = null
+  let weatherState = null
 
   if (name === 'offroad') {
     enhancedProfile = createOffroadPlaygroundProfile(
       config.offroadProfileConfig ?? {}
     )
-    obstacleField = createObstacleField(config.obstacleFieldConfig ?? {})
+    obstacleField = createMovableObstacleField(config.obstacleFieldConfig ?? {})
+    surfaceProfile = createObstacleAwareSurfaceProfile({
+      baseProfile: enhancedProfile,
+      obstacleField,
+    })
+  } else if (name === 'offroad-water') {
+    enhancedProfile = createOffroadPlaygroundProfile(
+      config.offroadProfileConfig ?? {}
+    )
+    obstacleField = createMovableObstacleField(config.obstacleFieldConfig ?? {})
+    waterSurface = createWaterSurface(config.waterSurfaceConfig ?? {})
+    weatherState = createWeatherState(config.weatherStateConfig ?? {})
     surfaceProfile = createObstacleAwareSurfaceProfile({
       baseProfile: enhancedProfile,
       obstacleField,
@@ -52,6 +74,8 @@ export function createTerrainSelection(config = {}) {
     surfaceProfile,
     baseProfile: enhancedProfile ?? surfaceProfile,
     obstacleField,
+    waterSurface,
+    weatherState,
   }
 }
 
