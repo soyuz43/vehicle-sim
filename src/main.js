@@ -11,6 +11,9 @@ import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createDebugHud } from './ui/debugHud/createDebugHud.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
+import { createControllerConfig } from './vehicle/config/applyVehicleConfiguration.js'
+import { createDefaultVehicleConfiguration } from './vehicle/config/createVehicleConfiguration.js'
+import { createCustomizationUI } from './vehicle/ui/createCustomizationUI.js'
 import { createGearIndicator } from './ui/gearIndicator/createGearIndicator.js'
 import { createTireInflationPanel } from './ui/tireInflationPanel/createTireInflationPanel.js'
 import { createDeveloperTuningPanel } from './ui/developerTuningPanel/createDeveloperTuningPanel.js'
@@ -144,10 +147,33 @@ scene.add(car)
 /* =========================
    Vehicle Controller
 ========================= */
-const vehicleController = createVehicleController({
-  vehicle: car,
-  terrainContactQuery,
-})
+// Phase 4 vehicle customization (offroad modes only). The proving-ground path
+// keeps the original controller creation unchanged: buildVehicleControllerConfig
+// returns the same { vehicle, terrainContactQuery } shape when no configuration is
+// supplied, so behavior is byte-identical to prior merged phases.
+const isOffroadMode =
+  terrainSelection.name === 'offroad' || terrainSelection.name === 'offroad-water'
+
+function buildVehicleControllerConfig(configuration) {
+  if (!configuration) {
+    return { vehicle: car, terrainContactQuery }
+  }
+  return createControllerConfig(configuration, {
+    vehicle: car,
+    terrainContactQuery,
+    startPosition: new THREE.Vector3(0, 0, 0),
+    startRotation: new THREE.Euler(0, 0, 0),
+  })
+}
+
+let activeVehicleConfiguration = isOffroadMode ? createDefaultVehicleConfiguration() : null
+let vehicleController = createVehicleController(buildVehicleControllerConfig(activeVehicleConfiguration))
+
+function rebuildVehicleController(configuration) {
+  activeVehicleConfiguration = configuration
+  vehicleController = createVehicleController(buildVehicleControllerConfig(configuration))
+  return vehicleController.getSnapshot()
+}
 
 const tireSlipFeedback = createTireSlipFeedback({
   maxWheelEffects: vehicleController.getSnapshot().wheelStates.length,
@@ -237,6 +263,28 @@ const developerTuningPanel = createDeveloperTuningPanel({
   vehicleController,
 })
 document.body.appendChild(developerTuningPanel.element)
+/* =========================
+   Phase 4 Vehicle Customization UI (offroad modes only)
+   Explorer-facing component builder. It never touches physics directly; slot
+   changes rebuild the vehicle controller from the new configuration and reset
+   restores the default configuration + simulation state. The proving-ground
+   path never creates this panel, so its behavior is unchanged.
+========================= */
+let customizationUI = null
+
+if (isOffroadMode) {
+  customizationUI = createCustomizationUI({
+    configuration: activeVehicleConfiguration,
+    onChange: (nextConfiguration) => {
+      rebuildVehicleController(nextConfiguration)
+    },
+    onReset: () => {
+      const defaultConfiguration = createDefaultVehicleConfiguration()
+      rebuildVehicleController(defaultConfiguration)
+      customizationUI.setConfiguration(defaultConfiguration)
+    },
+  })
+}
 
 /* =========================
    Clock
