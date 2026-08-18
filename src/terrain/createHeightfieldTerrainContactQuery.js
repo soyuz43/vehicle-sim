@@ -51,6 +51,8 @@ export function createHeightfieldTerrainContactQuery(config = {}) {
       surface.frictionCoefficient
     )
     target.profileName = surface.profileName ?? 'unavailable'
+    target.obstacleId = surface.obstacleId ?? null
+    target.isObstacleContact = surface.isObstacleContact === true
     target.slopeRadians = sanitizeNonNegativeNumber(surface.slopeRadians)
     target.slopeDegrees = sanitizeNonNegativeNumber(surface.slopeDegrees)
     target.status = surface.status ?? 'surface-unavailable'
@@ -219,6 +221,8 @@ export function createHeightfieldTerrainContactQuery(config = {}) {
     normalizeVector3WithUpFallback(target.contactNormalWorld)
     target.surfaceKind = contactSurface.surfaceKind
     target.frictionCoefficient = contactSurface.frictionCoefficient
+    target.obstacleId = contactSurface.obstacleId ?? null
+    target.isObstacleContact = contactSurface.isObstacleContact === true
     target.profileName = contactSurface.profileName
     target.slopeRadians = contactSurface.slopeRadians
     target.slopeDegrees = contactSurface.slopeDegrees

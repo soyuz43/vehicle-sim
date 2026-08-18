@@ -21,6 +21,7 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
   const obstacleField = config.obstacleField
   const waterSurface = config.waterSurface
   const weatherState = config.weatherState
+  const deformationField = config.deformationField ?? null
   const normalSampleDistanceMeters = sanitizePositiveNumber(
     config.normalSampleDistanceMeters,
     0.05
@@ -37,33 +38,39 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
     )
   }
 
-  // Merged height = terrain height + obstacle local height (0 outside a
-  // footprint). The terrain mesh samples this directly, so obstacles render as
-  // part of the same heightfield the physics uses.
+  // Merged height. The ground is the base terrain plus any deformation offset;
+  // a covering obstacle top is the ground plus the obstacle local height; water
+  // is an independent plane. Absent layers use -Infinity so they never mask a
+  // real (possibly deformed-below-zero) ground. This is the root-correct
+  // composition (previously a max(terrain, obstacleLocal) bug hid depressions
+  // and obstacle tops on non-flat terrain).
   function getHeightAtWorldXZ(worldXMeters, worldZMeters) {
-    const baseHeightMeters = baseProfile.getHeightAtWorldXZ(
+    let groundHeightMeters = baseProfile.getHeightAtWorldXZ(
       worldXMeters,
       worldZMeters
     )
-    
-    // Check for water surface
+    if (deformationField && typeof deformationField.getHeightOffsetAtWorldXZ === 'function') {
+      groundHeightMeters += deformationField.getHeightOffsetAtWorldXZ(worldXMeters, worldZMeters)
+    }
+
     let waterHeightMeters = -Infinity
     if (waterSurface && typeof waterSurface.getHeightAtWorldXZ === 'function') {
-      waterHeightMeters = waterSurface.getHeightAtWorldXZ(worldXMeters, worldZMeters)
+      const wh = waterSurface.getHeightAtWorldXZ(worldXMeters, worldZMeters)
+      if (Number.isFinite(wh)) waterHeightMeters = wh
     }
-    
-    // Check for obstacles
-    let obstacleHeightMeters = 0
+
+    let obstacleTopMeters = -Infinity
     if (obstacleField) {
       const obstacle = obstacleField.sampleTopSurfaceAtWorldXZ(
         worldXMeters,
         worldZMeters
       )
-      obstacleHeightMeters = obstacle ? obstacle.localHeightMeters : 0
+      if (obstacle && Number.isFinite(obstacle.localHeightMeters) && obstacle.localHeightMeters > 0) {
+        obstacleTopMeters = groundHeightMeters + obstacle.localHeightMeters
+      }
     }
-    
-    // Return the maximum height
-    return Math.max(baseHeightMeters, waterHeightMeters, obstacleHeightMeters)
+
+    return Math.max(groundHeightMeters, waterHeightMeters, obstacleTopMeters)
   }
 
   function calculateNormalAtWorldXZ(worldXMeters, worldZMeters, target) {
@@ -104,7 +111,11 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
       worldZMeters,
       target
     )
-    const baseHeightMeters = base.terrainHeightMeters
+    const offsetMeters =
+      deformationField && typeof deformationField.getHeightOffsetAtWorldXZ === 'function'
+        ? deformationField.getHeightOffsetAtWorldXZ(worldXMeters, worldZMeters)
+        : 0
+    const baseHeightMeters = base.terrainHeightMeters + offsetMeters
 
     // Check for water surface
     let waterInfo = null
@@ -137,6 +148,8 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
             groundHeightMeters: obstacleTopYMeters,
             surfaceKind: obstacle.surfaceKind,
             frictionCoefficient: obstacle.frictionCoefficient,
+            obstacleId: obstacle.obstacleId,
+            isObstacleContact: true,
           }
         }
       }
@@ -165,10 +178,13 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
     }
 
     // Update the target with our result
-    target.terrainHeightMeters = result.terrainHeightMeters
+    target.terrainHeightMeters =
+      result.terrainHeightMeters + (result === base ? offsetMeters : 0)
     target.groundHeightMeters = result.groundHeightMeters
     target.surfaceKind = result.surfaceKind
     target.frictionCoefficient = result.frictionCoefficient
+    target.obstacleId = result === obstacleInfo ? obstacleInfo.obstacleId : null
+    target.isObstacleContact = result === obstacleInfo
 
     // Calculate normal if needed
     const normal = calculateNormalAtWorldXZ(

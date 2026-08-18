@@ -18,6 +18,7 @@ import {
     integrateYawAcceleration,
     resetPlanarMotionState,
     setPlanarLocalVelocity,
+    updatePlanarVelocityTelemetry,
 } from './dynamics/planarMotion.js'
 import {
     calculateTireInflationNormalized01,
@@ -515,6 +516,8 @@ export function createVehicleController(config = {}) {
             resetWheelLoadTransferState(wheelState)
             wheelState.frictionCoefficient = spec.defaultSurfaceFrictionCoefficient
             wheelState.surfaceKind = 'unavailable'
+            wheelState.obstacleId = null
+            wheelState.isObstacleContact = false
             wheelState.terrainProfileName = 'unavailable'
             wheelState.suspensionContactStatus = 'reset'
             wheelState.isSuspensionContactRetained = false
@@ -1681,6 +1684,8 @@ export function createVehicleController(config = {}) {
         )
             ? result.frictionCoefficient
             : spec.defaultSurfaceFrictionCoefficient
+        wheelState.obstacleId = result.obstacleId ?? null
+        wheelState.isObstacleContact = result.isObstacleContact === true
         wheelState.isInsideTerrainBounds = result.isInsideTerrainBounds === true
         wheelState.terrainProfileName = result.profileName ?? 'unavailable'
         wheelState.contactSlopeDegrees = Number.isFinite(result.slopeDegrees)
@@ -3037,8 +3042,35 @@ export function createVehicleController(config = {}) {
     )
     updateWheelVisualStates()
 
+
+    // External planar impulse from rigid-body contact (movable obstacles).
+    // Applies the linear impulse to the chassis world velocity and the yaw
+    // component to the yaw rate. Allocated-free; safe to call mid-step.
+    function applyExternalPlanarImpulseNewtonsSecond(
+        impulseWorldXNewtonsSecond,
+        impulseWorldZNewtonsSecond,
+        yawImpulseNewtonMetersSecond
+    ) {
+        const massKg = state.chassisMassPropertiesState.massKg
+        const yawInertiaKgMeterSquared =
+            state.chassisMassPropertiesState.yawMomentOfInertiaKgMeterSquared
+        if (massKg > 0) {
+            state.planarMotion.worldVelocityMetersPerSecond.x +=
+                impulseWorldXNewtonsSecond / massKg
+            state.planarMotion.worldVelocityMetersPerSecond.z +=
+                impulseWorldZNewtonsSecond / massKg
+        }
+        if (yawInertiaKgMeterSquared > 0) {
+            state.planarMotion.yawRateRadiansPerSecond +=
+                yawImpulseNewtonMetersSecond / yawInertiaKgMeterSquared
+        }
+        updatePlanarVelocityTelemetry(state.planarMotion)
+    }
+
+
     return {
         update,
+        applyExternalPlanarImpulseNewtonsSecond,
         reset,
         shiftGearDown,
         shiftGearUp,
@@ -3136,6 +3168,8 @@ function createWheelRuntimeStates(vehicle, spec) {
                 profileName: 'unavailable',
                 surfaceKind: 'unavailable',
                 frictionCoefficient: spec.defaultSurfaceFrictionCoefficient,
+                obstacleId: null,
+                isObstacleContact: false,
                 terrainHeightMeters: 0,
                 slopeDegrees: 0,
                 normalAlignmentCosine: 1,
