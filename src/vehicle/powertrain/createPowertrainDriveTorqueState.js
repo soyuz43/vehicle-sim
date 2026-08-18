@@ -368,6 +368,7 @@ export function updatePowertrainDriveTorqueSource({
   throttleInput = 0,
   averageDrivenWheelAngularVelocityRadiansPerSecond = 0,
   speedAlongSelectedGearMetersPerSecond = 0,
+  selectedForwardGearIndex = null,
 }) {
   const enabled = spec.powertrainDriveTorqueEnabled !== false
   const idleRpm = finiteOrZero(engineProfile?.idleRpm)
@@ -387,11 +388,18 @@ export function updatePowertrainDriveTorqueSource({
 
   const transmissionRatio = isReverse
     ? selectReverseDriveRatio(transmissionProfile)
-    : selectRepresentativeForwardRatio(transmissionProfile)
+    : (selectedForwardGearIndex !== null &&
+       selectedForwardGearIndex !== undefined &&
+       Array.isArray(transmissionProfile?.forwardGearRatios) &&
+       selectedForwardGearIndex >= 0 &&
+       selectedForwardGearIndex < transmissionProfile.forwardGearRatios.length
+         ? transmissionProfile.forwardGearRatios[selectedForwardGearIndex]
+         : selectRepresentativeForwardRatio(transmissionProfile))
   const finalDriveRatio = finiteOrZero(transmissionProfile?.finalDriveRatio)
   const effectiveDriveRatio = computeEffectiveDriveRatio(
     transmissionProfile,
-    isReverse
+    isReverse,
+    selectedForwardGearIndex
   )
   const ratioKind = isNeutral
     ? RATIO_KINDS.NONE

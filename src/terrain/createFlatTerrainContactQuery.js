@@ -19,6 +19,9 @@ export function createFlatTerrainContactQuery(config = {}) {
   const surfaceKind = config.surfaceKind ?? DEFAULT_SURFACE_KIND
   const frictionCoefficient =
     config.frictionCoefficient ?? DEFAULT_FRICTION_COEFFICIENT
+  const surfaceFrictionByKind = sanitizeSurfaceFrictionByKind(
+    config.surfaceFrictionByKind
+  )
   const fallbackQueryResult = {
     normalWorld: new THREE.Vector3(),
   }
@@ -31,7 +34,11 @@ export function createFlatTerrainContactQuery(config = {}) {
     target.groundHeightMeters = groundHeightMeters
     target.terrainHeightMeters = groundHeightMeters
     target.surfaceKind = surfaceKind
-    target.frictionCoefficient = frictionCoefficient
+    target.frictionCoefficient = resolveFrictionCoefficientForKind(
+      surfaceKind,
+      frictionCoefficient,
+      surfaceFrictionByKind
+    )
     target.isInsideTerrainBounds = isInsideTerrainBounds(
       worldXMeters,
       worldZMeters
@@ -57,6 +64,25 @@ export function createFlatTerrainContactQuery(config = {}) {
       Math.abs(worldXMeters) <= terrainInfo.halfSize &&
       Math.abs(worldZMeters) <= terrainInfo.halfSize
     )
+  }
+
+  function resolveFrictionCoefficientForKind(surfaceKind, fallback, byKind) {
+    if (byKind && Number.isFinite(byKind[surfaceKind])) {
+      return byKind[surfaceKind]
+    }
+    return fallback
+  }
+
+  function sanitizeSurfaceFrictionByKind(value) {
+    if (!value || typeof value !== 'object') return null
+    const result = {}
+    for (const key of Object.keys(value)) {
+      const mu = Number(value[key])
+      if (Number.isFinite(mu) && mu >= 0) {
+        result[key] = mu
+      }
+    }
+    return Object.keys(result).length > 0 ? result : null
   }
 
   return {

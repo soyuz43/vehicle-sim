@@ -82,6 +82,15 @@ import {
     updateChassisAttitudeState,
 } from './dynamics/chassisAttitudeState.js'
 import {
+    createVerticalChassisDynamicsState,
+    resetVerticalChassisDynamicsState,
+    updateVerticalChassisDynamics,
+} from './dynamics/verticalChassisDynamicsState.js'
+import {
+    updateWheelCombinedSlipTireForce,
+    updateCombinedSlipTireForces,
+} from './dynamics/combinedSlipTireForceState.js'
+import {
     updateWheelContactPatchPlanarVelocity,
     updateWheelContactPlaneBasis,
 } from './dynamics/contactPlaneBasisState.js'
@@ -107,6 +116,21 @@ import {
     updateServiceBrakeAbsSummary,
     updateWheelServiceBrakeAbsState,
 } from './dynamics/serviceBrakeAbsState.js'
+import {
+    computeElectronicStabilityControl,
+    evaluateWheelLockState,
+    updateWheelAdvancedAbsState,
+    updateWheelTractionControlState,
+} from './dynamics/brakeAndStabilityControlState.js'
+import {
+    computeClutchEngagement01,
+    computeEngineBrakingTorqueNewtonMeters,
+    selectForwardGearIndexForSpeed,
+} from './dynamics/powertrainDynamicsState.js'
+import {
+    computeAerodynamicVerticalForceNewtons,
+    updateWheelTireThermalState,
+} from './dynamics/aeroAndTireThermalState.js'
 import {
     beginVehicleDynamicsStepTrace,
     captureVehicleDynamicsStepTraceStage,
@@ -269,6 +293,7 @@ export function createVehicleController(config = {}) {
     const lateralSlipSummary = createLateralSlipSummary()
     const lateralTireForceSummary = createLateralTireForceSummary()
     const loadTransferSummary = createLoadTransferSummary()
+    const verticalChassisDynamicsState = createVerticalChassisDynamicsState(spec)
     const tirePressureHandlingSummary = createTirePressureHandlingSummary()
     const tractionStateSummary = createTractionStateSummary()
     const serviceBrakeAbsSummary = createServiceBrakeAbsSummary()
@@ -305,6 +330,7 @@ export function createVehicleController(config = {}) {
         lateralSlipSummary,
         lateralTireForceSummary,
         loadTransferSummary,
+        verticalChassisDynamicsState,
         suspensionNormalForceSummary: createSuspensionNormalForceSummary(),
         chassisTerrainSupportState,
         slopeGravityState: createSlopeGravityState(),
@@ -312,6 +338,10 @@ export function createVehicleController(config = {}) {
         tractionStateSummary,
         serviceBrakeAbsSummary,
         rearDifferentialState,
+        engineAngularVelocityRadiansPerSecond: 0,
+        clutchEngagement01: 1,
+        selectedForwardGearIndex: 0,
+        engineBrakingTorquePerWheelNewtonMeters: 0,
         activePowertrainDriveTorque,
         totalAxleDriveTorqueNewtonMeters: 0,
         vehicleDynamicsStepTrace: createVehicleDynamicsStepTrace(wheelStates),
@@ -386,6 +416,7 @@ export function createVehicleController(config = {}) {
         updateWheelSteeringAngles()
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateTerrainSupportAndWheelContactState(safeDt, true)
+        applyAeroAndTireThermalState(safeDt)
         updateChassisAttitude(safeDt)
         calculatePerWheelLongitudinalForces(safeDt)
         // Explicit one-step coupling: tire force still uses slip measured before this
@@ -394,6 +425,9 @@ export function createVehicleController(config = {}) {
         updateLongitudinalSlipTelemetry()
         calculatePerWheelLongitudinalTireForces(safeDt)
         calculatePerWheelLateralTireForces()
+        if (spec.combinedSlipTireModelEnabled === true) {
+            updateCombinedSlipTireForces(state.wheelStates, spec)
+        }
         state.forces = calculatePlanarForcesFromWheelState()
         captureDynamicsStepTraceStage(
             VEHICLE_DYNAMICS_STEP_TRACE_STAGES.INTEGRATION_INPUT
@@ -434,6 +468,7 @@ export function createVehicleController(config = {}) {
         resetLateralSlipSummary(state.lateralSlipSummary)
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
+        resetVerticalChassisDynamicsState(state.verticalChassisDynamicsState, spec)
         resetSuspensionNormalForceSummary(state.suspensionNormalForceSummary)
         resetChassisAttitudeState(state.chassisAttitudeState, spec)
         resetSlopeGravityState(state.slopeGravityState)
@@ -616,6 +651,11 @@ export function createVehicleController(config = {}) {
                 state.rearDifferentialState.rearDifferentialType,
             rearDifferentialModeLabel:
                 state.rearDifferentialState.rearDifferentialModeLabel,
+            selectedForwardGearIndex: state.selectedForwardGearIndex,
+            effectiveDriveRatio: state.activePowertrainDriveTorque.effectiveDriveRatio,
+            clutchEngagement01: state.clutchEngagement01,
+            engineAngularVelocityRadiansPerSecond: state.engineAngularVelocityRadiansPerSecond,
+            engineBrakingTorquePerWheelNewtonMeters: state.engineBrakingTorquePerWheelNewtonMeters,
             rearDifferentialInputDriveForceNewtons:
                 state.rearDifferentialState.rearDifferentialInputDriveForceNewtons,
             rearDifferentialLeftOutputDriveForceNewtons:
@@ -1283,6 +1323,20 @@ export function createVehicleController(config = {}) {
     }
 
     function updateChassisAttitude(dtSeconds) {
+        if (spec.verticalDynamicsEnabled === true && state.verticalChassisDynamicsState) {
+            const vd = state.verticalChassisDynamicsState
+            const att = state.chassisAttitudeState
+            att.heaveOffsetMeters = vd.heaveMeters
+            att.pitchRadians = vd.pitchRadians
+            att.rollRadians = vd.rollRadians
+            att.heaveVelocityMetersPerSecond = vd.heaveVelocityMetersPerSecond
+            att.pitchRateRadiansPerSecond = vd.pitchRateRadiansPerSecond
+            att.rollRateRadiansPerSecond = vd.rollRateRadiansPerSecond
+            att.groundedSupportCount = vd.integratedWheelCount
+            att.supportPlaneModeLabel = 'vertical-dynamics'
+            att.isFinite = vd.isFinite
+            return
+        }
         chassisAttitudeSpecOverride.chassisAttitudeResponseSeconds =
             state.dynamicsTuning.chassisAttitudeResponseSeconds
         chassisAttitudeSpecOverride.chassisAttitudeMaximumHeaveOffsetMeters =
@@ -1380,7 +1434,7 @@ export function createVehicleController(config = {}) {
             state.suspensionNormalForceSummary
         )
         updateWheelSuspensionContactLimitStatuses()
-        updateWheelLoadTransferState()
+        updateWheelLoadTransferState(dtSeconds)
         updateWheelContactPlaneBases()
     }
 
@@ -1724,7 +1778,16 @@ export function createVehicleController(config = {}) {
         }
     }
 
-    function updateWheelLoadTransferState() {
+    function updateWheelLoadTransferState(dtSeconds = 0) {
+        if (spec.verticalDynamicsEnabled === true) {
+            updateVerticalChassisDynamics(
+                state.verticalChassisDynamicsState,
+                state.wheelStates,
+                spec,
+                dtSeconds
+            )
+            return
+        }
         // Quasi-static load transfer reads prior-step planar acceleration. The
         // suspension module owns only normalized base support; this module owns
         // the final normal force after acceleration-driven redistribution.
@@ -1860,6 +1923,17 @@ export function createVehicleController(config = {}) {
         // state. Returns the signed total REQUESTED axle output torque
         // (positive drive, negative reverse, zero neutral). The predictive
         // redline cap applied below turns this into the applied axle torque.
+        let selectedForwardGearIndex = null
+        if (spec.automaticTransmissionEnabled === true) {
+            selectedForwardGearIndex = selectForwardGearIndexForSpeed({
+                wheelAngularVelocityRadiansPerSecond:
+                    averageDrivenWheelAngularVelocityRadiansPerSecond,
+                transmissionProfile: state.transmissionProfile,
+                downshiftRpm: spec.automaticTransmissionDownshiftRpm,
+                redlineRpm: state.engineProfile?.redlineRpm,
+            })
+        }
+        state.selectedForwardGearIndex = selectedForwardGearIndex ?? 0
         const requestedAxleDriveTorqueNewtonMeters = updatePowertrainDriveTorqueSource({
             state: state.activePowertrainDriveTorque,
             spec,
@@ -1869,6 +1943,7 @@ export function createVehicleController(config = {}) {
             throttleInput: state.throttleInput,
             averageDrivenWheelAngularVelocityRadiansPerSecond,
             speedAlongSelectedGearMetersPerSecond,
+            selectedForwardGearIndex,
         })
 
         // Honest distinction: the active powertrain source owns the requested
@@ -1877,6 +1952,51 @@ export function createVehicleController(config = {}) {
         // the APPLIED per-wheel torque, never the requested torque.
         state.activePowertrainDriveTorque.requestedAxleDriveTorqueNewtonMeters =
             requestedAxleDriveTorqueNewtonMeters
+
+        // Phase 4 seam: clutch engagement + engine braking (both flag-gated so
+        // the default behavior is preserved when disabled).
+        // Clutch engagement only evolves when the clutch model is enabled;
+        // otherwise the clutch is treated as always fully engaged.
+        if (spec.clutchModelEnabled === true) {
+            const commandedClutchEngaged =
+                state.throttleInput > 0 ||
+                Math.abs(state.speedScalar) >
+                    spec.clutchEngageSpeedThresholdMetersPerSecond
+            state.clutchEngagement01 = computeClutchEngagement01({
+                clutchEngagement01: state.clutchEngagement01 ?? 1,
+                commandedEngaged: commandedClutchEngaged,
+                engageRatePerSecond: spec.clutchEngageRatePerSecond,
+                disengageRatePerSecond: spec.clutchDisengageRatePerSecond,
+                dt,
+            })
+        } else {
+            state.clutchEngagement01 = 1
+        }
+        const engineBrakingConfig = {
+            engineBrakingBaseTorqueNewtonMeters:
+                spec.engineBrakingBaseTorqueNewtonMeters,
+            engineBrakingTorquePerRadPerSecond:
+                spec.engineBrakingTorquePerRadPerSecond,
+        }
+        const engineOmega =
+            averageDrivenWheelAngularVelocityRadiansPerSecond *
+            Math.abs(state.activePowertrainDriveTorque.effectiveDriveRatio)
+        const drivenWheelCount = state.wheelStates.filter(
+            (wheelState) => wheelState.driven
+        ).length
+        const engineBrakingTotalTorqueNewtonMeters =
+            spec.engineBrakingEnabled === true && state.throttleInput === 0
+                ? computeEngineBrakingTorqueNewtonMeters({
+                      engineProfile: engineBrakingConfig,
+                      engineAngularVelocityRadiansPerSecond: engineOmega,
+                      clutchEngagement01: state.clutchEngagement01,
+                  })
+                : 0
+        state.engineBrakingTorquePerWheelNewtonMeters =
+            drivenWheelCount > 0
+                ? engineBrakingTotalTorqueNewtonMeters / drivenWheelCount
+                : 0
+        state.engineAngularVelocityRadiansPerSecond = engineOmega
 
         const drivenRearWheelStates = state.wheelStates.filter(
             (wheelState) => wheelState.driven && wheelState.axle === 'rear'
@@ -2037,6 +2157,46 @@ export function createVehicleController(config = {}) {
         }
     }
 
+    function applyAeroAndTireThermalState(dt) {
+        const aeroVerticalForceNewtons =
+            spec.aeroDownforceEnabled === true
+                ? computeAerodynamicVerticalForceNewtons({
+                      speedMetersPerSecond: state.speedScalar,
+                      downforceCoefficientNewtonsPerMeterSquared:
+                          spec.aeroDownforceCoefficientNewtonsPerMeterSquared,
+                      liftCoefficientNewtonsPerMeterSquared:
+                          spec.aeroLiftCoefficientNewtonsPerMeterSquared,
+                  })
+                : 0
+        const frontBias = Math.min(
+            1,
+            Math.max(0, Number.isFinite(spec.aeroLoadDistributionFront01)
+                ? spec.aeroLoadDistributionFront01
+                : 0.5)
+        )
+        for (const wheelState of state.wheelStates) {
+            wheelState.aeroVerticalForceNewtons = 0
+            if (!wheelState.isGrounded) continue
+            const share = wheelState.axle === 'front' ? frontBias : 1 - frontBias
+            const wheelAeroLoadNewtons = aeroVerticalForceNewtons * share
+            wheelState.aeroVerticalForceNewtons = wheelAeroLoadNewtons
+            wheelState.normalForceNewtons = Math.max(
+                0,
+                wheelState.normalForceNewtons + wheelAeroLoadNewtons
+            )
+            if (spec.tireThermalModelEnabled === true) {
+                updateWheelTireThermalState(wheelState, spec, dt)
+            } else {
+                wheelState.tireTemperatureCelsius = Number.isFinite(
+                    spec.tireAmbientTemperatureCelsius
+                )
+                    ? spec.tireAmbientTemperatureCelsius
+                    : 25
+                wheelState.tireWearFraction01 = 0
+            }
+        }
+    }
+
     function updateBrakeTorqueStates(dt) {
         const serviceBrakePressure01 = THREE.MathUtils.clamp(
             state.brakeInput,
@@ -2075,6 +2235,27 @@ export function createVehicleController(config = {}) {
                 ? totalServiceBrakeTorqueNewtonMeters * (1 - serviceBrakeFrontBias01) / rearWheelCount
                 : 0
 
+        state.electronicStabilityControl =
+            spec.electronicStabilityControlEnabled === true
+                ? computeElectronicStabilityControl({
+                      wheelStates: state.wheelStates,
+                      spec,
+                      yawRateRadiansPerSecond:
+                          state.planarMotion.yawRateRadiansPerSecond,
+                      targetYawRateRadiansPerSecond:
+                          computeTargetYawRateRadiansPerSecond(),
+                      dt,
+                  })
+                : {
+                      active: false,
+                      wheelBrakeTorqueDeltas: {},
+                      engineTorqueCut01: 0,
+                  }
+        state.electronicStabilityControl.wheelBrakeTorqueDeltas =
+            state.electronicStabilityControl.wheelBrakeTorqueDeltas ?? {}
+        state.electronicStabilityControl.engineTorqueCut01 =
+            state.electronicStabilityControl.engineTorqueCut01 ?? 0
+
         for (const wheelState of state.wheelStates) {
             const parkingBrakeAppliesToWheel =
                 !spec.parkingBrakeActsOnRearWheelsOnly ||
@@ -2097,21 +2278,38 @@ export function createVehicleController(config = {}) {
             wheelState.requestedParkingBrakeTorqueNewtonMeters =
                 requestedParkingBrakeTorquePerWheelNewtonMeters
 
-            updateWheelServiceBrakeAbsState(
-                wheelState,
-                spec,
-                serviceBrakePressure01,
-                requestedServiceBrakeTorquePerWheelNewtonMeters,
-                dt
-            )
+            if (spec.advancedAbsEnabled === true) {
+                updateWheelAdvancedAbsState(
+                    wheelState,
+                    spec,
+                    requestedServiceBrakeTorquePerWheelNewtonMeters,
+                    dt
+                )
+            } else {
+                updateWheelServiceBrakeAbsState(
+                    wheelState,
+                    spec,
+                    serviceBrakePressure01,
+                    requestedServiceBrakeTorquePerWheelNewtonMeters,
+                    dt
+                )
+            }
 
+            const escWheelIndex = state.wheelStates.indexOf(wheelState)
             const appliedServiceBrakeTorqueNewtonMeters =
                 wheelState.serviceBrakeTorqueAfterAbsNewtonMeters
             const appliedParkingBrakeTorqueNewtonMeters =
                 requestedParkingBrakeTorquePerWheelNewtonMeters
+            const escBrakeTorqueDeltaNewtonMeters =
+                state.electronicStabilityControl.wheelBrakeTorqueDeltas[
+                    escWheelIndex
+                ] ?? 0
+            wheelState.escBrakeTorqueDeltaNewtonMeters =
+                escBrakeTorqueDeltaNewtonMeters
             const totalBrakeTorqueNewtonMeters =
                 appliedServiceBrakeTorqueNewtonMeters +
-                appliedParkingBrakeTorqueNewtonMeters
+                appliedParkingBrakeTorqueNewtonMeters +
+                escBrakeTorqueDeltaNewtonMeters
 
             wheelState.appliedServiceBrakeTorqueNewtonMeters =
                 appliedServiceBrakeTorqueNewtonMeters
@@ -2404,24 +2602,74 @@ export function createVehicleController(config = {}) {
         }
     }
 
+    function computeTargetYawRateRadiansPerSecond() {
+        const speedAlongForwardMetersPerSecond = state.speedScalar
+        const steeringAngleRadians =
+            params.maxVisualSteeringAngleRadians * state.steeringInput
+        const wheelbaseMeters = sanitizePositiveNumber(
+            spec.escBicycleModelWheelbaseMeters,
+            2.6
+        )
+        if (
+            !Number.isFinite(speedAlongForwardMetersPerSecond) ||
+            !Number.isFinite(steeringAngleRadians) ||
+            Math.abs(speedAlongForwardMetersPerSecond) < 0.1
+        ) {
+            return 0
+        }
+        return (
+            (speedAlongForwardMetersPerSecond * Math.tan(steeringAngleRadians)) /
+            wheelbaseMeters
+        )
+    }
+
     function updateWheelTorqueCoupledRotationalState(wheelState, dt) {
+        if (spec.tractionControlEnabled === true && wheelState.driven === true) {
+            updateWheelTractionControlState(
+                wheelState,
+                spec,
+                wheelState.requestedDriveTorqueNewtonMeters,
+                dt
+            )
+        }
+        const escEngineTorqueCut01 =
+            state.electronicStabilityControl?.engineTorqueCut01 ?? 0
+        if (escEngineTorqueCut01 > 0) {
+            wheelState.requestedDriveTorqueNewtonMeters *=
+                1 - escEngineTorqueCut01
+        }
+        if (spec.clutchModelEnabled === true && wheelState.driven === true) {
+            // Launch/shift slip: torque transmitted through the clutch scales
+            // with engagement, so a disengaged clutch delivers no drive torque.
+            wheelState.requestedDriveTorqueNewtonMeters *=
+                state.clutchEngagement01
+        }
         wheelState.driveTorqueNewtonMeters = calculateWheelDriveTorqueNewtonMeters(wheelState)
         wheelState.brakeTorqueNewtonMeters = calculateWheelBrakeTorqueNewtonMeters(
             wheelState,
-            dt
+            dt,
+            spec.wheelLockModelEnabled === true
         )
         wheelState.contactReactionTorqueNewtonMeters =
             calculateWheelContactReactionTorqueNewtonMeters(wheelState)
         wheelState.targetRollingAngularVelocityRadiansPerSecond =
             calculateTargetRollingAngularVelocity(wheelState)
         wheelState.rollingConstraintCorrectionTorqueNewtonMeters =
-            calculateTemporaryRollingConstraintCorrectionTorqueNewtonMeters(wheelState)
+            spec.wheelLockModelEnabled === true
+                ? 0
+                : calculateTemporaryRollingConstraintCorrectionTorqueNewtonMeters(wheelState)
 
+        const engineBrakingTorqueNewtonMeters =
+            spec.engineBrakingEnabled === true && wheelState.driven === true
+                ? -state.engineBrakingTorquePerWheelNewtonMeters
+                : 0
+        wheelState.engineBrakingTorqueNewtonMeters = engineBrakingTorqueNewtonMeters
         wheelState.netTorqueNewtonMeters =
             wheelState.driveTorqueNewtonMeters +
             wheelState.brakeTorqueNewtonMeters +
             wheelState.contactReactionTorqueNewtonMeters +
-            wheelState.rollingConstraintCorrectionTorqueNewtonMeters
+            wheelState.rollingConstraintCorrectionTorqueNewtonMeters +
+            engineBrakingTorqueNewtonMeters
 
         if (dt <= 0 || !Number.isFinite(wheelState.wheelInertiaKgMeterSquared) ||
             wheelState.wheelInertiaKgMeterSquared <= 0) {
@@ -2439,13 +2687,23 @@ export function createVehicleController(config = {}) {
         if (!Number.isFinite(wheelState.angularVelocityRadiansPerSecond)) {
             wheelState.angularVelocityRadiansPerSecond = 0
             wheelState.angularAccelerationRadiansPerSecondSquared = 0
+        } else if (
+            spec.wheelLockModelEnabled === true &&
+            wheelState.isGrounded &&
+            (wheelState.totalBrakeTorqueNewtonMeters ?? 0) > 0 &&
+            wheelState.angularVelocityRadiansPerSecond < 0
+        ) {
+            // Brake torque exceeds the tire-road adhesion that would otherwise
+            // keep the wheel turning; clamp at zero so the wheel stays locked
+            // instead of being pulled back to rolling by the constraint term.
+            wheelState.angularVelocityRadiansPerSecond = 0
         }
 
         wheelState.rollingSurfaceSpeedMetersPerSecond =
             calculateRollingSurfaceSpeedMetersPerSecond(wheelState)
         wheelState.spinAngleRadians +=
             wheelState.angularVelocityRadiansPerSecond * dt
-        wheelState.isWheelLocked = false
+        evaluateWheelLockState(wheelState, spec)
     }
 
     function calculateWheelDriveTorqueNewtonMeters(wheelState) {
@@ -2471,7 +2729,7 @@ export function createVehicleController(config = {}) {
         )
     }
 
-    function calculateWheelBrakeTorqueNewtonMeters(wheelState, dt) {
+    function calculateWheelBrakeTorqueNewtonMeters(wheelState, dt, allowHoldLock = false) {
         const brakeTorqueMagnitudeNewtonMeters = Number.isFinite(
             wheelState.totalBrakeTorqueNewtonMeters
         )
@@ -2484,6 +2742,15 @@ export function createVehicleController(config = {}) {
             wheelState.angularVelocityRadiansPerSecond,
             WHEEL_ANGULAR_SPEED_EPSILON_RADIANS_PER_SECOND
         )
+
+        if (allowHoldLock) {
+            // Real wheel-lock physics: apply the full demanded braking torque
+            // (decelerating) regardless of the small per-step stopping cap. The
+            // rotational integrator clamps omega at zero, so a wheel that would
+            // otherwise overshoot simply stays held at rest and the excess
+            // torque is reacted by static friction at the contact patch.
+            return -brakeTorqueMagnitudeNewtonMeters
+        }
 
         if (angularVelocityDirection === 0) return 0
 
@@ -2751,6 +3018,9 @@ export function createVehicleController(config = {}) {
     updateLongitudinalSlipTelemetry()
     calculatePerWheelLongitudinalTireForces()
     calculatePerWheelLateralTireForces()
+    if (spec.combinedSlipTireModelEnabled === true) {
+        updateCombinedSlipTireForces(state.wheelStates, spec)
+    }
     state.forces = calculatePlanarForcesFromWheelState()
     captureDynamicsStepTraceStage(
         VEHICLE_DYNAMICS_STEP_TRACE_STAGES.INTEGRATION_INPUT
@@ -2914,6 +3184,22 @@ function createWheelRuntimeStates(vehicle, spec) {
             serviceBrakeAbsReason: 'initial inactive state',
             serviceBrakeTorqueBeforeAbsNewtonMeters: 0,
             serviceBrakeTorqueAfterAbsNewtonMeters: 0,
+            // Phase 3 stability-assist per-wheel runtime fields.
+            advancedAbsActive: false,
+            advancedAbsModulation01: 1,
+            advancedAbsState: 'inactive',
+            tractionControlActive: false,
+            tractionControlModulation01: 1,
+            tractionControlState: 'inactive',
+            wheelLockState: 'rolling',
+            wheelLockSeverity01: 0,
+            escBrakeTorqueDeltaNewtonMeters: 0,
+            engineTorqueCut01: 0,
+            aeroVerticalForceNewtons: 0,
+            tireTemperatureCelsius: 25,
+            tireWearFraction01: 0,
+            tireThermalWorkPowerWatts: 0,
+            tireMuMultiplier01: 1,
             totalBrakeTorqueNewtonMeters: 0,
             requestedBrakeTorqueNewtonMeters: 0,
             appliedBrakeTorqueNewtonMeters: 0,
