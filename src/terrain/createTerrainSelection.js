@@ -23,6 +23,7 @@ import { createWeatherState } from './createWeatherState.js'
 const SUPPORTED_NAMES = Object.freeze(['proving-ground', 'offroad', 'offroad-water'])
 
 export function createTerrainSelection(config = {}) {
+  const deformationField = config.deformationField ?? null
   const requestedName = readUrlParam(config.paramName ?? 'terrain')
   let name = 'proving-ground'
   if (requestedName === 'offroad') {
@@ -49,6 +50,7 @@ export function createTerrainSelection(config = {}) {
     surfaceProfile = createObstacleAwareSurfaceProfile({
       baseProfile: enhancedProfile,
       obstacleField,
+      deformationField,
     })
   } else if (name === 'offroad-water') {
     enhancedProfile = createOffroadPlaygroundProfile(
@@ -60,9 +62,24 @@ export function createTerrainSelection(config = {}) {
     surfaceProfile = createObstacleAwareSurfaceProfile({
       baseProfile: enhancedProfile,
       obstacleField,
+      deformationField,
     })
   } else {
     surfaceProfile = createTerrainSurfaceProfile(config.baseProfileConfig ?? {})
+  }
+
+  // Place each obstacle's base on the terrain-only height so static meshes
+  // rest correctly and movable obstacles start grounded before stepping.
+  if (obstacleField && enhancedProfile) {
+    for (const obstacle of obstacleField.getObstacles()) {
+      const groundYMeters = enhancedProfile.getHeightAtWorldXZ(
+        obstacle.position.x,
+        obstacle.position.z
+      )
+      if (Number.isFinite(groundYMeters)) {
+        obstacle.position.y = groundYMeters
+      }
+    }
   }
 
   // baseProfile is the terrain-only surface (no obstacle overlay) so visual
@@ -74,6 +91,7 @@ export function createTerrainSelection(config = {}) {
     surfaceProfile,
     baseProfile: enhancedProfile ?? surfaceProfile,
     obstacleField,
+    deformationField,
     waterSurface,
     weatherState,
   }

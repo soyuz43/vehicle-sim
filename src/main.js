@@ -16,6 +16,10 @@ import { createTireInflationPanel } from './ui/tireInflationPanel/createTireInfl
 import { createDeveloperTuningPanel } from './ui/developerTuningPanel/createDeveloperTuningPanel.js'
 import { createTireSlipFeedback } from './effects/tireSlipFeedback/createTireSlipFeedback.js'
 import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
+import { createTerrainDeformation } from './terrain/deformation/createTerrainDeformation.js'
+import { createDeformationVisuals } from './terrain/deformation/createDeformationVisuals.js'
+import { createVehicleObstacleInteraction } from './terrain/obstacles/createVehicleObstacleInteraction.js'
+import { createParticleSystem } from './effects/createParticleSystem.js'
 
 /* =========================
    Scene
@@ -74,13 +78,28 @@ scene.add(sun)
 // original proving-ground behavior exactly; ?terrain=offroad composes the
 // catalog-driven enhanced profile, the procedural playground generator, and
 // the static obstacle field.
-const terrainSelection = createTerrainSelection()
+//
+// Phase 3 terrain deformation field is created up front and passed into the
+// selection so the offroad obstacle-aware profile can fold rut depth into both
+// the physics contact and the mesh. It is inert for the proving-ground path.
+const terrainDeformation = createTerrainDeformation()
+const terrainSelection = createTerrainSelection({ deformationField: terrainDeformation })
 const terrainSurfaceProfile = terrainSelection.surfaceProfile
 
 const terrain = createTerrain({
   surfaceProfile: terrainSurfaceProfile,
 })
 scene.add(terrain)
+
+// Phase 3 terrain deformation visuals (offroad only; updates the mesh in the
+// active rut region, no-op until deformation accrues).
+let deformationVisuals = null
+if (terrainSelection.obstacleField) {
+  deformationVisuals = createDeformationVisuals({
+    terrainMesh: terrain,
+    deformationField: terrainDeformation,
+  })
+}
 
 const terrainInfo = terrain.userData.terrain
 const terrainContactQuery = createHeightfieldTerrainContactQuery({
@@ -135,6 +154,30 @@ const tireSlipFeedback = createTireSlipFeedback({
 })
 scene.add(tireSlipFeedback.root)
 
+// Phase 3 visual-only particle system (deterministic, does not affect physics).
+const particleSystem = createParticleSystem({ maxParticles: 2000 })
+scene.add(particleSystem.object3D)
+
+// Phase 3 movable-obstacle momentum exchange (offroad only). Steps obstacle
+// dynamics and resolves wheel/obstacle contacts; reacts on the vehicle through
+// the controller's external impulse API and emits debris particles on impact.
+let vehicleObstacleInteraction = null
+if (terrainSelection.obstacleField) {
+  vehicleObstacleInteraction = createVehicleObstacleInteraction({
+    obstacleField: terrainSelection.obstacleField,
+    terrainHeightFn: (worldXMeters, worldZMeters) =>
+      terrainSelection.baseProfile.getHeightAtWorldXZ(worldXMeters, worldZMeters),
+    applyVehiclePlanarImpulse: (impulseWorldXNewtonsSecond, impulseWorldZNewtonsSecond, yawImpulseNewtonMetersSecond) =>
+      vehicleController.applyExternalPlanarImpulseNewtonsSecond(
+        impulseWorldXNewtonsSecond,
+        impulseWorldZNewtonsSecond,
+        yawImpulseNewtonMetersSecond
+      ),
+    getVehicleMassProperties: () => vehicleController.getSnapshot().chassisMassProperties,
+    emitEffect: (event) => particleSystem.emit(event.kind, event.x, event.y, event.z, 2),
+  })
+}
+
 /* =========================
    Fixed Simulation Loop
 ========================= */
@@ -148,6 +191,26 @@ const fixedSimulationRunner = createFixedTimestepRunner({
   maxStepsPerFrame: maxPhysicsStepsPerFrame,
   step: (stepDeltaSeconds) => {
     vehicleController.update(stepDeltaSeconds, getVehicleInput())
+    if (terrainSelection.obstacleField) {
+      const snapshot = vehicleController.getSnapshot()
+      if (terrainDeformation) {
+        terrainDeformation.update(
+          stepDeltaSeconds,
+          snapshot.wheelStates,
+          snapshot.speedMetersPerSecond
+        )
+      }
+      if (vehicleObstacleInteraction) {
+        vehicleObstacleInteraction.step(stepDeltaSeconds, snapshot)
+      }
+      if (terrainDeformation && deformationVisuals) {
+        deformationVisuals.update()
+      }
+      if (particleSystem) {
+        emitWheelSurfaceParticles(snapshot)
+        particleSystem.step(stepDeltaSeconds)
+      }
+    }
   },
 })
 
@@ -324,6 +387,7 @@ function animate() {
   cameraManager.update(clampedRenderDeltaSeconds)
   const vehicleSnapshot = vehicleController.getSnapshot()
   if (obstacleVisuals) {
+    obstacleVisuals.updateObstacleTransforms()
     const wheelContactPoints = (vehicleSnapshot.wheelStates || [])
       .map((wheelState) => (wheelState ? wheelState.contactPointWorldPosition : null))
       .filter(Boolean)
@@ -347,4 +411,48 @@ animate()
 function sanitizeRenderDeltaSeconds(frameDeltaSeconds) {
   if (!Number.isFinite(frameDeltaSeconds) || frameDeltaSeconds <= 0) return 0
   return Math.min(frameDeltaSeconds, maxFrameDeltaSeconds)
+}
+
+/* =========================
+   Phase 3 Wheel-Surface Particle Emission
+   Deterministic, physics-event driven. Emits visual-only spray/dust/debris
+   from grounded wheel contacts on water/soft surfaces. The sub-step cadence
+   keeps the pool fed a reproducible stream; emission never alters sim state.
+========================= */
+let particleEmitStepCounter = 0
+
+function emitWheelSurfaceParticles(snapshot) {
+  if (!particleSystem) return
+  particleEmitStepCounter += 1
+  const wheelStates = Array.isArray(snapshot.wheelStates) ? snapshot.wheelStates : []
+  const speedMetersPerSecond = Number.isFinite(snapshot.speedMetersPerSecond)
+    ? snapshot.speedMetersPerSecond
+    : 0
+
+  for (let index = 0; index < wheelStates.length; index += 1) {
+    const wheelState = wheelStates[index]
+    if (!wheelState || !wheelState.isGrounded) continue
+    const contact = wheelState.contactPointWorldPosition
+    if (!contact || !Number.isFinite(contact.x)) continue
+    if (((particleEmitStepCounter + index) % 3) !== 0) continue
+
+    const kind = particleKindForSurface(wheelState.surfaceKind)
+    if (kind === 'water-spray') {
+      particleSystem.emit(kind, contact.x, Number.isFinite(contact.y) ? contact.y : 0, contact.z, 2)
+    } else if (kind && speedMetersPerSecond > 1.5) {
+      particleSystem.emit(kind, contact.x, Number.isFinite(contact.y) ? contact.y : 0, contact.z, 1)
+    }
+  }
+}
+
+function particleKindForSurface(surfaceKind) {
+  switch (surfaceKind) {
+    case 'water': return 'water-spray'
+    case 'mud': return 'mud'
+    case 'dirt':
+    case 'sand':
+    case 'grass': return 'dust'
+    case 'snow': return 'snow'
+    default: return null
+  }
 }

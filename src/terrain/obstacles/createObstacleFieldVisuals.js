@@ -28,10 +28,16 @@ export function createObstacleFieldVisuals(obstacleField, config = {}) {
 
   for (const obstacle of obstacleField.getObstacles()) {
     const mesh = buildObstacleMesh(obstacle)
-    const baseYMeters = baseProfile
-      ? Number(baseProfile.getHeightAtWorldXZ(obstacle.centerXMeters, obstacle.centerZMeters))
-      : 0
-    mesh.position.set(obstacle.centerXMeters, Number.isFinite(baseYMeters) ? baseYMeters : 0, obstacle.centerZMeters)
+    const initialYMeters = Number.isFinite(obstacle.position?.y)
+      ? obstacle.position.y
+      : (baseProfile
+          ? Number(baseProfile.getHeightAtWorldXZ(obstacle.position.x, obstacle.position.z))
+          : 0)
+    mesh.position.set(
+      obstacle.position.x,
+      Number.isFinite(initialYMeters) ? initialYMeters : 0,
+      obstacle.position.z
+    )
     group.add(mesh)
     meshes.push({ obstacle, mesh })
   }
@@ -45,7 +51,24 @@ export function createObstacleFieldVisuals(obstacleField, config = {}) {
     }
   }
 
-  return { group, meshes, updateContactVisuals }
+  // Movable obstacles: track live center position and yaw orientation. Static
+  // obstacles never move, so this is a no-op for them.
+  function updateObstacleTransforms() {
+    for (const entry of meshes) {
+      const obstacle = entry.obstacle
+      if (!obstacle.position) continue
+      entry.mesh.position.set(
+        obstacle.position.x,
+        Number.isFinite(obstacle.position.y) ? obstacle.position.y : 0,
+        obstacle.position.z
+      )
+      entry.mesh.rotation.y = Number.isFinite(obstacle.orientationYawRadians)
+        ? obstacle.orientationYawRadians
+        : 0
+    }
+  }
+
+  return { group, meshes, updateContactVisuals, updateObstacleTransforms }
 }
 
 function isContacted(obstacle, wheelContactPoints) {
