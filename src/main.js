@@ -97,6 +97,14 @@ if (terrainSelection.obstacleField) {
   scene.add(obstacleVisuals.group)
 }
 
+// Water visuals (offroad-water mode only). Purely visual; the physics uses
+// the water surface through the obstacle-aware surface profile.
+let waterVisuals = null
+if (terrainSelection.waterSurface) {
+  waterVisuals = createWaterVisuals(terrainSelection.waterSurface)
+  scene.add(waterVisuals.mesh)
+}
+
 // Minimal terrain selector UI; reloads with the chosen ?terrain= parameter.
 createTerrainSelector({ selection: terrainSelection })
 
@@ -149,94 +157,23 @@ const fixedSimulationRunner = createFixedTimestepRunner({
 const cameraManager = new CameraManager(camera, renderer, car)
 
 /* =========================
-   Debug HUD
+   UI
 ========================= */
-const debugHud = createDebugHud({
-  parent: document.body,
-  initialCorner: 'top-left',
-  initialCollapsed: false,
-})
+const debugHud = createDebugHud()
+document.body.appendChild(debugHud.element)
 
-const gearIndicator = createGearIndicator({
-  parent: document.body,
-  initialGear: vehicleController.getSnapshot().gear,
-})
+const gearIndicator = createGearIndicator()
+document.body.appendChild(gearIndicator.element)
 
 const tireInflationPanel = createTireInflationPanel({
-  parent: document.body,
-  initialTirePressureState: vehicleController.getTirePressureState(),
-  onTirePressureKpaChange: (nextTirePressureKpa) => {
-    vehicleController.setTirePressureKpa(nextTirePressureKpa)
-    updateTireInflationPanel()
-  },
-  onReset: () => {
-    vehicleController.resetTirePressure()
-    updateTireInflationPanel()
-  },
+  vehicleController,
 })
+document.body.appendChild(tireInflationPanel.element)
 
 const developerTuningPanel = createDeveloperTuningPanel({
-  parent: document.body,
-  initialDynamicsTuning: vehicleController.getDynamicsTuning(),
-  initialRearDifferentialState: vehicleController.getRearDifferentialState(),
-  onDynamicsTuningChange: (nextDynamicsTuning) => {
-    vehicleController.setDynamicsTuning(nextDynamicsTuning)
-    updateDeveloperTuningPanel()
-  },
-  onRearDifferentialTypeChange: (nextRearDifferentialType) => {
-    vehicleController.setRearDifferentialType(nextRearDifferentialType)
-    updateDeveloperTuningPanel()
-  },
-  onReset: () => {
-    vehicleController.resetDynamicsTuning()
-    updateDeveloperTuningPanel()
-  },
+  vehicleController,
 })
-
-/* =========================
-   Keyboard Input
-========================= */
-const keys = {}
-
-window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') {
-    e.preventDefault()
-  }
-
-  keys[e.code] = true
-
-  if (e.repeat) return
-
-  if (e.code === 'KeyC') {
-    cameraManager.cycleMode()
-  }
-
-  if (e.code === 'KeyR') {
-    resetCar()
-  }
-
-  if (e.code === 'BracketLeft') {
-    vehicleController.shiftGearDown()
-  }
-
-  if (e.code === 'BracketRight') {
-    vehicleController.shiftGearUp()
-  }
-})
-
-window.addEventListener('keyup', (e) => {
-  if (e.code === 'Space') {
-    e.preventDefault()
-  }
-
-  keys[e.code] = false
-})
-
-window.addEventListener('blur', () => {
-  for (const key of Object.keys(keys)) {
-    keys[key] = false
-  }
-})
+document.body.appendChild(developerTuningPanel.element)
 
 /* =========================
    Clock
@@ -244,141 +181,122 @@ window.addEventListener('blur', () => {
 const clock = new THREE.Clock()
 
 /* =========================
-   Reset
+   Input
 ========================= */
-function resetCar() {
-  vehicleController.reset()
-  fixedSimulationRunner.reset()
-  tireSlipFeedback.reset()
-  tirePressureVisuals.reset()
-  cameraManager.setMode(cameraManager.activeMode ?? 'orbit')
-  updateDebugHud(0, fixedSimulationRunner.getSnapshot())
-  updateGearIndicator()
-  updateTireInflationPanel()
-  updateDeveloperTuningPanel()
+const keyState = {
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  handbrake: false,
 }
 
-/* =========================
-   Vehicle Input
-========================= */
 function getVehicleInput() {
   return {
-    throttle: keys['KeyW'],
-    brake: keys['KeyS'],
-    parkingBrake: keys['Space'],
-    left: keys['KeyA'],
-    right: keys['KeyD'],
+    throttle: keyState.forward ? 1 : 0,
+    brake: keyState.backward ? 1 : 0,
+    steer: keyState.right ? 1 : keyState.left ? -1 : 0,
+    handbrake: keyState.handbrake,
   }
 }
 
-function createDriverTelemetrySnapshot(vehicleSnapshot) {
-  return {
-    gear: vehicleSnapshot.gear,
-    gearLabel: vehicleSnapshot.gearLabel,
-    speedMetersPerSecond:
-      vehicleSnapshot.speedMetersPerSecond ?? vehicleSnapshot.speedScalar ?? 0,
-    wheelStates: vehicleSnapshot.wheelStates,
+window.addEventListener('keydown', (event) => {
+  switch (event.key) {
+    case 'ArrowUp':
+    case 'w':
+    case 'W':
+      keyState.forward = true
+      break
+    case 'ArrowDown':
+    case 's':
+    case 'S':
+      keyState.backward = true
+      break
+    case 'ArrowLeft':
+    case 'a':
+    case 'A':
+      keyState.left = true
+      break
+    case 'ArrowRight':
+    case 'd':
+    case 'D':
+      keyState.right = true
+      break
+    case ' ':
+      keyState.handbrake = true
+      break
   }
-}
+})
+
+window.addEventListener('keyup', (event) => {
+  switch (event.key) {
+    case 'ArrowUp':
+    case 'w':
+    case 'W':
+      keyState.forward = false
+      break
+    case 'ArrowDown':
+    case 's':
+    case 'S':
+      keyState.backward = false
+      break
+    case 'ArrowLeft':
+    case 'a':
+    case 'A':
+      keyState.left = false
+      break
+    case 'ArrowRight':
+    case 'd':
+    case 'D':
+      keyState.right = false
+      break
+    case ' ':
+      keyState.handbrake = false
+      break
+  }
+})
 
 /* =========================
-   Debug HUD
+   HUD Updates
 ========================= */
-
-function updateDebugHud(dt, fixedSimulationSnapshot) {
+function updateDebugHud(renderDeltaSeconds, fixedSimulationSnapshot) {
   const vehicleSnapshot = vehicleController.getSnapshot()
-  const pos = vehicleSnapshot.position
-
-  const outsideTerrain =
-    Math.abs(pos.x) > terrainInfo.halfSize ||
-    Math.abs(pos.z) > terrainInfo.halfSize
-
   debugHud.update({
-    cameraMode: cameraManager.activeMode,
-    controllerKind: vehicleSnapshot.controllerKind,
-    throttleInput: vehicleSnapshot.throttleInput,
-    brakeInput: vehicleSnapshot.brakeInput,
-    parkingBrakeInput: vehicleSnapshot.parkingBrakeInput,
-    serviceBrakeInput: vehicleSnapshot.serviceBrakeInput,
-    steeringInput: vehicleSnapshot.steeringInput,
-    dt,
-    fixedSimulation: fixedSimulationSnapshot,
-    vehicleDynamicsStepTrace: vehicleSnapshot.vehicleDynamicsStepTrace,
-    position: pos,
-    speedScalar: vehicleSnapshot.speedScalar,
-    speedMetersPerSecond: vehicleSnapshot.speedMetersPerSecond,
-    worldVelocityMetersPerSecond:
-      vehicleSnapshot.worldVelocityMetersPerSecond,
-    localForwardVelocityMetersPerSecond:
-      vehicleSnapshot.localForwardVelocityMetersPerSecond,
-    localLateralVelocityMetersPerSecond:
-      vehicleSnapshot.localLateralVelocityMetersPerSecond,
-    signedForwardSpeedMetersPerSecond:
-      vehicleSnapshot.signedForwardSpeedMetersPerSecond,
-    lateralSpeedMetersPerSecond:
-      vehicleSnapshot.lateralSpeedMetersPerSecond,
-    worldSpeedMetersPerSecond:
-      vehicleSnapshot.worldSpeedMetersPerSecond,
-    aerodynamicDrag: vehicleSnapshot.aerodynamicDrag,
-    chassisMassProperties: vehicleSnapshot.chassisMassProperties,
-    chassisTerrainSupport: vehicleSnapshot.chassisTerrainSupport,
-    suspensionNormalForceSummary:
-      vehicleSnapshot.suspensionNormalForceSummary,
-    slopeGravity: vehicleSnapshot.slopeGravity,
-    yawRadians: vehicleSnapshot.yawRadians,
-    yawRateRadiansPerSecond:
-      vehicleSnapshot.yawRateRadiansPerSecond,
-    yawAccelerationRadiansPerSecondSquared:
-      vehicleSnapshot.yawAccelerationRadiansPerSecondSquared,
-    planarAccelerationWorldMetersPerSecondSquared:
-      vehicleSnapshot.planarAccelerationWorldMetersPerSecondSquared,
-    planarAccelerationLocalForwardMetersPerSecondSquared:
-      vehicleSnapshot.planarAccelerationLocalForwardMetersPerSecondSquared,
-    planarAccelerationLocalLateralMetersPerSecondSquared:
-      vehicleSnapshot.planarAccelerationLocalLateralMetersPerSecondSquared,
-    velocity: vehicleSnapshot.velocity,
-    longitudinalAcceleration:
-      vehicleSnapshot.longitudinalAcceleration,
-    forces: vehicleSnapshot.forces,
-    wheelStates: vehicleSnapshot.wheelStates,
-    tractionStateSummary: vehicleSnapshot.tractionStateSummary,
-    serviceBrakeAbsSummary: vehicleSnapshot.serviceBrakeAbsSummary,
-    lateralSlipSummary: vehicleSnapshot.lateralSlipSummary,
-    lateralTireForceSummary: vehicleSnapshot.lateralTireForceSummary,
-    yawDynamics: vehicleSnapshot.yawDynamics,
-    loadTransferSummary: vehicleSnapshot.loadTransferSummary,
-    tirePressureHandlingSummary: vehicleSnapshot.tirePressureHandlingSummary,
-    tireSlipFeedback: tireSlipFeedback.getSnapshot(),
-    tirePressureState: vehicleSnapshot.tirePressureState,
-    tirePressureVisuals: tirePressureVisuals.getSnapshot(),
-    dynamicsTuning: vehicleSnapshot.dynamicsTuning,
-    rearDifferentialState: vehicleSnapshot.rearDifferentialState,
-    wheelAxleVisualKinematics: vehicleSnapshot.wheelAxleVisualKinematics,
-    terrainSize: terrainInfo.size,
-    outsideTerrain,
-    engineProfile: vehicleSnapshot.engineProfile,
-    transmissionProfile: vehicleSnapshot.transmissionProfile,
-    powertrain: vehicleSnapshot.powertrain,
-    powertrainKinematics: vehicleSnapshot.powertrainKinematics,
-    stockEngineCatalogTelemetry: vehicleSnapshot.stockEngineCatalogTelemetry,
+    renderDeltaSeconds,
+    fixedSimulationSnapshot,
+    vehicleSnapshot,
   })
 }
 
 function updateGearIndicator() {
   const vehicleSnapshot = vehicleController.getSnapshot()
-
-  gearIndicator.update(createDriverTelemetrySnapshot(vehicleSnapshot))
+  gearIndicator.update(vehicleSnapshot.powertrainState.gear)
 }
 
-function updateTireInflationPanel() {
-  tireInflationPanel.update(vehicleController.getTirePressureState())
-}
-
-function updateDeveloperTuningPanel() {
-  developerTuningPanel.update(
-    vehicleController.getDynamicsTuning(),
-    vehicleController.getRearDifferentialState()
-  )
+/* =========================
+   Water Visuals Helper
+========================= */
+function createWaterVisuals(waterSurface) {
+  // Create a simple water plane visual
+  const waterGeometry = new THREE.PlaneGeometry(200, 200, 1, 1)
+  const waterMaterial = new THREE.MeshStandardMaterial({
+    color: 0x0077be,
+    transparent: true,
+    opacity: 0.7,
+    roughness: 0.1,
+    metalness: 0.9,
+  })
+  
+  const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial)
+  waterMesh.rotation.x = -Math.PI / 2
+  waterMesh.position.y = waterSurface.waterLevelYMeters
+  
+  return {
+    mesh: waterMesh,
+    update: function(time) {
+      // Could add wave animation here in the future
+    }
+  }
 }
 
 /* =========================
