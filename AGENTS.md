@@ -282,22 +282,23 @@ Confirmed present against `src/` and the passing test suite (Section 6). This is
 - Fixed-timestep physics (1/60 s) decoupled from render (`src/simulation/createFixedTimestepRunner.js`, `src/main.js`).
 - Deterministic heightfield terrain plus per-wheel suspension raycast contact with hysteresis (`src/terrain/*`, `src/vehicle/createVehicleController.js`).
 - Torque-coupled wheel rotational dynamics (angular velocity, inertia, net torque).
-- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap.
-- Quasi-static longitudinal and lateral load transfer redistributing normal force.
+- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap, with a feature-gated brush/Fiala combined-slip tire seam.
+- Quasi-static longitudinal and lateral load transfer redistributing normal force, with a feature-gated 3-DOF sprung-mass heave/pitch/roll vertical-dynamics seam that can replace it.
 - Planar chassis motion: world/local velocity, yaw, yaw rate, summed planar force and yaw moment.
-- Aerodynamic drag (quadratic, no downforce), chassis mass properties, and a visual chassis-attitude foundation (heave/pitch/roll, visual only).
-- Rear differential models (open, limited-slip, torsen, locked, welded), powertrain profiles and active drive torque v1 with predictive redline cap (`src/vehicle/powertrain/*`).
-- Service brake bias, ABS v1, and longitudinal traction-state classification.
+- Aerodynamic drag (quadratic), optional feature-gated downforce/lift load, chassis mass properties, and a chassis-attitude foundation (visual state plus gated vertical dynamics).
+- Rear differential models (open, limited-slip, torsen, locked, welded), powertrain profiles, active drive torque v1 with predictive redline cap, and feature-gated automatic gear selection, clutch engagement, engine braking, and engine rotational integration (`src/vehicle/powertrain/*`, `src/vehicle/dynamics/powertrainDynamicsState.js`).
+- Service brake bias, ABS v1, feature-gated wheel-lock detection/advanced ABS, traction control, and electronic stability control, plus longitudinal traction-state classification.
 - Tire pressure handling and visual deformation, a developer tuning panel, step-trace instrumentation, and a multi-rate timestep-sensitivity regression suite.
+- Feature-gated tire thermal/wear state, per-wheel tire thermal/wear telemetry, and optional mild grip multiplier.
 
 ### 3.2 Documented Unfinished Seams
 The genuine next-layer gaps, self-identified in source comments and `README.md` (not assumed). Any "future work" claim must map to one of these or be evidenced in code:
-- Realistic tire model: the current model is `not Pacejka, not combined-slip` (`src/vehicle/defaultVehicleSpec.js`).
-- True multibody chassis heave/pitch/roll dynamics (roll centers, landing impulses, suspension-geometry solver); the current attitude state is a visual foundation only.
-- Wheel-lock behavior and richer ABS: `src/vehicle/createVehicleController.js` notes "Wheel lock behavior remains future work"; ABS is a staged approximation.
-- Traction/stability control and drift models: explicitly excluded in source.
-- Powertrain depth: no automatic shifting, clutch, torque converter, engine rotational inertia, or engine braking.
-- Aero depth: no downforce, lift, or wind; surface friction zones (everything is `flat-asphalt-placeholder`).
+- Pacejka/professional tire model: the default model remains not Pacejka and not a professional tire model (`src/vehicle/defaultVehicleSpec.js`). The feature-gated combined-slip model exists, but it is still a staged brush/Fiala-style model, not a full validated tire library.
+- True multibody chassis dynamics beyond the gated 3-DOF vertical seam (roll centers, landing impulses, nonlinear bump stops, anti-roll bars, suspension-geometry solver, unsprung mass/tire radial compliance, detailed pitch/roll coupling); the current attitude state and visual foundation remain simplified.
+- Full production ABS/TC/ESC behavior: wheel-lock detection, advanced ABS, traction control, and ESC are feature-gated staged seams, not a complete hydraulic/production stability-control system.
+- Drift models and rich tire audio/visual effects: drift-specific tire physics, tire squeal audio, smoke, and persistent skid marks remain future work.
+- Powertrain depth: torque converter, detailed shift actuation, full manual shift control beyond R/N/D, driveline compliance, launch control, and full engine/transmission simulation remain future work or feature-gated seams.
+- Aero depth: wind and drafting are not modeled; downforce/lift is a feature-gated first-order speed-squared vertical load, not a pressure-distribution or pitch-sensitivity aero model.
 - Timestep sensitivity: documented long-brake stopping-distance and stop-time spread across 60 to 480 Hz.
 
 ### 3.3 Inference Discipline (Core Contract)
