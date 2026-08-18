@@ -41,6 +41,16 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   maximumSuspensionNormalForceNewtons:
     DEFAULT_VEHICLE_MASS_KG * EARTH_GRAVITY.standardMetersPerSecondSquared,
 
+  // Vertical chassis dynamics v1 (Phase 0): real 3-DOF sprung-mass heave/pitch/
+  // roll solver. It replaces quasi-static load transfer (emergent load transfer
+  // from body pitch/roll) and the visual-only chassis attitude with solved ODE
+  // state. Disabled by default to preserve the validated baseline and regression
+  // tests; enable to exercise the new vertical-dynamics seam.
+  verticalDynamicsEnabled: false,
+  verticalDynamicsSprungMassFraction01: 1,
+  verticalDynamicsPitchInertiaKgMeterSquared: 0,
+  verticalDynamicsRollInertiaKgMeterSquared: 0,
+
   // Chassis terrain following is a bounded quasi-static support-height
   // approximation. It deliberately does not create vertical velocity, heave,
   // pitch, roll, gravity fall, landing impulses, or jump behavior.
@@ -111,6 +121,47 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // This is not drivetrain inertia or a full rotating assembly model.
   wheelInertiaKgMeterSquared: 1.2,
 
+  // === Phase 4 powertrain-depth seam (all disabled by default) ================
+  // Automatic gear selection picks a forward gear from a speed/RPM band and
+  // applies that gear's ratio to torque multiplication. Disabled by default so
+  // the validated representative fixed-ratio behavior is preserved.
+  automaticTransmissionEnabled: false,
+  automaticTransmissionDownshiftRpm: 1500,
+  // Clutch engagement models a scalar coupling factor [0,1] between engine and
+  // wheels (launch/shift slip). When disabled the clutch is treated as always
+  // engaged (factor 1).
+  clutchModelEnabled: false,
+  clutchEngageRatePerSecond: 4,
+  clutchDisengageRatePerSecond: 8,
+  clutchEngageSpeedThresholdMetersPerSecond: 0.5,
+  // Engine braking applies a retarding torque through the driveline when the
+  // throttle is closed and the clutch is engaged. Disabled by default.
+  engineBrakingEnabled: false,
+  engineBrakingBaseTorqueNewtonMeters: 15,
+  engineBrakingTorquePerRadPerSecond: 0.5,
+  // Engine rotational inertia for the first-order engine-speed integration.
+  engineInertiaKgMeterSquared: 0.2,
+
+  // === Phase 5 aero + tire thermal/wear seam (all disabled by default) ========
+  // Aerodynamic downforce/lift adds/subtracts vertical load at the contact
+  // patches as a speed-squared term. Disabled by default so the baseline normal
+  // force (suspension + load transfer) is unchanged.
+  aeroDownforceEnabled: false,
+  aeroDownforceCoefficientNewtonsPerMeterSquared: 3.0,
+  aeroLiftCoefficientNewtonsPerMeterSquared: 0,
+  aeroLoadDistributionFront01: 0.5,
+  // Tire temperature/wear first-order model. Disabled by default so the baseline
+  // constant-mu behavior is preserved.
+  tireThermalModelEnabled: false,
+  tireAmbientTemperatureCelsius: 25,
+  tireOptimalTemperatureCelsius: 90,
+  tireTemperatureRisePerWorkWatt: 0.0004,
+  tireCoolingRatePerSecond: 0.03,
+  tireWearPerWorkJoule: 1e-7,
+  tireMuTempPenaltyPerDegree: 0.001,
+  tireMuWearPenalty01: 0.3,
+  tireMuMultiplierMin01: 0.5,
+
   // Per-wheel brake torque command limits used by the current simple wheel angular dynamics.
   // The service brake is the normal brake pedal path and remains separate from
   // the rear-wheel parking brake path. These are not ABS, brake bias, or a full
@@ -129,6 +180,41 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   serviceBrakeAbsReleaseRatePerSecond: 10,
   serviceBrakeAbsReapplyRatePerSecond: 4,
   serviceBrakeAbsMinimumModulation01: 0.2,
+
+  // === Phase 3 stability-assist seam (all disabled by default) =================
+  // These replace/augment the legacy slip-ratio ABS, add traction control, and
+  // add yaw-stability (ESC). Disabled by default to preserve the validated
+  // baseline and regression tests; enable to exercise the richer assist seam.
+  // When advancedAbsEnabled is true the controller uses the advanced ABS path
+  // instead of the legacy service-brake ABS.
+  advancedAbsEnabled: false,
+  advancedAbsTargetSlipRatio: 0.12,
+  advancedAbsMinGroundSpeedMetersPerSecond: 2.5,
+  advancedAbsReleaseRatePerSecond: 8,
+  advancedAbsReapplyRatePerSecond: 3,
+  advancedAbsMinimumModulation01: 0.2,
+  advancedAbsLockSpeedRatioThreshold: 0.4,
+  // Traction control reduces driven-wheel drive torque when the wheel spins past
+  // the grip peak (positive longitudinal slip ratio).
+  tractionControlEnabled: false,
+  tractionControlSpinSlipRatioTrigger: 0.12,
+  tractionControlSpinSlipRatioRecovery: 0.05,
+  tractionControlReleaseRatePerSecond: 6,
+  tractionControlReapplyRatePerSecond: 3,
+  tractionControlMinimumModulation01: 0.3,
+  // Electronic stability control (ESC) maps yaw-rate error to a selective wheel
+  // brake torque and an engine-torque cut.
+  electronicStabilityControlEnabled: false,
+  escYawRateDeadzoneRadiansPerSecond: 0.05,
+  escBrakeTorqueGainPerYawError: 1500,
+  escMaxBrakeTorqueNewtonMeters: 1200,
+  escEngineCutYawRateRadiansPerSecond: 0.4,
+  // Wheel-lock physics: when enabled, the rotational integrator may truly lock
+  // (omega -> 0 under braking past tire grip) instead of being held rolling by
+  // the temporary rolling-constraint correction.
+  wheelLockModelEnabled: false,
+  wheelLockSpeedThresholdMetersPerSecond: 0.5,
+  wheelLockAngularSpeedEpsilonRadiansPerSecond: 0.5,
 
   // Service brake bias v1 distributes requested service brake torque by axle.
   // serviceBrakeFrontBias01 is the fraction of total service brake torque sent
@@ -181,6 +267,13 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Force is still capped by frictionCoefficient * normalForceNewtons; this is
   // not Pacejka, a professional tire model, or a full combined-slip curve.
   lateralTireStiffnessNewtonsPerRadian: 6000,
+
+  // Combined-slip (brush/Fiala) tire model v1 (Phase 1): computes longitudinal
+  // and lateral tire forces together from slip ratio and slip angle so the
+  // friction circle emerges from the model instead of being an imposed cap.
+  // Disabled by default to preserve the validated baseline and regression tests;
+  // enable to exercise the combined-slip tire seam.
+  combinedSlipTireModelEnabled: false,
   lateralTireForceSaturationEpsilonNewtons: 0.001,
 
   // Longitudinal and lateral tire force share a simple friction-circle cap.

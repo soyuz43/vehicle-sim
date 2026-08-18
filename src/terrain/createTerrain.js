@@ -13,6 +13,8 @@ export function createTerrain(config = {}) {
       frictionCoefficient: config.frictionCoefficient,
       profileName: config.profileName,
       normalSampleDistanceMeters: config.normalSampleDistanceMeters,
+      surfaceFrictionByKind: config.surfaceFrictionByKind,
+      surfaceRegions: config.surfaceRegions,
     })
   const size = surfaceProfile.sizeMeters
   const subdivisions = sanitizeSubdivisionCount(

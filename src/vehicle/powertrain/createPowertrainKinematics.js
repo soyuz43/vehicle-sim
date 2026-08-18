@@ -80,11 +80,27 @@ export function selectReverseDriveRatio(transmissionProfile) {
 
 // Single authoritative effective drive ratio shared by telemetry and active
 // torque so they cannot silently select different ratios.
-export function computeEffectiveDriveRatio(transmissionProfile, isReverse) {
+export function computeEffectiveDriveRatio(
+  transmissionProfile,
+  isReverse,
+  selectedForwardGearIndex = null
+) {
   const finalDriveRatio = finiteOrZero(transmissionProfile?.finalDriveRatio)
-  const transmissionRatio = isReverse
-    ? selectReverseDriveRatio(transmissionProfile)
-    : selectRepresentativeForwardRatio(transmissionProfile)
+
+  let transmissionRatio
+  if (isReverse) {
+    transmissionRatio = selectReverseDriveRatio(transmissionProfile)
+  } else if (
+    selectedForwardGearIndex !== null &&
+    selectedForwardGearIndex !== undefined &&
+    Array.isArray(transmissionProfile?.forwardGearRatios) &&
+    selectedForwardGearIndex >= 0 &&
+    selectedForwardGearIndex < transmissionProfile.forwardGearRatios.length
+  ) {
+    transmissionRatio = transmissionProfile.forwardGearRatios[selectedForwardGearIndex]
+  } else {
+    transmissionRatio = selectRepresentativeForwardRatio(transmissionProfile)
+  }
 
   if (!Number.isFinite(transmissionRatio)) return 0
 

@@ -25,6 +25,10 @@ export function createTerrainSurfaceProfile(config = {}) {
     config.frictionCoefficient,
     DEFAULT_FRICTION_COEFFICIENT
   )
+  const surfaceFrictionByKind = sanitizeSurfaceFrictionByKind(
+    config.surfaceFrictionByKind
+  )
+  const surfaceRegions = sanitizeSurfaceRegions(config.surfaceRegions)
   const normalSampleDistanceMeters = clamp(
     sanitizePositiveNumber(
       config.normalSampleDistanceMeters,
@@ -43,6 +47,50 @@ export function createTerrainSurfaceProfile(config = {}) {
       Math.abs(worldXMeters) <= halfSizeMeters &&
       Math.abs(worldZMeters) <= halfSizeMeters
     )
+  }
+
+  function findSurfaceRegionAtWorldXZ(worldXMeters, worldZMeters) {
+    if (!surfaceRegions) return null
+    for (const region of surfaceRegions) {
+      if (
+        worldXMeters >= region.minXMeters &&
+        worldXMeters <= region.maxXMeters &&
+        worldZMeters >= region.minZMeters &&
+        worldZMeters <= region.maxZMeters
+      ) {
+        return region
+      }
+    }
+    return null
+  }
+
+  // Resolve the active surface kind and friction coefficient (mu) at a world
+  // position. Layered resolution:
+  //   1. A surface region that contains the point overrides the surface kind.
+  //   2. An explicit region mu wins; otherwise the per-kind map is consulted;
+  //      otherwise the profile-wide default mu is used.
+  // When no regions/map are supplied this returns the global surfaceKind and
+  // global frictionCoefficient, preserving the original single-mu behavior.
+  function resolveSurfaceAtWorldXZ(worldXMeters, worldZMeters) {
+    const region = findSurfaceRegionAtWorldXZ(worldXMeters, worldZMeters)
+    const resolvedSurfaceKind = region?.kind ?? surfaceKind
+    let resolvedFrictionCoefficient
+
+    if (Number.isFinite(region?.frictionCoefficient)) {
+      resolvedFrictionCoefficient = region.frictionCoefficient
+    } else if (
+      surfaceFrictionByKind &&
+      Number.isFinite(surfaceFrictionByKind[resolvedSurfaceKind])
+    ) {
+      resolvedFrictionCoefficient = surfaceFrictionByKind[resolvedSurfaceKind]
+    } else {
+      resolvedFrictionCoefficient = frictionCoefficient
+    }
+
+    return {
+      surfaceKind: resolvedSurfaceKind,
+      frictionCoefficient: resolvedFrictionCoefficient,
+    }
   }
 
   function getHeightAtWorldXZ(worldXMeters, worldZMeters) {
@@ -70,9 +118,13 @@ export function createTerrainSurfaceProfile(config = {}) {
 
     target.isWithinBounds = isWithinTerrainBounds
     target.isInsideTerrainBounds = isWithinTerrainBounds
+    const resolvedSurface = resolveSurfaceAtWorldXZ(
+      worldXMeters,
+      worldZMeters
+    )
     target.profileName = profileName
-    target.surfaceKind = surfaceKind
-    target.frictionCoefficient = frictionCoefficient
+    target.surfaceKind = resolvedSurface.surfaceKind
+    target.frictionCoefficient = resolvedSurface.frictionCoefficient
     target.terrainHeightMeters = terrainHeightMeters
     target.groundHeightMeters = terrainHeightMeters
     target.status = isWithinTerrainBounds
@@ -161,6 +213,8 @@ export function createTerrainSurfaceProfile(config = {}) {
     halfSizeMeters,
     halfSize: halfSizeMeters,
     normalSampleDistanceMeters,
+    surfaceFrictionByKind,
+    surfaceRegions,
     provingGroundLayout: Object.freeze({
       spawnFlatStartZMeters: -halfSizeMeters,
       spawnFlatEndZMeters: 16,
@@ -294,6 +348,53 @@ function normalizeVector3Into(target, x, y, z) {
   target.y = finiteY / length
   target.z = finiteZ / length
   return target
+}
+
+function sanitizeSurfaceFrictionByKind(value) {
+  if (!value || typeof value !== 'object') return null
+  const result = {}
+  for (const key of Object.keys(value)) {
+    const mu = Number(value[key])
+    if (Number.isFinite(mu) && mu >= 0) {
+      result[key] = mu
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
+function sanitizeSurfaceRegions(value) {
+  if (!Array.isArray(value)) return null
+  const regions = []
+  for (const entry of value) {
+    if (!entry || typeof entry.kind !== 'string') continue
+    const minX = Number(entry.minXMeters)
+    const maxX = Number(entry.maxXMeters)
+    const minZ = Number(entry.minZMeters)
+    const maxZ = Number(entry.maxZMeters)
+    if (
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minZ) ||
+      !Number.isFinite(maxZ) ||
+      minX > maxX ||
+      minZ > maxZ
+    ) {
+      continue
+    }
+    const region = {
+      kind: entry.kind,
+      minXMeters: minX,
+      maxXMeters: maxX,
+      minZMeters: minZ,
+      maxZMeters: maxZ,
+    }
+    const mu = Number(entry.frictionCoefficient)
+    if (Number.isFinite(mu) && mu >= 0) {
+      region.frictionCoefficient = mu
+    }
+    regions.push(region)
+  }
+  return regions.length > 0 ? regions : null
 }
 
 function sanitizePositiveNumber(value, fallback) {
