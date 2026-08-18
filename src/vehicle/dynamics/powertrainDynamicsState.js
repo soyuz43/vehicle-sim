@@ -38,7 +38,6 @@ function sanitizePositiveNumber(value, fallback) {
 // RPM sits inside the usable band [downshiftRpm, redlineRpm]. At launch / very
 // low speed this naturally selects first gear (highest RPM); as speed rises it
 // upshifts to keep RPM below redline while avoiding lug (RPM below downshift).
-// ---------------------------------------------------------------------------
 export function selectForwardGearIndexForSpeed({
   wheelAngularVelocityRadiansPerSecond = 0,
   transmissionProfile,
@@ -57,16 +56,22 @@ export function selectForwardGearIndexForSpeed({
   const redline = redlineRpm > 0 ? redlineRpm : Infinity
   const downshift = sanitizeNonNegativeNumber(downshiftRpm)
 
-  let selectedIndex = ratios.length - 1
+  // Search from highest gear down to find first gear in [downshift, redline] band
   for (let gearIndex = ratios.length - 1; gearIndex >= 0; gearIndex -= 1) {
     const impliedRpm =
       wheelRps * RPM_PER_RADIAN_PER_SECOND * ratios[gearIndex] * finalDrive
     if (impliedRpm >= downshift && impliedRpm <= redline) {
-      selectedIndex = gearIndex
-      break
+      return gearIndex
     }
   }
-  return selectedIndex
+
+  // No gear in band: check if we are at low speed (first gear below downshift)
+  // or high speed (top gear above redline)
+  const firstGearRpm = wheelRps * RPM_PER_RADIAN_PER_SECOND * ratios[0] * finalDrive
+  if (firstGearRpm < downshift) {
+    return 0 // At/near standstill: start in first gear
+  }
+  return ratios.length - 1 // At high speed: stay in top gear
 }
 
 export function computeSelectedGearForwardRatio(transmissionProfile, gearIndex = 0) {
