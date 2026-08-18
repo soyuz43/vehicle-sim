@@ -3160,7 +3160,7 @@ function createWheelRuntimeStates(vehicle, spec) {
             isContactTangentBasisValid: false,
             steeringAngleRadians: 0,
             // Wheel angular dynamics are torque-coupled, while tire forces use a basic
-            // linear/saturated longitudinal slip model. Wheel lock behavior remains future work.
+            // linear/saturated longitudinal slip model. Wheel-lock behavior is feature-gated.
             rollingSurfaceSpeedMetersPerSecond: 0,
             targetRollingAngularVelocityRadiansPerSecond: 0,
             angularVelocityRadiansPerSecond: 0,

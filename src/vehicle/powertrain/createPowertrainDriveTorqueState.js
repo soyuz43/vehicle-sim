@@ -9,8 +9,9 @@
 // falls back to the legacy fixed-force drive path.
 //
 // Staged v1 scope:
-// - one representative fixed ratio (first forward gear; reverse uses the
-//   absolute reverse ratio; CVT uses the same midpoint policy as telemetry);
+// - a selected gear ratio when provided, otherwise one representative fixed
+//   ratio (first forward gear; reverse uses the absolute reverse ratio; CVT
+//   uses the same midpoint policy as telemetry);
 // - idle-RPM launch coupling floor (idealized; no clutch/torque converter);
 // - smooth redline torque taper to zero;
 // - constant drivetrain efficiency.

@@ -12,7 +12,7 @@ Simulation units:
 
 Vehicle simulation advances in fixed `1 / 60` second physics steps while rendering remains driven by `requestAnimationFrame`. Terrain contact, suspension support, tire force, and planar chassis integration remain fixed-step state; rendering only visualizes published snapshots without tying core physics to render frame rate.
 
-## Vehicle Dynamics V2 Readiness / Step Trace
+## Vehicle Dynamics Feature Trace
 
 Vehicle Dynamics Step Trace v1 is a telemetry and instrumentation layer only. It keeps one finite, JSON-serializable latest-step record and does not change the fixed timestep, force formulas, braking, ABS, powertrain, load transfer, suspension, aero drag, yaw integration, or vehicle motion.
 
@@ -20,7 +20,7 @@ The trace records the current step dt and compact per-wheel data plus two force-
 
 The trace also records per-wheel longitudinal slip ratio, longitudinal ground speed, wheel surface speed, wheel angular velocity, and net wheel torque in both the `integrationInput` and `postIntegration` stages. These additions improve diagnosis and experimentation only; they do not change physics, the fixed timestep, or vehicle motion. In the `postIntegration` stage, wheel angular velocity reflects the final value after the rotational update and any rear-differential wheel-speed coupling, so update order is load-bearing for that field. The longitudinal slip ratio, longitudinal ground speed, and wheel surface speed fields come from the single pre-integration slip sample and are not recomputed after integration, so they are identical in both stages; only wheel angular velocity and net wheel torque advance between `integrationInput` and `postIntegration`. Consequently, in the `postIntegration` stage wheel surface speed is not derived from the final angular velocity.
 
-This source-of-truth seam prepares future V2 branches by making update-order and force-source regressions easier to detect without adding a history buffer or storing Three.js objects. True chassis heave, pitch, and roll plus richer combined tire modeling remain future work and are not implemented here.
+This source-of-truth seam prepares future V2 branches by making update-order and force-source regressions easier to detect without adding a history buffer or storing Three.js objects. The trace now also exposes feature-gated vertical dynamics, combined-slip tire, aero/thermal/wear, stability-assist, and powertrain-depth state where enabled; when those flags are off, the validated baseline behavior remains unchanged.
 
 ## Timestep Sensitivity Regression Suite
 
@@ -42,7 +42,7 @@ The controller uses small acquire/release slop around maximum droop to avoid one
 
 ## Wheel Rotational State
 
-Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel lock and richer tire curves remain future work.
+Wheels now carry explicit rotational state used by visual wheel spin. Wheel angular velocity now integrates from simple drive/brake/contact torque, wheel inertia, and a temporary rolling correction. Wheel-lock detection, richer tire curves, and full production tire/brake models remain staged or future work; the wheel-lock and combined-slip seams are feature-gated.
 
 The low-speed numerical stabilization constants that bound slip computation and the temporary rolling correction are now specification-owned (see `defaultVehicleSpec`), not controller-local literals, so they are inspectable through the snapshot/spec path and overridable at specification construction.
 
@@ -62,7 +62,7 @@ Service brake input continues to drive the brake lights. Parking brake alone is 
 
 Service-brake ABS v1 now modulates service brake torque per wheel when service-brake lock tendency or braking slip indicates imminent lock. Each wheel records ABS state, modulation, release intent, and service brake torque before/after ABS so the debug HUD can show which wheels are releasing, holding, or reapplying brake torque.
 
-ABS applies only to the service brake path. Parking brake torque remains a separate rear-wheel-only command path and is explicitly excluded from ABS modulation. This is a staged controller foundation, not a full production ABS model; it does not change friction, traction limits, tire pressure behavior, brake assist, traction control, stability control, suspension, load transfer, the new lateral tire-force path, or full combined-slip modeling.
+ABS applies only to the service brake path. Parking brake torque remains a separate rear-wheel-only command path and is explicitly excluded from ABS modulation. By default this is the staged service-brake ABS v1 foundation; when `advancedAbsEnabled` is true, the controller uses the richer target-slip advanced ABS path instead. These braking assists are feature-gated and do not implement brake assist, smoke, tire squeal, skid marks, hydraulic model, brake heat, fade, wear, damage, or full production ABS/TC/ESC behavior.
 
 ## Service Brake Bias v1
 
@@ -83,7 +83,7 @@ brake model, brake heat, fade, wear, or damage model.
 
 ## Longitudinal Slip Ratio Telemetry
 
-Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with contact-plane longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Ground speed is projected from the planar contact-patch velocity into the current terrain/steering tangent basis. Slip ratio now feeds the basic longitudinal tire-force model, and the service-brake ABS v1 controller can also read it while richer wheel-lock detection and tire curves remain future work.
+Each wheel records longitudinal slip ratio telemetry by comparing wheel surface speed with contact-plane longitudinal ground speed. Positive slip means wheel surface speed exceeds ground speed in the current longitudinal direction; negative slip means the wheel surface is slower. Ground speed is projected from the planar contact-patch velocity into the current terrain/steering tangent basis. Slip ratio now feeds the basic longitudinal tire-force model, service-brake ABS v1, and the richer wheel-lock, advanced ABS, traction-control, and stability-control seams when their feature flags are enabled.
 
 
 ## Torque-Coupled Wheel Dynamics
@@ -93,27 +93,27 @@ Wheel angular velocity now integrates from simple net torque and wheel inertia. 
 
 ## Basic Linear Longitudinal Tire Model
 
-Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. Longitudinal and lateral components now also share a basic combined friction cap, and traction limits follow each wheel's suspension-produced normal force. This remains a staged foundation: it is not Pacejka, not a professional tire model, not a full combined-slip curve, and not a full rigid-body chassis or suspension model.
+Longitudinal tire force now comes from a simple linear/saturated slip-ratio model. Each wheel computes an uncapped force from longitudinal slip ratio and `longitudinalTireStiffnessNewtonsPerSlipRatio`, then caps applied force by `frictionCoefficient * normalForceNewtons`. Longitudinal and lateral components now also share a basic combined friction cap, and traction limits follow each wheel's suspension-produced normal force. This remains the default staged foundation: it is not Pacejka, not a professional tire model, and not a full combined-slip curve. When `combinedSlipTireModelEnabled` is true, a brush/Fiala combined-slip model computes longitudinal and lateral forces together so the friction circle emerges from slip state rather than an imposed cap.
 
 
 ## Planar Chassis Motion
 
 Vehicle heading and world velocity are now separate planar state. The controller tracks world-space planar velocity, vehicle-local forward velocity, vehicle-local lateral velocity, yaw angle, yaw rate, yaw acceleration, and planar acceleration telemetry. Per-wheel tire forces now sum into world-space planar body force, while `speedScalar` remains a compatibility alias for signed local-forward velocity.
 
-Turning generates lateral tire force and yaw moment from per-wheel contact/slip state instead of relying on the earlier simplified steering-yaw shortcut. Contact-plane tire forces may include a slope-induced Y component, but only their consistent X/Z projection enters this planar integrator and yaw budget. Suspension-derived base support is normalized before prior-step-acceleration load-transfer deltas produce final wheel normal force. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no dynamic solved chassis heave, pitch or roll dynamics, roll-center geometry, or suspension linkage solver.
+Turning generates lateral tire force and yaw moment from per-wheel contact/slip state instead of relying on the earlier simplified steering-yaw shortcut. Contact-plane tire forces may include a slope-induced Y component, but only their consistent X/Z projection enters this planar integrator and yaw budget. By default, suspension-derived base support is normalized before prior-step-acceleration load-transfer deltas produce final wheel normal force. This is still a staged chassis foundation, not a full rigid-body vehicle model: there is no dynamic solved chassis heave, pitch or roll dynamics, roll-center geometry, or suspension linkage solver by default. When `verticalDynamicsEnabled` is true, a 3-DOF sprung-mass heave/pitch/roll solver replaces the quasi-static load-transfer path.
 
 
 ## Aerodynamic Drag Foundation v1
 
 Aerodynamic drag is now an explicit part of vehicle motion. The controller uses horizontal world velocity and the standard quadratic drag equation, `0.5 * airDensityKgPerCubicMeter * dragCoefficient * frontalAreaSquareMeters * speedMetersPerSecond^2`, then applies the resulting force directly opposite that horizontal velocity. Default values are enabled, `1.225 kg/m^3` air density, `0.32` drag coefficient, and `2.2 m^2` frontal area (`CdA 0.70`). The Debug HUD reports compact drag magnitude, CdA, and horizontal speed telemetry.
 
-This v1 foundation adds no downforce, lift, wind, drafting, damage, or heat model. Tire force formulas and caps, service and parking brakes, ABS, brake bias, tire pressure and visuals, load transfer, lateral dynamics, steering/yaw, powertrain RPM and engine catalog data, terrain, rendering architecture, and fixed timestep behavior are otherwise unchanged.
+This v1 foundation adds no downforce, lift, wind, or drafting by default. When `aeroDownforceEnabled` is true, speed-squared aero load adds to or subtracts from per-axle normal force, but wind and drafting are not modeled. Damage remains outside the model; tire temperature and wear are handled by a separate feature-gated thermal/wear seam. Tire force formulas and caps, service and parking brakes, ABS, brake bias, tire pressure and visuals, load transfer, lateral dynamics, steering/yaw, powertrain RPM and engine catalog data, terrain, rendering architecture, and fixed timestep behavior are otherwise unchanged unless their matching feature flags are enabled.
 
 ## Chassis Mass Properties Foundation v1
 
 Chassis mass properties are now surfaced as explicit finite telemetry derived from the existing vehicle specification and wheel layout. The snapshot reports mass, center-of-mass height and offset, static front/rear weight bias, wheelbase, front/rear track width, and yaw moment of inertia. Existing flat spec fields such as `massKg`, `centerOfMassHeightMeters`, `wheelbaseMeters`, `frontTrackWidthMeters`, `rearTrackWidthMeters`, and `yawMomentOfInertiaKgMeterSquared` remain the source data rather than being duplicated into a separate tuning model.
 
-Center of mass and yaw inertia are foundation data for yaw, load transfer, and suspension work. The suspension normal-force foundation reads the existing mass and gravity inputs without changing mass-property behavior. Full chassis heave, pitch and roll dynamics, jumps, collision response, surface friction zones, aero downforce, and damage remain outside the current model.
+Center of mass and yaw inertia are foundation data for yaw, load transfer, and suspension work. The suspension normal-force foundation reads the existing mass and gravity inputs without changing mass-property behavior. Full chassis heave, pitch and roll dynamics, jumps, collision response, and damage remain outside the default model. Surface friction zones and aero downforce are feature-gated seams rather than default behavior.
 
 ## Chassis Visual Attachment + Attitude State Foundation v1
 
@@ -135,13 +135,13 @@ That telemetry now feeds the first basic lateral tire-force branch. Straight-lin
 
 Each grounded wheel now converts lateral slip angle into a basic linear lateral tire force using `-lateralTireStiffnessNewtonsPerRadian * lateralSlipAngleRadians`. The force is capped by each wheel's existing `frictionCoefficient * normalForceNewtons`, and longitudinal plus lateral components then share a simple combined friction cap so a wheel cannot exceed its current traction limit when both components are active.
 
-The vehicle body now receives summed world-space planar tire force and a basic yaw moment from per-wheel tire forces applied at wheel offsets. This is an inspectable v1 foundation, not Pacejka, not a professional tire model, not a full combined-slip model, and not a full suspension geometry, stability control, traction control, or drift model.
+The vehicle body now receives summed world-space planar tire force and a basic yaw moment from per-wheel tire forces applied at wheel offsets. This is an inspectable v1 foundation, not Pacejka, not a professional tire model, not a full combined-slip model by default, and not a full suspension geometry, stability control, traction control, or drift model. The combined-slip, traction-control, and stability-control seams are gated and do not alter the default behavior unless explicitly enabled.
 
 ## Quasi-Static Load Transfer v1
 
 Each grounded wheel derives normalized geometric spring/damper base support before longitudinal and lateral load-transfer deltas driven by prior-step local acceleration are applied. Positive forward acceleration shifts load rearward, braking shifts load forward, and lateral acceleration shifts load to the outside wheels under the project's local-axis convention.
 
-The suspension normal-force foundation supplies the normalized base support; load transfer then owns the final redistributed normal force without double-counting static weight. `tractionLimitNewtons` remains `frictionCoefficient * normalForceNewtons`, so available grip changes only through the resulting normal force. Friction coefficient and tire pressure semantics remain unchanged.
+By default, the suspension normal-force foundation supplies the normalized base support; load transfer then owns the final redistributed normal force without double-counting static weight. When `verticalDynamicsEnabled` is true, the vertical-dynamics solver replaces this quasi-static load-transfer path and produces dynamic load transfer from body pitch/roll. `tractionLimitNewtons` remains `frictionCoefficient * normalForceNewtons` unless terrain supplies per-surface friction, so available grip changes through the resulting normal force and surface mu. Friction coefficient and tire pressure semantics remain unchanged unless their feature-gated thermal/wear or per-surface systems are enabled.
 
 The debug HUD now also prints a compact per-wheel load distribution line (e.g. `Load distribution: FL 27% FR 27% RL 23% RR 23% | F/R 54/46`). This is telemetry only: it reads the existing per-wheel `normalForceNewtons` and renders finite, clamped percentages plus a front/rear split. It does not change load transfer, normal force, traction limits, or any other physics.
 
@@ -169,13 +169,13 @@ Spring support is explicit and quasi-static:
 - Raw grounded-wheel spring/damper support is normalized to current vehicle weight before existing longitudinal/lateral load-transfer deltas are applied.
 - Load transfer therefore remains the single owner of final `normalForceNewtons`; it redistributes support rather than adding a second full vehicle weight.
 
-The chassis remains a planar physics body. It has a terrain-following support height derived from terrain beneath the reference point plus the authored baseline offset, with a bounded response time. A separate bounded visual attitude state can estimate support-plane heave, pitch, and roll for the body/frame visual root, but there is no solved vertical velocity, multibody heave/pitch/roll dynamics, free-fall, landing impulse, jump physics, suspension linkage solver, or rigid wheel-to-body constraint solver.
+The chassis remains a planar physics body by default. It has a terrain-following support height derived from terrain beneath the reference point plus the authored baseline offset, with a bounded response time. A separate bounded visual attitude state can estimate support-plane heave, pitch, and roll for the body/frame visual root, but there is no solved vertical velocity, multibody heave/pitch/roll dynamics, free-fall, landing impulse, jump physics, suspension linkage solver, or rigid wheel-to-body constraint solver by default. When `verticalDynamicsEnabled` is true, the same attitude fields are driven by solved heave/pitch/roll ODE state rather than the visual estimate.
 
 Grounded tire speeds and tire forces use a contact-plane tangent basis: intended wheel forward is projected onto the terrain plane, lateral is `normal × forward`, and the planar chassis consumes only the resulting X/Z force components. Yaw uses the same horizontal wheel force/lever convention. A normal-force-weighted support normal also supplies a bounded horizontal slope-gravity term, so a supported vehicle rolls downhill and resists uphill without adding gravity twice. Slope gravity is zero on level terrain and while fully unsupported.
 
 The Debug HUD reports terrain profile/support height/slope, slope-gravity force, per-wheel ray/contact status, travel, compression, spring/damper/base/final load, and normal-force conservation diagnostics. The driver-facing R/N/D panel remains compact.
 
-Current limitations are intentional: this is not full suspension simulation, full raycast vehicle physics, full rigid-body terrain interaction, arbitrary mesh collision, solved dynamic chassis heave/pitch/roll, jumps, landing impulses, anti-roll bars, or full suspension geometry.
+Current limitations are intentional: this is not full suspension simulation, full raycast vehicle physics, full rigid-body terrain interaction, arbitrary mesh collision, roll-center geometry, unsprung-mass suspension, anti-roll bars, full suspension geometry, or full jump/landing-impulse physics. Solved vertical heave/pitch/roll is available only through the gated `verticalDynamicsEnabled` seam.
 
 ## Suspension Normal Force Foundation v1
 
@@ -245,24 +245,24 @@ The panel does not expose UI controls for friction coefficient, surface friction
 
 Each wheel now exposes longitudinal traction classification telemetry derived from contact state, slip ratio, tire-force saturation, drive torque, service/parking brake torque, wheel surface speed, and local ground speed. Wheels can classify as `airborne`, `stopped`, `rolling`, `saturated`, `drive_spin`, or `brake_lock_tendency`, and the debug HUD shows a compact aggregate summary including service-brake and parking-brake lock-tendency counts.
 
-This traction-state layer remains a telemetry/debug foundation. It classifies wheel behavior and now feeds service-brake ABS v1, but it does not implement brake assist, smoke, tire squeal, skid marks, full combined-slip modeling, suspension, or stability systems. It does not change friction, tire pressure behavior, lateral tire-force calculation, or longitudinal tire-force calculation beyond the ABS controller reading the telemetry.
+This traction-state layer remains a telemetry/debug foundation. It classifies wheel behavior and now feeds service-brake ABS v1, wheel-lock detection, traction control, and ESC when their feature flags are enabled, but it does not implement brake assist, smoke, tire squeal, skid marks, full combined-slip modeling, suspension, or default stability-system behavior. It does not change friction, tire pressure behavior, lateral tire-force calculation, or longitudinal tire-force calculation beyond the gated assist controllers reading the telemetry.
 
 
 ## Tire Slip Visual Feedback
 
 A separate tire slip feedback overlay reads longitudinal traction state telemetry and shows simple ground-oriented visual markers for rolling, saturation, drive spin, and brake-lock tendency. These visuals are independent from tire inflation contact-patch scaling, and they do not rotate with tire tread or affect wheel physics.
 
-The feedback is visual/debug only. It does not change tire force, friction, traction limits, tire pressure behavior, ABS, service/parking brake commands, suspension, combined slip, or lateral dynamics. Tire squeal audio, richer smoke, and persistent skid marks remain future work.
+The feedback is visual/debug only. It does not change tire force, friction, traction limits, tire pressure behavior, ABS, service/parking brake commands, suspension, combined slip, or lateral dynamics. Tire squeal audio, richer smoke, and persistent skid marks remain future work; tire thermal/wear behavior is handled by a separate feature-gated seam.
 
 
 ## Longitudinal Force Pipeline
 
-Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force comes from each wheel's capped slip-ratio longitudinal tire force plus the slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. The suspension stage creates normalized geometric base support; quasi-static load transfer then redistributes that supported load using prior-step acceleration, so acceleration, braking, and cornering can change available grip while friction coefficient remains unchanged. This preserves clear seams for richer tire curves, friction-ellipse work, and full suspension geometry. Service brake bias is implemented separately (see Service Brake Bias v1).
+Longitudinal drive and brake inputs still create per-wheel request and torque command telemetry. Applied wheel force comes from each wheel's capped slip-ratio longitudinal tire force plus the slip-angle lateral tire force, with both components respecting the existing traction limit through a simple combined cap. By default, the suspension stage creates normalized geometric base support and quasi-static load transfer redistributes that supported load using prior-step acceleration, so acceleration, braking, and cornering can change available grip while friction coefficient remains unchanged. Terrain surface profiles can still provide per-kind or per-region mu, and `verticalDynamicsEnabled` replaces the quasi-static load-transfer path with body pitch/roll load transfer. This preserves clear seams for richer tire curves, friction-ellipse work, and full suspension geometry. Service brake bias is implemented separately (see Service Brake Bias v1).
 
 
 ## Longitudinal Tire Force Relaxation v1
 
-Longitudinal tire force now has a small relaxation layer that eases each wheel's applied force toward the existing traction-limited target instead of snapping immediately. The traction cap itself is unchanged: it still comes from `frictionCoefficient * normalForceNewtons`, and this branch does not add a Pacejka model, tire heat, tire wear, tire damage, or any lateral force relaxation.
+Longitudinal tire force now has a small relaxation layer that eases each wheel's applied force toward the existing traction-limited target instead of snapping immediately. The traction cap itself is unchanged: it still comes from `frictionCoefficient * normalForceNewtons`, and this branch does not add a Pacejka model, tire heat, tire wear, tire damage, or any lateral force relaxation. The traction cap can still vary through normal force and terrain mu; thermal/wear mu changes require the separate `tireThermalModelEnabled` seam.
 
 The relaxation layer is intentionally narrow. It only smooths longitudinal force buildup and keeps the existing longitudinal tire-force calculation, slip-ratio formula, stiffness formula, braking logic, ABS, parking brake, powertrain RPM, and suspension/load-transfer behavior intact.
 
@@ -277,7 +277,7 @@ The relaxation layer is intentionally narrow. It only smooths longitudinal force
 - `C` cycles camera mode.
 - `R` resets the vehicle.
 
-The current drivetrain model uses a simple Reverse / Neutral / Drive selector. It does not yet simulate engine RPM, gear ratios, clutch behavior, torque converter behavior, or multi-speed transmission logic.
+The current driver-facing drivetrain model uses a simple Reverse / Neutral / Drive selector. Engine RPM telemetry exists, and active drive torque is profile-derived by default, but automatic gear selection, clutch slip, engine braking, engine rotational inertia, and torque-converter behavior are feature-gated seams rather than default driver controls.
 ## Rear Differential Models v1
 
 Rear Differential Models v1 adds a small rear-axle differential layer for the existing rear-wheel-drive axle only. Supported modes are `open`, `limited-slip`, `torsen`, `locked`, and `welded`.
@@ -313,11 +313,12 @@ Default selection:
 Profile data is immutable and frozen. Unknown engine or transmission ids fall back to the safe defaults, so the simulation state always stays finite and serializable.
 
 What this foundation does NOT do yet:
-- No engine braking.
-- No active engine RPM control (the engine has no rotational state of its own).
-- No clutch, shift scheduling, or automatic shift logic.
+- No engine braking by default; `engineBrakingEnabled` adds a first-order retarding-torque seam.
+- No active engine RPM control by default; `engineInertiaKgMeterSquared` enables a first-order engine-speed integration seam.
+- No clutch or torque-converter behavior by default; `clutchModelEnabled` adds a scalar engagement seam.
+- No shift scheduling or automatic shift logic by default; `automaticTransmissionEnabled` adds speed/RPM gear selection.
 - No torque-converter behavior.
-- No change to braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, or surface contact.
+- Profile data itself does not change braking, tire forces, friction, normal force, traction limits, ABS, parking brake, load transfer, tire pressure handling, steering, yaw, surface contact, or vehicle motion unless the matching feature flags are enabled.
 - No UI selection menus or tuning sliders.
 ### Stock Engine Catalog Seed Data
 
@@ -332,7 +333,7 @@ Catalog scope in this branch:
 What the catalog does NOT do:
 - No online fetching, remote catalog loading, local file import, or catalog browser UI.
 - No torque-curve generation from displacement, bore, stroke, compression ratio, or cylinder count.
-- No change to acceleration, RPM behavior, shifting, drive torque, engine braking, friction, normal force, traction limits, tire forces, or vehicle motion.
+- Catalog data itself does not change acceleration, RPM behavior, shifting, drive torque, engine braking, friction, normal force, traction limits, tire forces, or vehicle motion unless the matching feature flags are enabled.
 - No detailed cam profile, valve timing, intake, exhaust, ECU, turbo sizing, fueling, aftermarket package, or tuning-part modeling.
 
 The schema is intentionally shaped so future work can add more local records, imported catalog data, or user-supplied records without replacing the current engine profile system.
@@ -344,19 +345,20 @@ The estimated engine RPM is computed from the average driven-wheel angular veloc
 
 - Neutral reports a disconnected powertrain state and idle RPM.
 - Reverse uses the reverse gear ratio and final drive ratio.
-- Drive uses one representative forward ratio for telemetry only (the first forward gear ratio for fixed transmissions). No automatic shifting or speed-based gear selection is performed.
+- Drive uses one representative forward ratio for telemetry only (the first forward gear ratio for fixed transmissions) unless `automaticTransmissionEnabled` is true. Automatic shifting and speed-based gear selection are feature-gated.
 - CVT uses a fixed representative ratio (the midpoint of cvtMinRatio and cvtMaxRatio) for telemetry only. No active CVT ratio changes are applied.
 
 The telemetry also reports the powertrain connection state (disconnected / forward_connected / reverse_connected) and the engine RPM state (idle / coupled / redline_clamped / unavailable).
 
-The displayed estimated engine RPM remains clamped telemetry and does not directly drive acceleration. The active drive-torque source computes its own raw (unclamped) coupled engine RPM from the entering-step driven-wheel angular velocity and the shared effective drive ratio, and uses that raw RPM for redline limiting. Existing rear-differential models remain the wheel-force and wheel-speed-coupling layer; there is still no clutch, torque converter, automatic shift scheduling, manual shift control, or full powertrain-to-driveshaft rotational model.
+The displayed estimated engine RPM remains clamped telemetry and does not directly drive acceleration. The active drive-torque source computes its own raw (unclamped) coupled engine RPM from the entering-step driven-wheel angular velocity and the shared effective drive ratio, and uses that raw RPM for redline limiting. Existing rear-differential models remain the wheel-force and wheel-speed-coupling layer; there is still no torque converter, full manual shift control, or full powertrain-to-driveshaft rotational model. Clutch slip, automatic shift scheduling, engine braking, and engine rotational integration are gated seams.
 
 ### Active Powertrain Drive Torque (v1)
 
 The default drive source is now profile-derived. When `spec.powertrainDriveTorqueEnabled` is true (default), the active source replaces the old fixed per-wheel drive force with finite engine-curve torque that falls to zero at redline.
 
 - The selected engine torque curve is interpolated (piecewise-linear, endpoint-clamped) at the idle-floored lookup RPM.
-- One fixed representative ratio is used: first forward gear for fixed transmissions, the absolute reverse ratio for reverse, and the same CVT midpoint as telemetry for CVT. Active physics and RPM telemetry share this ratio via `computeEffectiveDriveRatio`, so they cannot silently disagree.
+- With `automaticTransmissionEnabled` true, the controller selects a forward gear from the speed/RPM band and applies that gear's ratio to torque multiplication.
+- Without `automaticTransmissionEnabled`, one fixed representative ratio is used: first forward gear for fixed transmissions, the absolute reverse ratio for reverse, and the same CVT midpoint as telemetry for CVT. Active physics and RPM telemetry share this ratio via `computeEffectiveDriveRatio`, so they cannot silently disagree.
 - Launch uses an idealized idle-RPM lookup floor (not a clutch or torque converter): torque-lookup RPM is `max(rawCoupledRpm, idleRpm)`.
 - Torque tapers linearly to zero between `(redlineRpm - powertrainRedlineTorqueTaperRpm)` and redline (`powertrainRedlineTorqueTaperRpm`, spec-owned).
 - A staged constant drivetrain efficiency (`powertrainDrivetrainEfficiency01`, clamped to `[0,1]`) scales engine output torque before the axle split.
@@ -364,7 +366,7 @@ The default drive source is now profile-derived. When `spec.powertrainDriveTorqu
 - The wheel rotational integrator consumes per-wheel torque directly; the compatibility drive force is derived once as `torque / rollingRadius`.
 - When `spec.powertrainDriveTorqueEnabled` is false, the previous fixed-force drive path is used verbatim for A/B compatibility.
 
-Predictive redline axle-torque cap (staged numerical/controls bound, not an engine-inertia, clutch, torque-converter, shifting, or ECU model):
+Predictive redline axle-torque cap (staged numerical/controls bound, not a full engine-inertia, clutch, torque-converter, automatic-shifting, or ECU model):
 
 - Before splitting, the controller resolves the differential shares ONCE from the requested (uncapped) axle torque, then computes the predictive cap and splits the applied (capped) axle torque through those exact shares, so the cap and the final split never disagree and axle torque is conserved.
 - The active torque path is dimensionally honest: the torque wrapper converts the active axle torque to an equivalent axle force using the arithmetic-mean rear effective rolling radius, resolves dimensionless shares in the existing force domain (`resolveRearDifferentialDriveForceShares`), and never feeds that equivalent force into wheel or chassis force integration. Newtons and Newton-meters are never mixed in one addition, comparison, or ratio.
@@ -372,4 +374,4 @@ Predictive redline axle-torque cap (staged numerical/controls bound, not an engi
 - The cap intentionally ignores the opposing contact/rolling/brake torque so it stays conservative: drive torque alone cannot overshoot redline in one step, while opposing torque can only leave the wheel below redline.
 - Fail-closed safety: invalid or non-positive `dt`, wheel inertia, effective ratio, or redline, a missing driven wheel, an invalid share, or a wheel already at/above redline collapses the applied torque to zero rather than silently allowing the full requested torque. Neutral also yields zero. Legacy mode (`powertrainDriveTorqueEnabled === false`) bypasses the predictor entirely.
 
-Explicitly excluded from v1: automatic shifting, manual shift control beyond R/N/D, clutch, torque converter, engine rotational integration, engine braking, driveline compliance, traction control, launch control, and any tire-model or friction change.
+Still not modeled in v1: torque converter, driveline compliance, launch control, full manual shift control beyond R/N/D, a validated Pacejka/professional tire model, tire damage/puncture/blowout behavior, and dynamic friction-zone changes beyond the gated per-surface mu, combined-slip tire, and tire thermal/wear seams. Engine rotational integration, engine braking, clutch slip, automatic shifting, traction control, and ESC remain feature-gated seams rather than default behavior.
