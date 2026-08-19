@@ -137,13 +137,7 @@ const vehicleController = createVehicleController(controllerConfig)
 /* =========================
    Camera Manager
 ========================= */
-const cameraManager = new CameraManager({
-  camera,
-  vehicleController,
-  car,
-  terrainContactQuery,
-  terrainInfo,
-})
+const cameraManager = new CameraManager(camera, renderer, car)
 
 /* =========================
    Input
