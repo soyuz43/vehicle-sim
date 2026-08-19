@@ -114,33 +114,30 @@ if (terrainSelection.waterSurface) {
 }
 
 /* =========================
-   Vehicle
+   Car (created first - needed for controller config)
 ========================= */
 const initialVehicleConfig = createDefaultVehicleConfiguration()
-const controllerConfig = createControllerConfig(initialVehicleConfig)
+const car = createCar()
+scene.add(car)
 
-const vehicleController = createVehicleController({
-  config: controllerConfig,
+/* =========================
+   Vehicle Controller Config
+========================= */
+const controllerConfig = createControllerConfig(initialVehicleConfig, {
+  vehicle: car,
   terrainContactQuery,
   terrainSurfaceProfile,
 })
 
-const car = createCar({
-  config: initialVehicleConfig,
-  vehicleController,
-})
-scene.add(car)
+/* =========================
+   Vehicle Controller
+========================= */
+const vehicleController = createVehicleController(controllerConfig)
 
 /* =========================
    Camera Manager
 ========================= */
-const cameraManager = new CameraManager({
-  camera,
-  vehicleController,
-  car,
-  terrainContactQuery,
-  terrainInfo,
-})
+const cameraManager = new CameraManager(camera, renderer, car)
 
 /* =========================
    Input
@@ -298,18 +295,13 @@ const configPanel = createConfigPanel({
 /* =========================
    Tire Pressure Visuals
 ========================= */
-import { createTirePressureVisuals } from './car/createTirePressureVisuals.js'
-const tirePressureVisuals = createTirePressureVisuals({
-  car,
-  vehicleController,
-})
-scene.add(tirePressureVisuals.group)
+const tirePressureVisuals = car.userData.vehicle.tirePressureVisuals
 
 /* =========================
    Particle System
 ========================= */
 const particleSystem = createParticleSystem()
-scene.add(particleSystem.group)
+scene.add(particleSystem.object3D)
 
 /* =========================
    Vehicle-Obstacle Interaction
@@ -335,17 +327,18 @@ const tireSlipFeedback = createTireSlipFeedback({
    Simulation Runner
 ========================= */
 const fixedSimulationRunner = createFixedTimestepRunner({
-  fixedTimeStep: 1 / 60,
-  maxSubSteps: 3,
-  onStep: (fixedDt, simTime) => {
+  fixedTimeStepSeconds: 1 / 60,
+  maxFrameDeltaSeconds: 0.1,
+  maxStepsPerFrame: 6,
+  step: (fixedDt, simTime) => {
     const input = {
       throttle: keyState.forward ? 1 : 0,
       brake: keyState.backward ? 1 : 0,
-      steer: (keyState.left ? -1 : 0) + (keyState.right ? 1 : 0),
+      left: keyState.left,
+      right: keyState.right,
       handbrake: keyState.handbrake ? 1 : 0,
     }
-    vehicleController.setInput(input)
-    vehicleController.step(fixedDt)
+    vehicleController.update(fixedDt, input)
 
     if (vehicleObstacleInteraction) {
       vehicleObstacleInteraction.step(fixedDt)
