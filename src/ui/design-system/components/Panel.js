@@ -71,8 +71,8 @@ export function createPanel(config = {}) {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 'var(--ui-panel-headerHeight)',
-    padding: '0 var(--ui-space-md)',
+    minHeight: 'var(--ui-panel-headerHeight)',
+    padding: 'var(--ui-space-sm) var(--ui-space-md)',
     background: 'var(--ui-color-bg-panel)',
     borderBottom: '1px solid var(--ui-color-border-subtle)',
     cursor: cfg.draggable ? 'grab' : 'default',
@@ -90,6 +90,9 @@ export function createPanel(config = {}) {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    flex: '1',
+    minWidth: '0',
+    lineHeight: 'var(--ui-lineHeight-normal)',
   });
 
   const actions = document.createElement('div');
