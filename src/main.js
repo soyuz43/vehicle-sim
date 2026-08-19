@@ -114,22 +114,25 @@ if (terrainSelection.waterSurface) {
 }
 
 /* =========================
-   Vehicle
+   Car (created first - needed for controller config)
 ========================= */
 const initialVehicleConfig = createDefaultVehicleConfiguration()
-const controllerConfig = createControllerConfig(initialVehicleConfig)
+const car = createCar()
+scene.add(car)
 
-const vehicleController = createVehicleController({
-  config: controllerConfig,
+/* =========================
+   Vehicle Controller Config
+========================= */
+const controllerConfig = createControllerConfig(initialVehicleConfig, {
+  vehicle: car,
   terrainContactQuery,
   terrainSurfaceProfile,
 })
 
-const car = createCar({
-  config: initialVehicleConfig,
-  vehicleController,
-})
-scene.add(car)
+/* =========================
+   Vehicle Controller
+========================= */
+const vehicleController = createVehicleController(controllerConfig)
 
 /* =========================
    Camera Manager
