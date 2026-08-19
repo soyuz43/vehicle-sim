@@ -36,7 +36,6 @@ const REAR_DIFFERENTIAL_OPTIONS = Object.freeze([
 ])
 
 export function createDeveloperTuningPanel(config = {}) {
-  const parent = config.parent ?? document.body
   const onDynamicsTuningChange = config.onDynamicsTuningChange ?? (() => {})
   const onRearDifferentialTypeChange =
     config.onRearDifferentialTypeChange ?? (() => {})
@@ -216,7 +215,6 @@ export function createDeveloperTuningPanel(config = {}) {
   body.appendChild(resetButton)
   root.appendChild(header)
   root.appendChild(body)
-  parent.appendChild(root)
 
   let collapsed = false
   let currentDynamicsTuning = normalizeDynamicsTuning(
@@ -310,6 +308,7 @@ export function createDeveloperTuningPanel(config = {}) {
   update(currentDynamicsTuning, currentRearDifferentialState)
 
   return {
+    element: root,
     update,
     setCollapsed,
     getDynamicsTuning,

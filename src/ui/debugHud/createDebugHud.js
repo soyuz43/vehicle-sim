@@ -6,8 +6,6 @@ const DEFAULT_CORNER = 'top-left'
 const G_FORCE_DISPLAY_CLAMP_G = 20
 
 export function createDebugHud(config = {}) {
-  const parent = config.parent ?? document.body
-
   const debugHud = document.createElement('div')
   debugHud.id = config.id ?? 'debug-hud'
 
@@ -72,7 +70,6 @@ export function createDebugHud(config = {}) {
   debugHudButtonRow.appendChild(debugHudCollapseButton)
   debugHud.appendChild(debugHudButtonRow)
   debugHud.appendChild(debugHudText)
-  parent.appendChild(debugHud)
 
   let corner = config.initialCorner ?? DEFAULT_CORNER
   let collapsed = config.initialCollapsed ?? false
@@ -241,6 +238,7 @@ export function createDebugHud(config = {}) {
   setCollapsed(collapsed)
 
   return {
+    element: debugHud,
     update,
     setCorner,
     setCollapsed,
