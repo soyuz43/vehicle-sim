@@ -1,4 +1,4 @@
-﻿// src/ui/telemetry-panel/createTelemetryPanel.js
+// src/ui/telemetry-panel/createTelemetryPanel.js
 /**
  * TelemetryPanel — Developer-facing telemetry dashboard.
  * Replaces createDebugHud with collapsible sections, sparklines, gauges, search/filter.
@@ -15,6 +15,7 @@ import { createBadge } from '../design-system/components/Badge.js';
 import { createButton } from '../design-system/components/Button.js';
 import { createVStack, createHStack } from '../design-system/layout/Stack.js';
 import { useMobileBottomSheet } from '../design-system/layout/Responsive.js';
+import { getIconSvg } from '../design-system/icons.js';
 
 const SECTIONS = [
   { id: 'chassis', title: 'Chassis', icon: 'database' },
