@@ -14,8 +14,6 @@ const WHEEL_PATCHES = [
 ]
 
 export function createGearIndicator(config = {}) {
-  const parent = config.parent ?? document.body
-
   const root = document.createElement('div')
   root.id = config.id ?? 'gear-indicator'
 
@@ -185,7 +183,6 @@ export function createGearIndicator(config = {}) {
   root.appendChild(speedSection)
   root.appendChild(contactSection)
   root.appendChild(gearSection)
-  parent.appendChild(root)
 
   function update(snapshot = {}) {
     // Expected telemetry fields: gear, gearLabel, speedMetersPerSecond, wheelStates.
@@ -267,6 +264,7 @@ export function createGearIndicator(config = {}) {
   })
 
   return {
+    element: root,
     update,
     destroy,
   }

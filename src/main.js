@@ -306,7 +306,8 @@ function getVehicleInput() {
   return {
     throttle: keyState.forward ? 1 : 0,
     brake: keyState.backward ? 1 : 0,
-    steer: keyState.right ? 1 : keyState.left ? -1 : 0,
+    left: keyState.left,
+    right: keyState.right,
     handbrake: keyState.handbrake,
   }
 }
@@ -381,7 +382,7 @@ function updateDebugHud(renderDeltaSeconds, fixedSimulationSnapshot) {
 
 function updateGearIndicator() {
   const vehicleSnapshot = vehicleController.getSnapshot()
-  gearIndicator.update(vehicleSnapshot.powertrainState.gear)
+  gearIndicator.update(vehicleSnapshot)
 }
 
 /* =========================
@@ -454,8 +455,6 @@ function animate() {
   renderer.render(scene, camera)
 }
 
-animate()
-
 function sanitizeRenderDeltaSeconds(frameDeltaSeconds) {
   if (!Number.isFinite(frameDeltaSeconds) || frameDeltaSeconds <= 0) return 0
   return Math.min(frameDeltaSeconds, maxFrameDeltaSeconds)
@@ -504,3 +503,7 @@ function particleKindForSurface(surfaceKind) {
     default: return null
   }
 }
+
+// Kick off the render/step loop only after every module-level
+// declaration (including particleEmitStepCounter) is initialized.
+animate()

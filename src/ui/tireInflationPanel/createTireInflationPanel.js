@@ -15,7 +15,6 @@ const DEFAULT_TIRE_PRESSURE_STATE = Object.freeze({
 })
 
 export function createTireInflationPanel(config = {}) {
-  const parent = config.parent ?? document.body
   const onTirePressureKpaChange = config.onTirePressureKpaChange ?? (() => {})
   const onReset = config.onReset ?? (() => {})
 
@@ -130,7 +129,6 @@ export function createTireInflationPanel(config = {}) {
   body.appendChild(resetButton)
   root.appendChild(header)
   root.appendChild(body)
-  parent.appendChild(root)
 
   let collapsed = false
   let currentTirePressureState = normalizeTirePressureState(
@@ -181,6 +179,7 @@ export function createTireInflationPanel(config = {}) {
   update(currentTirePressureState)
 
   return {
+    element: root,
     update,
     setCollapsed,
     destroy,
