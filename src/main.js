@@ -295,15 +295,13 @@ const configPanel = createConfigPanel({
 /* =========================
    Tire Pressure Visuals
 ========================= */
-import { createTirePressureVisuals } from './car/createTirePressureVisuals.js'
-const tirePressureVisuals = createTirePressureVisuals(car, { vehicleController })
-scene.add(tirePressureVisuals.group)
+const tirePressureVisuals = car.userData.vehicle.tirePressureVisuals
 
 /* =========================
    Particle System
 ========================= */
 const particleSystem = createParticleSystem()
-scene.add(particleSystem.group)
+scene.add(particleSystem.object3D)
 
 /* =========================
    Vehicle-Obstacle Interaction
@@ -330,16 +328,17 @@ const tireSlipFeedback = createTireSlipFeedback({
 ========================= */
 const fixedSimulationRunner = createFixedTimestepRunner({
   fixedTimeStepSeconds: 1 / 60,
-  maxStepsPerFrame: 3,
-  onStep: (fixedDt, simTime) => {
+  maxFrameDeltaSeconds: 0.1,
+  maxStepsPerFrame: 6,
+  step: (fixedDt, simTime) => {
     const input = {
       throttle: keyState.forward ? 1 : 0,
       brake: keyState.backward ? 1 : 0,
-      steer: (keyState.left ? -1 : 0) + (keyState.right ? 1 : 0),
+      left: keyState.left,
+      right: keyState.right,
       handbrake: keyState.handbrake ? 1 : 0,
     }
-    vehicleController.setInput(input)
-    vehicleController.step(fixedDt)
+    vehicleController.update(fixedDt, input)
 
     if (vehicleObstacleInteraction) {
       vehicleObstacleInteraction.step(fixedDt)

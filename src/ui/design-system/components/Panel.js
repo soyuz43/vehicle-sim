@@ -220,6 +220,7 @@ export function createPanel(config = {}) {
     return collapsed;
   }
 
+  document.body.appendChild(root);
   return {
     element: root,
     content,
