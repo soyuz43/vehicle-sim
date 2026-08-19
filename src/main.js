@@ -296,10 +296,7 @@ const configPanel = createConfigPanel({
    Tire Pressure Visuals
 ========================= */
 import { createTirePressureVisuals } from './car/createTirePressureVisuals.js'
-const tirePressureVisuals = createTirePressureVisuals({
-  car,
-  vehicleController,
-})
+const tirePressureVisuals = createTirePressureVisuals(car, { vehicleController })
 scene.add(tirePressureVisuals.group)
 
 /* =========================
@@ -332,8 +329,8 @@ const tireSlipFeedback = createTireSlipFeedback({
    Simulation Runner
 ========================= */
 const fixedSimulationRunner = createFixedTimestepRunner({
-  fixedTimeStep: 1 / 60,
-  maxSubSteps: 3,
+  fixedTimeStepSeconds: 1 / 60,
+  maxStepsPerFrame: 3,
   onStep: (fixedDt, simTime) => {
     const input = {
       throttle: keyState.forward ? 1 : 0,
