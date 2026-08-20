@@ -317,19 +317,18 @@ export function createCar() {
       applyChassisAttitudeVisualState(chassisVisualRoot, chassisAttitudeState)
     },
     setChassisTwistUniforms: (chassisAttitudeState) => {
-      const rollRadians = sanitizeFiniteNumber(
-        chassisAttitudeState?.rollRadians
-      )
       const frontRollRadians = sanitizeFiniteNumber(
         chassisAttitudeState?.frontRollRadians
       )
       const rearRollRadians = sanitizeFiniteNumber(
         chassisAttitudeState?.rearRollRadians
       )
+      const meanAxleRollRadians =
+        (frontRollRadians + rearRollRadians) * 0.5
       CHASSIS_TWIST_UNIFORMS.uFrontRollDeviationRadians.value =
-        frontRollRadians - rollRadians
+        frontRollRadians - meanAxleRollRadians
       CHASSIS_TWIST_UNIFORMS.uRearRollDeviationRadians.value =
-        rearRollRadians - rollRadians
+        rearRollRadians - meanAxleRollRadians
     },
     setTireInflationVisualState: (tirePressureState, wheelStates = null) => {
       tirePressureVisuals.setTargetFromPressureState(tirePressureState)

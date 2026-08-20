@@ -81,19 +81,27 @@ export function updateChassisTerrainSupportState(
     return state
   }
 
-  const wheelPositions = Array.isArray(wheelWorldPositions)
-    ? wheelWorldPositions.filter(
-        (p) => Number.isFinite(p?.x) && Number.isFinite(p?.z)
-      )
-    : null
+  terrainContactQuery.queryAtWorldXZ(
+    sanitizeNumber(worldXMeters),
+    sanitizeNumber(worldZMeters),
+    queryResult
+  )
 
-  if (wheelPositions && wheelPositions.length > 0) {
+  let meanTerrainHeightMeters = null
+  if (Array.isArray(wheelWorldPositions)) {
     let heightSum = 0
     let heightCount = 0
-    for (let index = 0; index < wheelPositions.length; index += 1) {
+    for (let index = 0; index < wheelWorldPositions.length; index += 1) {
+      const wheelPosition = wheelWorldPositions[index]
+      if (
+        !Number.isFinite(wheelPosition?.x) ||
+        !Number.isFinite(wheelPosition?.z)
+      ) {
+        continue
+      }
       terrainContactQuery.queryAtWorldXZ(
-        sanitizeNumber(wheelPositions[index].x),
-        sanitizeNumber(wheelPositions[index].z),
+        sanitizeNumber(wheelPosition.x),
+        sanitizeNumber(wheelPosition.z),
         wheelQueryResult
       )
       const height = sanitizeNumber(
@@ -105,19 +113,9 @@ export function updateChassisTerrainSupportState(
       heightCount += 1
     }
 
-    terrainContactQuery.queryAtWorldXZ(
-      sanitizeNumber(wheelPositions[0].x),
-      sanitizeNumber(wheelPositions[0].z),
-      queryResult
-    )
-    var meanTerrainHeightMeters = heightCount > 0 ? heightSum / heightCount : 0
-  } else {
-    terrainContactQuery.queryAtWorldXZ(
-      sanitizeNumber(worldXMeters),
-      sanitizeNumber(worldZMeters),
-      queryResult
-    )
-    var meanTerrainHeightMeters = null
+    if (heightCount > 0) {
+      meanTerrainHeightMeters = heightSum / heightCount
+    }
   }
 
   state.isWithinTerrainBounds = queryResult.isInsideTerrainBounds === true

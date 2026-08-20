@@ -81,7 +81,7 @@ import {
     createChassisAttitudeState,
     resetChassisAttitudeState,
     updateChassisAttitudeState,
-    computePerAxleRollFromWheelStates,
+    updatePerAxleRollStateFromWheelStates,
 } from './dynamics/chassisAttitudeState.js'
 import {
     createVerticalChassisDynamicsState,
@@ -1345,13 +1345,19 @@ export function createVehicleController(config = {}) {
             att.rollRateRadiansPerSecond = vd.rollRateRadiansPerSecond
             att.groundedSupportCount = vd.integratedWheelCount
             att.supportPlaneModeLabel = 'vertical-dynamics'
-            const perAxleRoll = computePerAxleRollFromWheelStates(
+            chassisAttitudeSpecOverride.chassisAttitudeMaximumRollRadians =
+                state.dynamicsTuning.chassisAttitudeMaximumRollRadians
+            chassisAttitudeSpecOverride.chassisAttitudeResponseSeconds =
+                state.dynamicsTuning.chassisAttitudeResponseSeconds
+            updatePerAxleRollStateFromWheelStates(
+                att,
                 state.wheelStates,
-                spec.chassisAttitudeMaximumRollRadians
+                chassisAttitudeSpecOverride,
+                dtSeconds
             )
-            att.frontRollRadians = perAxleRoll.frontRollRadians
-            att.rearRollRadians = perAxleRoll.rearRollRadians
-            att.twistRadians = perAxleRoll.twistRadians
+            att.frontRollRadians = state.chassisAttitudeState.frontRollRadians
+            att.rearRollRadians = state.chassisAttitudeState.rearRollRadians
+            att.twistRadians = state.chassisAttitudeState.twistRadians
             att.isFinite = vd.isFinite
             return
         }

@@ -126,7 +126,8 @@ export function updateChassisAttitudeState(
 
 export function computePerAxleRollFromWheelStates(
   wheelStates,
-  maximumRollRadians
+  maximumRollRadians,
+  spec = {}
 ) {
   const safeMaximum = sanitizePositiveNumber(maximumRollRadians, 0.12)
   let frontLeftY = null
@@ -135,27 +136,45 @@ export function computePerAxleRollFromWheelStates(
   let rearRightY = null
   let frontLeftX = null
   let frontRightX = null
+  let rearLeftX = null
+  let rearRightX = null
 
   for (const wheelState of wheelStates ?? []) {
     if (!wheelState) continue
     const y = wheelState.wheelCenterLocalPosition?.y ??
       wheelState.localPosition?.y
     const x = wheelState.localPosition?.x
-    if (!Number.isFinite(y) || !Number.isFinite(x)) continue
+    const xSide = !Number.isFinite(x)
+      ? null
+      : x < 0
+        ? 'left'
+        : x > 0
+          ? 'right'
+          : null
+    const side = wheelState.side ?? xSide
+    if (!Number.isFinite(y) || (side !== 'left' && side !== 'right')) continue
     if (wheelState.axle === 'front') {
-      if (x < 0) { frontLeftY = y; frontLeftX = x }
-      else if (x > 0) { frontRightY = y; frontRightX = x }
+      if (side === 'left') { frontLeftY = y; frontLeftX = x }
+      else if (side === 'right') { frontRightY = y; frontRightX = x }
     } else if (wheelState.axle === 'rear') {
-      if (x < 0) rearLeftY = y
-      else if (x > 0) rearRightY = y
+      if (side === 'left') {
+        rearLeftY = y
+        rearLeftX = x
+      } else if (side === 'right') {
+        rearRightY = y
+        rearRightX = x
+      }
     }
   }
 
   const frontTrackWidthMeters = Number.isFinite(frontLeftX) &&
     Number.isFinite(frontRightX)
     ? frontRightX - frontLeftX
-    : 0
-  const rearTrackWidthMeters = frontTrackWidthMeters
+    : sanitizePositiveNumber(spec.frontTrackWidthMeters, 0)
+  const rearTrackWidthMeters = Number.isFinite(rearLeftX) &&
+    Number.isFinite(rearRightX)
+    ? rearRightX - rearLeftX
+    : sanitizePositiveNumber(spec.rearTrackWidthMeters, 0)
 
   const frontRollRadians = frontLeftY !== null &&
     frontRightY !== null && frontTrackWidthMeters > SUPPORT_PLANE_EPSILON
@@ -181,11 +200,17 @@ export function computePerAxleRollFromWheelStates(
   }
 }
 
-function updatePerAxleRollState(state, wheelStates, spec, responseAlpha) {
+function updatePerAxleRollState(
+  state,
+  wheelStates,
+  spec,
+  responseAlpha
+) {
   const maximumRollRadians = resolveMaximumRollRadians(spec)
   const target = computePerAxleRollFromWheelStates(
     wheelStates,
-    maximumRollRadians
+    maximumRollRadians,
+    spec
   )
   state.frontRollRadians = lerp(
     state.frontRollRadians,
@@ -198,6 +223,20 @@ function updatePerAxleRollState(state, wheelStates, spec, responseAlpha) {
     responseAlpha
   )
   state.twistRadians = state.frontRollRadians - state.rearRollRadians
+}
+
+export function updatePerAxleRollStateFromWheelStates(
+  state,
+  wheelStates,
+  spec,
+  dtSeconds
+) {
+  updatePerAxleRollState(
+    state,
+    wheelStates ?? [],
+    spec,
+    calculateResponseAlpha(dtSeconds, spec)
+  )
 }
 
 export function estimateSupportPlaneFromWheelStates(wheelStates = [], spec = {}) {
