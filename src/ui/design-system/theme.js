@@ -42,13 +42,18 @@ export function getResolvedTokens() {
  */
 function tokensToCssVars(obj, prefix = '--ui') {
   const vars = {};
-  function flatten(o, path = '') {
+  const UNITLESS_KEYS = new Set(['lineHeight', 'fontWeight', 'zIndex']);
+  function flatten(o, path = '', parentKey = '') {
     for (const [key, value] of Object.entries(o)) {
       const newPath = path ? path + '-' + key : key;
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        flatten(value, newPath);
+        flatten(value, newPath, key);
       } else {
-        vars[prefix + '-' + newPath] = typeof value === 'number' ? value + 'px' : value;
+        if (UNITLESS_KEYS.has(parentKey)) {
+          vars[prefix + '-' + newPath] = String(value);
+        } else {
+          vars[prefix + '-' + newPath] = typeof value === 'number' ? value + 'px' : value;
+        }
       }
     }
   }
