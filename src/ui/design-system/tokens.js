@@ -157,18 +157,18 @@ export const tokens = {
 
   /** Font weights */
   fontWeight: {
-    normal: 400,
-    medium: 500,
-    semibold: 600,
-    bold: 700,
+    normal: '400',
+    medium: '500',
+    semibold: '600',
+    bold: '700',
   },
 
   /** Line heights */
   lineHeight: {
-    tight: 1.1,
-    snug: 1.25,
-    normal: 1.45,
-    relaxed: 1.6,
+    tight: '1.1',
+    snug: '1.25',
+    normal: '1.45',
+    relaxed: '1.6',
   },
 
   /** Transition durations and easings */
