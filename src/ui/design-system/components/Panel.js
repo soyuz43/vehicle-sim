@@ -1,4 +1,4 @@
-﻿// src/ui/design-system/components/Panel.js
+// src/ui/design-system/components/Panel.js
 /**
  * Panel — Base panel component with header, collapse, drag-to-move, and dock/undock.
  * Composable: pass children as DOM nodes or use as wrapper for other components.
@@ -50,8 +50,12 @@ export function createPanel(config = {}) {
     maxWidth: `${panelMaxWidth}px`,
     background: 'var(--ui-color-bg-panel)',
     border: '1px solid var(--ui-color-border-default)',
-    borderRadius: 'var(--ui-radius-lg)',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 'var(--ui-radius-lg)',
+    borderBottomRightRadius: 'var(--ui-radius-lg)',
     boxShadow: 'var(--ui-shadow-lg)',
+    overflow: 'hidden',
     fontFamily: 'var(--ui-font-ui)',
     fontSize: 'var(--ui-typeScale-base)',
     lineHeight: 'var(--ui-lineHeight-normal)',
@@ -59,7 +63,7 @@ export function createPanel(config = {}) {
     transition: 'box-shadow var(--ui-transition-base), transform var(--ui-transition-base)',
     pointerEvents: 'auto',
     userSelect: 'none',
-    contain: 'layout style paint',
+    contain: 'layout style',
   });
 
   const anchorStyle = ANCHORS[cfg.anchor] ?? ANCHORS['top-right'];
