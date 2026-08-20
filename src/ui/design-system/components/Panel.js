@@ -56,7 +56,6 @@ export function createPanel(config = {}) {
     fontSize: 'var(--ui-typeScale-base)',
     lineHeight: 'var(--ui-lineHeight-normal)',
     color: 'var(--ui-color-text-primary)',
-    overflow: 'hidden',
     transition: 'box-shadow var(--ui-transition-base), transform var(--ui-transition-base)',
     pointerEvents: 'auto',
     userSelect: 'none',
