@@ -65,6 +65,9 @@ export function createCar() {
   const materials = createMaterials()
   const chassisVisualRoot = createChassisAttitudeVisualRoot()
 
+  applyTwistShader(materials.body)
+  applyTwistShader(materials.nose)
+
   const body = createBody(materials.body)
   const nose = createNose(materials.nose)
   const brakeLights = createBrakeLights(materials.brakeLight)
@@ -313,6 +316,21 @@ export function createCar() {
     setChassisAttitudeVisualState: (chassisAttitudeState) => {
       applyChassisAttitudeVisualState(chassisVisualRoot, chassisAttitudeState)
     },
+    setChassisTwistUniforms: (chassisAttitudeState) => {
+      const rollRadians = sanitizeFiniteNumber(
+        chassisAttitudeState?.rollRadians
+      )
+      const frontRollRadians = sanitizeFiniteNumber(
+        chassisAttitudeState?.frontRollRadians
+      )
+      const rearRollRadians = sanitizeFiniteNumber(
+        chassisAttitudeState?.rearRollRadians
+      )
+      CHASSIS_TWIST_UNIFORMS.uFrontRollDeviationRadians.value =
+        frontRollRadians - rollRadians
+      CHASSIS_TWIST_UNIFORMS.uRearRollDeviationRadians.value =
+        rearRollRadians - rollRadians
+    },
     setTireInflationVisualState: (tirePressureState, wheelStates = null) => {
       tirePressureVisuals.setTargetFromPressureState(tirePressureState)
       tirePressureVisuals.setTargetFromWheelStates(wheelStates)
@@ -360,6 +378,51 @@ function applyChassisAttitudeVisualState(chassisVisualRoot, state = {}) {
     0
   )
   chassisVisualRoot.rotation.set(pitchRadians, 0, rollRadians)
+}
+
+const CHASSIS_TWIST_UNIFORMS = {
+  uFrontRollDeviationRadians: { value: 0 },
+  uRearRollDeviationRadians: { value: 0 },
+  uFrontAxleZ: { value: FRONT_AXLE_Z },
+  uRearAxleZ: { value: REAR_AXLE_Z },
+}
+
+function applyTwistShader(material) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uFrontRollDeviationRadians =
+      CHASSIS_TWIST_UNIFORMS.uFrontRollDeviationRadians
+    shader.uniforms.uRearRollDeviationRadians =
+      CHASSIS_TWIST_UNIFORMS.uRearRollDeviationRadians
+    shader.uniforms.uFrontAxleZ = CHASSIS_TWIST_UNIFORMS.uFrontAxleZ
+    shader.uniforms.uRearAxleZ = CHASSIS_TWIST_UNIFORMS.uRearAxleZ
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      `#include <common>
+      uniform float uFrontRollDeviationRadians;
+      uniform float uRearRollDeviationRadians;
+      uniform float uFrontAxleZ;
+      uniform float uRearAxleZ;`
+    )
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      float twistT = (position.z - uFrontAxleZ) / (uRearAxleZ - uFrontAxleZ);
+      twistT = clamp(twistT, 0.0, 1.0);
+      float twistAngle = mix(uFrontRollDeviationRadians, uRearRollDeviationRadians, twistT);
+      float twistCos = cos(twistAngle);
+      float twistSin = sin(twistAngle);
+      float twistedX = transformed.x * twistCos - transformed.y * twistSin;
+      float twistedY = transformed.x * twistSin + transformed.y * twistCos;
+      transformed.x = twistedX;
+      transformed.y = twistedY;
+      objectNormal.x = normal.x * twistCos - normal.y * twistSin;
+      objectNormal.y = normal.x * twistSin + normal.y * twistCos;
+      objectNormal = normalize(objectNormal);`
+    )
+  }
+  material.needsUpdate = true
 }
 
 function createMaterials() {

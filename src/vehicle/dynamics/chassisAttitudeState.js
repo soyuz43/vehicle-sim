@@ -20,6 +20,9 @@ export function createChassisAttitudeState(spec = {}) {
       pitchRateRadiansPerSecond: 0,
       rollRadians: 0,
       rollRateRadiansPerSecond: 0,
+      frontRollRadians: 0,
+      rearRollRadians: 0,
+      twistRadians: 0,
       visualBodyHeightMeters: 0,
       groundedSupportCount: 0,
       supportPlaneModeLabel: 'neutral-reset',
@@ -38,6 +41,9 @@ export function resetChassisAttitudeState(state, spec = {}) {
   state.pitchRateRadiansPerSecond = 0
   state.rollRadians = 0
   state.rollRateRadiansPerSecond = 0
+  state.frontRollRadians = 0
+  state.rearRollRadians = 0
+  state.twistRadians = 0
   state.visualBodyHeightMeters = resolveVisualBodyHeightMeters(spec)
   state.groundedSupportCount = 0
   state.supportPlaneModeLabel = 'neutral-reset'
@@ -95,6 +101,7 @@ export function updateChassisAttitudeState(
     sample.rollRadians,
     responseAlpha
   )
+  updatePerAxleRollState(state, wheelStates, spec, responseAlpha)
   state.visualBodyHeightMeters =
     resolveVisualBodyHeightMeters(spec) + state.heaveOffsetMeters
 
@@ -115,6 +122,82 @@ export function updateChassisAttitudeState(
   sanitizeChassisAttitudeState(state, spec)
 
   return state
+}
+
+export function computePerAxleRollFromWheelStates(
+  wheelStates,
+  maximumRollRadians
+) {
+  const safeMaximum = sanitizePositiveNumber(maximumRollRadians, 0.12)
+  let frontLeftY = null
+  let frontRightY = null
+  let rearLeftY = null
+  let rearRightY = null
+  let frontLeftX = null
+  let frontRightX = null
+
+  for (const wheelState of wheelStates ?? []) {
+    if (!wheelState) continue
+    const y = wheelState.wheelCenterLocalPosition?.y ??
+      wheelState.localPosition?.y
+    const x = wheelState.localPosition?.x
+    if (!Number.isFinite(y) || !Number.isFinite(x)) continue
+    if (wheelState.axle === 'front') {
+      if (x < 0) { frontLeftY = y; frontLeftX = x }
+      else if (x > 0) { frontRightY = y; frontRightX = x }
+    } else if (wheelState.axle === 'rear') {
+      if (x < 0) rearLeftY = y
+      else if (x > 0) rearRightY = y
+    }
+  }
+
+  const frontTrackWidthMeters = Number.isFinite(frontLeftX) &&
+    Number.isFinite(frontRightX)
+    ? frontRightX - frontLeftX
+    : 0
+  const rearTrackWidthMeters = frontTrackWidthMeters
+
+  const frontRollRadians = frontLeftY !== null &&
+    frontRightY !== null && frontTrackWidthMeters > SUPPORT_PLANE_EPSILON
+    ? clamp(
+        Math.atan2(frontRightY - frontLeftY, frontTrackWidthMeters),
+        -safeMaximum,
+        safeMaximum
+      )
+    : 0
+  const rearRollRadians = rearLeftY !== null &&
+    rearRightY !== null && rearTrackWidthMeters > SUPPORT_PLANE_EPSILON
+    ? clamp(
+        Math.atan2(rearRightY - rearLeftY, rearTrackWidthMeters),
+        -safeMaximum,
+        safeMaximum
+      )
+    : 0
+
+  return {
+    frontRollRadians,
+    rearRollRadians,
+    twistRadians: frontRollRadians - rearRollRadians,
+  }
+}
+
+function updatePerAxleRollState(state, wheelStates, spec, responseAlpha) {
+  const maximumRollRadians = resolveMaximumRollRadians(spec)
+  const target = computePerAxleRollFromWheelStates(
+    wheelStates,
+    maximumRollRadians
+  )
+  state.frontRollRadians = lerp(
+    state.frontRollRadians,
+    target.frontRollRadians,
+    responseAlpha
+  )
+  state.rearRollRadians = lerp(
+    state.rearRollRadians,
+    target.rearRollRadians,
+    responseAlpha
+  )
+  state.twistRadians = state.frontRollRadians - state.rearRollRadians
 }
 
 export function estimateSupportPlaneFromWheelStates(wheelStates = [], spec = {}) {
@@ -266,6 +349,17 @@ function sanitizeChassisAttitudeState(state, spec) {
     -maximumRollRadians,
     maximumRollRadians
   )
+  state.frontRollRadians = clamp(
+    sanitizeNumber(state.frontRollRadians),
+    -maximumRollRadians,
+    maximumRollRadians
+  )
+  state.rearRollRadians = clamp(
+    sanitizeNumber(state.rearRollRadians),
+    -maximumRollRadians,
+    maximumRollRadians
+  )
+  state.twistRadians = sanitizeNumber(state.twistRadians)
   state.rollRateRadiansPerSecond = sanitizeNumber(
     state.rollRateRadiansPerSecond
   )
@@ -290,6 +384,9 @@ function sanitizeChassisAttitudeState(state, spec) {
     Number.isFinite(state.pitchRateRadiansPerSecond) &&
     Number.isFinite(state.rollRadians) &&
     Number.isFinite(state.rollRateRadiansPerSecond) &&
+    Number.isFinite(state.frontRollRadians) &&
+    Number.isFinite(state.rearRollRadians) &&
+    Number.isFinite(state.twistRadians) &&
     Number.isFinite(state.visualBodyHeightMeters)
 }
 

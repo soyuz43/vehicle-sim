@@ -19,6 +19,9 @@ export function createChassisTerrainSupportState(initialHeightMeters = 0) {
     terrainQueryResult: {
       normalWorld: new THREE.Vector3(0, 1, 0),
     },
+    wheelTerrainQueryResult: {
+      normalWorld: new THREE.Vector3(0, 1, 0),
+    },
   }
 }
 
@@ -49,6 +52,7 @@ export function updateChassisTerrainSupportState(
     terrainContactQuery,
     worldXMeters,
     worldZMeters,
+    wheelWorldPositions = null,
     baselineOffsetMeters = 0,
     responseSeconds = DEFAULT_RESPONSE_SECONDS,
     dtSeconds = 0,
@@ -63,6 +67,7 @@ export function updateChassisTerrainSupportState(
   )
   const safeDtSeconds = sanitizeNonNegativeNumber(dtSeconds)
   const queryResult = state.terrainQueryResult
+  const wheelQueryResult = state.wheelTerrainQueryResult
 
   state.supportHeightResponseSeconds = safeResponseSeconds
   state.hasSupportSurface = false
@@ -76,11 +81,44 @@ export function updateChassisTerrainSupportState(
     return state
   }
 
-  terrainContactQuery.queryAtWorldXZ(
-    sanitizeNumber(worldXMeters),
-    sanitizeNumber(worldZMeters),
-    queryResult
-  )
+  const wheelPositions = Array.isArray(wheelWorldPositions)
+    ? wheelWorldPositions.filter(
+        (p) => Number.isFinite(p?.x) && Number.isFinite(p?.z)
+      )
+    : null
+
+  if (wheelPositions && wheelPositions.length > 0) {
+    let heightSum = 0
+    let heightCount = 0
+    for (let index = 0; index < wheelPositions.length; index += 1) {
+      terrainContactQuery.queryAtWorldXZ(
+        sanitizeNumber(wheelPositions[index].x),
+        sanitizeNumber(wheelPositions[index].z),
+        wheelQueryResult
+      )
+      const height = sanitizeNumber(
+        Number.isFinite(wheelQueryResult.terrainHeightMeters)
+          ? wheelQueryResult.terrainHeightMeters
+          : wheelQueryResult.groundHeightMeters
+      )
+      heightSum += height
+      heightCount += 1
+    }
+
+    terrainContactQuery.queryAtWorldXZ(
+      sanitizeNumber(wheelPositions[0].x),
+      sanitizeNumber(wheelPositions[0].z),
+      queryResult
+    )
+    var meanTerrainHeightMeters = heightCount > 0 ? heightSum / heightCount : 0
+  } else {
+    terrainContactQuery.queryAtWorldXZ(
+      sanitizeNumber(worldXMeters),
+      sanitizeNumber(worldZMeters),
+      queryResult
+    )
+    var meanTerrainHeightMeters = null
+  }
 
   state.isWithinTerrainBounds = queryResult.isInsideTerrainBounds === true
   state.profileName = queryResult.profileName ?? 'unavailable'
@@ -100,11 +138,13 @@ export function updateChassisTerrainSupportState(
     return state
   }
 
-  const terrainHeightMeters = sanitizeNumber(
-    Number.isFinite(queryResult.terrainHeightMeters)
-      ? queryResult.terrainHeightMeters
-      : queryResult.groundHeightMeters
-  )
+  const terrainHeightMeters = meanTerrainHeightMeters !== null
+    ? sanitizeNumber(meanTerrainHeightMeters)
+    : sanitizeNumber(
+        Number.isFinite(queryResult.terrainHeightMeters)
+          ? queryResult.terrainHeightMeters
+          : queryResult.groundHeightMeters
+      )
   const targetChassisSupportHeightMeters =
     terrainHeightMeters + safeBaselineOffsetMeters
 

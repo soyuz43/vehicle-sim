@@ -81,6 +81,7 @@ import {
     createChassisAttitudeState,
     resetChassisAttitudeState,
     updateChassisAttitudeState,
+    computePerAxleRollFromWheelStates,
 } from './dynamics/chassisAttitudeState.js'
 import {
     createVerticalChassisDynamicsState,
@@ -196,6 +197,13 @@ const BRAKE_LIGHT_OFF_EMISSIVE = 0x000000
 const BRAKE_LIGHT_ON_EMISSIVE = 0xff0000
 const BRAKE_LIGHT_ON_EMISSIVE_INTENSITY = 2.4
 const BRAKE_LIGHT_OFF_EMISSIVE_INTENSITY = 0
+
+const WHEEL_WORLD_POSITION_SCRATCH = [
+    { x: 0, z: 0 },
+    { x: 0, z: 0 },
+    { x: 0, z: 0 },
+    { x: 0, z: 0 },
+]
 
 export function createVehicleController(config = {}) {
     const vehicle = config.vehicle
@@ -1337,6 +1345,13 @@ export function createVehicleController(config = {}) {
             att.rollRateRadiansPerSecond = vd.rollRateRadiansPerSecond
             att.groundedSupportCount = vd.integratedWheelCount
             att.supportPlaneModeLabel = 'vertical-dynamics'
+            const perAxleRoll = computePerAxleRollFromWheelStates(
+                state.wheelStates,
+                spec.chassisAttitudeMaximumRollRadians
+            )
+            att.frontRollRadians = perAxleRoll.frontRollRadians
+            att.rearRollRadians = perAxleRoll.rearRollRadians
+            att.twistRadians = perAxleRoll.twistRadians
             att.isFinite = vd.isFinite
             return
         }
@@ -1358,6 +1373,9 @@ export function createVehicleController(config = {}) {
 
     function applyChassisAttitudeVisualState() {
         vehicle.userData.vehicle?.setChassisAttitudeVisualState?.(
+            state.chassisAttitudeState
+        )
+        vehicle.userData.vehicle?.setChassisTwistUniforms?.(
             state.chassisAttitudeState
         )
     }
@@ -1464,10 +1482,25 @@ export function createVehicleController(config = {}) {
         advancePersistentState,
         snapSupportHeightToTarget
     ) {
+        const yawRadians = vehicle.rotation.y
+        const yawCos = Math.cos(yawRadians)
+        const yawSin = Math.sin(yawRadians)
+
+        for (let index = 0; index < state.wheelStates.length && index < 4; index += 1) {
+            const wheelState = state.wheelStates[index]
+            const localX = wheelState.localPosition?.x ?? 0
+            const localZ = wheelState.localPosition?.z ?? 0
+            WHEEL_WORLD_POSITION_SCRATCH[index].x =
+                vehicle.position.x + localX * yawCos + localZ * yawSin
+            WHEEL_WORLD_POSITION_SCRATCH[index].z =
+                vehicle.position.z - localX * yawSin + localZ * yawCos
+        }
+
         updateChassisTerrainSupportState(state.chassisTerrainSupportState, {
             terrainContactQuery,
             worldXMeters: vehicle.position.x,
             worldZMeters: vehicle.position.z,
+            wheelWorldPositions: WHEEL_WORLD_POSITION_SCRATCH,
             baselineOffsetMeters:
                 spec.chassisTerrainSupportBaselineOffsetMeters,
             responseSeconds:
