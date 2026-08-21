@@ -3,7 +3,7 @@
 import * as THREE from 'three'
 
 const DEFAULT_GROUND_HEIGHT_METERS = 0
-const DEFAULT_SURFACE_KIND = 'flat-asphalt-placeholder'
+const DEFAULT_SURFACE_KIND = 'asphalt'
 const DEFAULT_FRICTION_COEFFICIENT = 1.0
 const FLAT_TERRAIN_NORMAL_WORLD = new THREE.Vector3(0, 1, 0)
 

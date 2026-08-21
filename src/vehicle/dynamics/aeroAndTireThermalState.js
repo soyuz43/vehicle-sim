@@ -39,13 +39,15 @@ export function computeAerodynamicVerticalForceNewtons({
   downforceCoefficientNewtonsPerMeterSquared = 0,
   liftCoefficientNewtonsPerMeterSquared = 0,
 }) {
-  const speed = Math.abs(sanitizeNumber(speedMetersPerSecond))
+  const speedMetersPerSecondMagnitude = Math.abs(
+    sanitizeNumber(speedMetersPerSecond)
+  )
   const downforce = sanitizeNonNegativeNumber(downforceCoefficientNewtonsPerMeterSquared) *
-    speed *
-    speed
+    speedMetersPerSecondMagnitude *
+    speedMetersPerSecondMagnitude
   const lift = sanitizeNonNegativeNumber(liftCoefficientNewtonsPerMeterSquared) *
-    speed *
-    speed
+    speedMetersPerSecondMagnitude *
+    speedMetersPerSecondMagnitude
   return downforce - lift
 }
 
@@ -55,7 +57,11 @@ export function computeAerodynamicVerticalForceNewtons({
 // Wear accumulates with cumulative work. The friction coefficient is multiplied
 // by a mild temperature/wear factor (never below a floor).
 // ---------------------------------------------------------------------------
-export function updateWheelTireThermalState(wheelState, spec = {}, dt = 0) {
+export function updateWheelTireThermalState(
+  wheelState,
+  spec = {},
+  deltaTimeSeconds = 0
+) {
   const ambientTemperatureCelsius = sanitizeNumber(
     spec.tireAmbientTemperatureCelsius,
     25
@@ -90,7 +96,8 @@ export function updateWheelTireThermalState(wheelState, spec = {}, dt = 0) {
     sanitizeNonNegativeNumber(spec.tireCoolingRatePerSecond)
 
   temperatureCelsius +=
-    (temperatureRiseRatePerSecond - coolingRatePerSecond) * Math.max(dt, 0)
+    (temperatureRiseRatePerSecond - coolingRatePerSecond) *
+      Math.max(deltaTimeSeconds, 0)
   if (!Number.isFinite(temperatureCelsius)) {
     temperatureCelsius = ambientTemperatureCelsius
   }
@@ -98,7 +105,7 @@ export function updateWheelTireThermalState(wheelState, spec = {}, dt = 0) {
   let wearFraction01 = sanitizeNumber(wheelState.tireWearFraction01, 0)
   wearFraction01 += sanitizeNonNegativeNumber(spec.tireWearPerWorkJoule) *
     workPowerWatts *
-    Math.max(dt, 0)
+    Math.max(deltaTimeSeconds, 0)
   wearFraction01 = clamp01(wearFraction01)
 
   // Mild grip change: falls off above the optimal temperature and with wear.

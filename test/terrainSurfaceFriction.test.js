@@ -25,15 +25,15 @@ test('default profile exposes a single global mu with no per-surface field', () 
   const profile = createTerrainSurfaceProfile()
   const surface = profile.querySurfaceAtWorldPosition(5, 5)
   assert.equal(surface.frictionCoefficient, 1)
-  assert.equal(surface.surfaceKind, 'asphalt-proving-ground')
+  assert.equal(surface.surfaceKind, 'asphalt')
 })
 
 test('surfaceFrictionByKind maps a surface material to its mu', () => {
   const profile = createTerrainSurfaceProfile({
-    surfaceFrictionByKind: { 'asphalt-proving-ground': 0.8 },
+    surfaceFrictionByKind: { asphalt: 0.8 },
   })
   const surface = profile.querySurfaceAtWorldPosition(5, 5)
-  assert.equal(surface.surfaceKind, 'asphalt-proving-ground')
+  assert.equal(surface.surfaceKind, 'asphalt')
   assert.equal(surface.frictionCoefficient, 0.8)
 })
 
@@ -65,7 +65,7 @@ test('surface region overrides both surface kind and mu', () => {
   assert.equal(inside.frictionCoefficient, 0.5)
 
   const outside = profile.querySurfaceAtWorldPosition(50, 50)
-  assert.equal(outside.surfaceKind, 'asphalt-proving-ground')
+  assert.equal(outside.surfaceKind, 'asphalt')
   assert.equal(outside.frictionCoefficient, 1.0)
 })
 
@@ -132,7 +132,7 @@ test('mixed-surface tire forces reflect per-contact mu', () => {
 
 test('per-surface mu flows through the heightfield contact query', () => {
   const query = createHeightfieldTerrainContactQuery({
-    surfaceFrictionByKind: { 'asphalt-proving-ground': 0.7 },
+    surfaceFrictionByKind: { asphalt: 0.7 },
   })
   const surface = query.queryAtWorldXZ(5, 5)
   assert.equal(surface.frictionCoefficient, 0.7)

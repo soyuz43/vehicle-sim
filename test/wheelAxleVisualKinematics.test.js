@@ -81,7 +81,7 @@ test('baseline wheel stack is concentric and independent segments reach every hu
 
   assert.equal(car.getObjectByName('front-axle'), undefined)
   assert.equal(car.getObjectByName('rear-axle'), undefined)
-  assert.ok(car.getObjectByName('rear-differential-housing-placeholder'))
+  assert.ok(car.getObjectByName('rear-differential-housing-visual'))
   assert.equal(
     alignment.representationKind,
     'independent-half-shafts-and-front-spindle-links-v1'
