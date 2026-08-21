@@ -5,9 +5,11 @@ import test from 'node:test'
 
 import {
   createChassisAttitudeState,
+  computePerAxleRollFromWheelStates,
   estimateSupportPlaneFromWheelStates,
   resetChassisAttitudeState,
   updateChassisAttitudeState,
+  updatePerAxleRollStateFromWheelStates,
 } from '../src/vehicle/dynamics/chassisAttitudeState.js'
 
 const BASE_WHEEL_Y_METERS = 0.48
@@ -179,6 +181,59 @@ test('multi-step update approaches the target exponentially without overshoot', 
   assert.ok(state.heaveOffsetMeters < targetHeaveOffsetMeters)
 })
 
+test('per-axle roll uses the matching axle track width', () => {
+  const wheelStates = [
+    createWheelState('front-left', NaN, 1.45, 0, { side: 'left' }),
+    createWheelState('front-right', NaN, 1.45, 0, { side: 'right' }),
+    createWheelState('rear-left', -1, -1.45, 0),
+    createWheelState('rear-right', 1, -1.45, 0.2),
+  ]
+  const roll = computePerAxleRollFromWheelStates(wheelStates, 0.12)
+
+  assert.equal(roll.frontRollRadians, 0)
+  assert.ok(Math.abs(roll.rearRollRadians - Math.atan2(0.2, 2)) < 1e-12)
+})
+
+test('vertical-dynamics per-axle roll smooths and honors the live roll clamp', () => {
+  const responseSpec = {
+    ...SPEC,
+    chassisAttitudeResponseSeconds: 0.08,
+    chassisAttitudeMaximumRollRadians: 0.03,
+  }
+  const state = createChassisAttitudeState(responseSpec)
+  const wheelStates = createWheelStates({ leftOffsetMeters: 10 })
+
+  updatePerAxleRollStateFromWheelStates(
+    state,
+    wheelStates,
+    responseSpec,
+    0
+  )
+  assert.equal(state.frontRollRadians, 0)
+
+  updatePerAxleRollStateFromWheelStates(
+    state,
+    wheelStates,
+    responseSpec,
+    1 / 60
+  )
+  assert.ok(
+    state.frontRollRadians < 0,
+    `expected negative roll, got ${state.frontRollRadians}`
+  )
+  assert.ok(state.frontRollRadians > -0.03)
+
+  for (let index = 0; index < 120; index += 1) {
+    updatePerAxleRollStateFromWheelStates(
+      state,
+      wheelStates,
+      responseSpec,
+      1 / 60
+    )
+  }
+  assert.ok(Math.abs(state.frontRollRadians + 0.03) < 1e-9)
+})
+
 function createWheelStates({
   leftOffsetMeters = 0,
   frontOffsetMeters = 0,
@@ -222,6 +277,8 @@ function createWheelState(
 ) {
   return {
     id,
+    axle: id.startsWith('front') ? 'front' : 'rear',
+    side: options.side ?? (xMeters < 0 ? 'left' : xMeters > 0 ? 'right' : null),
     isGrounded: options.isGrounded ?? true,
     localPosition: {
       x: xMeters,

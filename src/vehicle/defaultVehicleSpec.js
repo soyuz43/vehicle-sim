@@ -46,7 +46,7 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // from body pitch/roll) and the visual-only chassis attitude with solved ODE
   // state. Disabled by default to preserve the validated baseline and regression
   // tests; enable to exercise the new vertical-dynamics seam.
-  verticalDynamicsEnabled: false,
+  verticalDynamicsEnabled: true,
   verticalDynamicsSprungMassFraction01: 1,
   verticalDynamicsPitchInertiaKgMeterSquared: 0,
   verticalDynamicsRollInertiaKgMeterSquared: 0,

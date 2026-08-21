@@ -127,8 +127,8 @@ test('pressure deformation never mutates rigid wheel transforms or segment attac
 })
 
 test('symmetric and asymmetric suspension travel keep segments attached independently', () => {
-  const symmetric = createTerrainController((xMeters) =>
-    Math.abs(xMeters) > 0.5 ? 0.06 : 0
+  const symmetric = createTerrainController((xMeters, zMeters) =>
+    0.06 * zMeters
   )
   const symmetricSnapshot = symmetric.controller.getSnapshot()
   const symmetricOffsets = symmetricSnapshot.wheelAxleVisualKinematics.wheels.map(
@@ -136,15 +136,16 @@ test('symmetric and asymmetric suspension travel keep segments attached independ
   )
 
   assertAlignmentValid(symmetricSnapshot.wheelAxleVisualKinematics)
-  assert.ok(symmetricOffsets.every((offset) => offset > 0.05))
+  assert.ok(symmetricOffsets.every((offset) => Math.abs(offset) > 0.03))
   assert.ok(
-    symmetricOffsets.every(
-      (offset) => Math.abs(offset - symmetricOffsets[0]) < 0.00001
-    )
+    Math.abs(symmetricOffsets[0] - symmetricOffsets[1]) < 0.00001
+  )
+  assert.ok(
+    Math.abs(symmetricOffsets[2] - symmetricOffsets[3]) < 0.00001
   )
 
-  const asymmetric = createTerrainController((xMeters) =>
-    xMeters < -0.5 ? 0.075 : 0
+  const asymmetric = createTerrainController((xMeters, zMeters) =>
+    zMeters > 0 && xMeters < 0 ? 0.15 : 0
   )
   const asymmetricSnapshot = asymmetric.controller.getSnapshot()
   const frontLeft = findAlignmentWheel(asymmetricSnapshot, 'front-left')
@@ -152,9 +153,9 @@ test('symmetric and asymmetric suspension travel keep segments attached independ
   const rearLeft = findAlignmentWheel(asymmetricSnapshot, 'rear-left')
 
   assertAlignmentValid(asymmetricSnapshot.wheelAxleVisualKinematics)
-  assert.ok(frontLeft.suspensionVisualOffsetMeters > 0.06)
-  assert.ok(frontRight.suspensionVisualOffsetMeters < 0.001)
-  assert.ok(rearLeft.suspensionVisualOffsetMeters > 0.06)
+  assert.ok(frontLeft.suspensionVisualOffsetMeters > 0.03)
+  assert.ok(frontRight.suspensionVisualOffsetMeters < -0.03)
+  assert.ok(rearLeft.suspensionVisualOffsetMeters < -0.03)
 
   const leftFrontSegment = findSegment(
     asymmetricSnapshot,

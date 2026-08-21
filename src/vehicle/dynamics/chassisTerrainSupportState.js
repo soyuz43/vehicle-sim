@@ -19,6 +19,9 @@ export function createChassisTerrainSupportState(initialHeightMeters = 0) {
     terrainQueryResult: {
       normalWorld: new THREE.Vector3(0, 1, 0),
     },
+    wheelTerrainQueryResult: {
+      normalWorld: new THREE.Vector3(0, 1, 0),
+    },
   }
 }
 
@@ -49,6 +52,7 @@ export function updateChassisTerrainSupportState(
     terrainContactQuery,
     worldXMeters,
     worldZMeters,
+    wheelWorldPositions = null,
     baselineOffsetMeters = 0,
     responseSeconds = DEFAULT_RESPONSE_SECONDS,
     dtSeconds = 0,
@@ -63,6 +67,7 @@ export function updateChassisTerrainSupportState(
   )
   const safeDtSeconds = sanitizeNonNegativeNumber(dtSeconds)
   const queryResult = state.terrainQueryResult
+  const wheelQueryResult = state.wheelTerrainQueryResult
 
   state.supportHeightResponseSeconds = safeResponseSeconds
   state.hasSupportSurface = false
@@ -82,6 +87,37 @@ export function updateChassisTerrainSupportState(
     queryResult
   )
 
+  let meanTerrainHeightMeters = null
+  if (Array.isArray(wheelWorldPositions)) {
+    let heightSum = 0
+    let heightCount = 0
+    for (let index = 0; index < wheelWorldPositions.length; index += 1) {
+      const wheelPosition = wheelWorldPositions[index]
+      if (
+        !Number.isFinite(wheelPosition?.x) ||
+        !Number.isFinite(wheelPosition?.z)
+      ) {
+        continue
+      }
+      terrainContactQuery.queryAtWorldXZ(
+        sanitizeNumber(wheelPosition.x),
+        sanitizeNumber(wheelPosition.z),
+        wheelQueryResult
+      )
+      const height = sanitizeNumber(
+        Number.isFinite(wheelQueryResult.terrainHeightMeters)
+          ? wheelQueryResult.terrainHeightMeters
+          : wheelQueryResult.groundHeightMeters
+      )
+      heightSum += height
+      heightCount += 1
+    }
+
+    if (heightCount > 0) {
+      meanTerrainHeightMeters = heightSum / heightCount
+    }
+  }
+
   state.isWithinTerrainBounds = queryResult.isInsideTerrainBounds === true
   state.profileName = queryResult.profileName ?? 'unavailable'
   state.surfaceKind = queryResult.surfaceKind ?? 'unavailable'
@@ -100,11 +136,13 @@ export function updateChassisTerrainSupportState(
     return state
   }
 
-  const terrainHeightMeters = sanitizeNumber(
-    Number.isFinite(queryResult.terrainHeightMeters)
-      ? queryResult.terrainHeightMeters
-      : queryResult.groundHeightMeters
-  )
+  const terrainHeightMeters = meanTerrainHeightMeters !== null
+    ? sanitizeNumber(meanTerrainHeightMeters)
+    : sanitizeNumber(
+        Number.isFinite(queryResult.terrainHeightMeters)
+          ? queryResult.terrainHeightMeters
+          : queryResult.groundHeightMeters
+      )
   const targetChassisSupportHeightMeters =
     terrainHeightMeters + safeBaselineOffsetMeters
 

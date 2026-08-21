@@ -423,7 +423,7 @@ test('deep dip transitions airborne and recontact without a damper spike; ABS st
   assert.equal(resetAirborneWheel.hasSuspensionCompressionSample, false)
   assert.equal(
     resetSnapshot.chassisTerrainSupport.currentChassisSupportHeightMeters,
-    0
+    -0.275
   )
 })
 
@@ -435,8 +435,8 @@ test('slope gravity is zero on flat terrain, points downhill on a rise, and neve
     vehicle: createCar(),
     terrainContactQuery: createHeightfieldTerrainContactQuery({
       surfaceProfile: createPlaneProfile({
-        heightAtWorldXZ: (xMeters) =>
-          Math.abs(xMeters) < 0.25 ? 0 : -0.55,
+        heightAtWorldXZ: (xMeters, zMeters) =>
+          zMeters > 0 ? 1.0 : -1.0,
       }),
     }),
   })
@@ -739,7 +739,7 @@ test('contact hysteresis retains a shallow droop only after contact is already e
   let snapshot = controller.update(STEP_SECONDS, {})
   assert.equal(findWheel(snapshot, 'front-left').isGrounded, false)
 
-  mutableTerrain.depthMeters = 0.095
+  mutableTerrain.depthMeters = 0.14
   snapshot = controller.update(STEP_SECONDS, {})
   assert.equal(
     findWheel(snapshot, 'front-left').isGrounded,
@@ -751,7 +751,7 @@ test('contact hysteresis retains a shallow droop only after contact is already e
   snapshot = controller.update(STEP_SECONDS, {})
   assert.equal(findWheel(snapshot, 'front-left').isGrounded, true)
 
-  mutableTerrain.depthMeters = 0.095
+  mutableTerrain.depthMeters = 0.14
   snapshot = controller.update(STEP_SECONDS, {})
   const retainedWheel = findWheel(snapshot, 'front-left')
   assert.equal(retainedWheel.isGrounded, true)

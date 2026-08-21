@@ -82,3 +82,27 @@ test("body world height rides terrain support 1:1 under no suspension asymmetry"
   assert.ok(Math.abs(raisedBodyWorldY - (0.5 + BODY_Y)) < 1e-3)
   assert.ok(Math.abs(raisedBodyWorldY - restBodyWorldY - 0.5) < 1e-3)
 })
+
+test("twist shader preserves chassis roll and applies only axle deviation", () => {
+  const car = createCar()
+  const body = car.getObjectByName("raised-body-shell")
+  const shader = { uniforms: {}, vertexShader: "" }
+
+  body.material.onBeforeCompile(shader)
+  car.userData.vehicle.setChassisTwistUniforms({
+    rollRadians: 0.5,
+    frontRollRadians: 0.2,
+    rearRollRadians: -0.1,
+  })
+
+  assert.ok(
+    Math.abs(
+      shader.uniforms.uFrontRollDeviationRadians.value - 0.15
+    ) < 1e-12
+  )
+  assert.ok(
+    Math.abs(
+      shader.uniforms.uRearRollDeviationRadians.value + 0.15
+    ) < 1e-12
+  )
+})
