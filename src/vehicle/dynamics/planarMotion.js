@@ -87,7 +87,7 @@ export function integratePlanarVelocityFromLocalAcceleration(
   state,
   localForwardAccelerationMetersPerSecondSquared,
   localLateralAccelerationMetersPerSecondSquared,
-  dt
+  deltaTimeSeconds
 ) {
   state.planarAccelerationLocalForwardMetersPerSecondSquared =
     localForwardAccelerationMetersPerSecondSquared
@@ -103,10 +103,10 @@ export function integratePlanarVelocityFromLocalAcceleration(
     )
   state.planarAccelerationWorldMetersPerSecondSquared.y = 0
 
-  if (dt > 0) {
+  if (deltaTimeSeconds > 0) {
     state.worldVelocityMetersPerSecond.addScaledVector(
       state.planarAccelerationWorldMetersPerSecondSquared,
-      dt
+      deltaTimeSeconds
     )
     state.worldVelocityMetersPerSecond.y = 0
   }
@@ -118,7 +118,7 @@ export function integratePlanarVelocityFromWorldAcceleration(
   state,
   worldAccelerationXMetersPerSecondSquared,
   worldAccelerationZMetersPerSecondSquared,
-  dt
+  deltaTimeSeconds
 ) {
   state.planarAccelerationWorldMetersPerSecondSquared.set(
     sanitizeNumber(worldAccelerationXMetersPerSecondSquared),
@@ -130,10 +130,10 @@ export function integratePlanarVelocityFromWorldAcceleration(
   state.planarAccelerationLocalLateralMetersPerSecondSquared =
     state.planarAccelerationWorldMetersPerSecondSquared.dot(state.rightWorld)
 
-  if (dt > 0) {
+  if (deltaTimeSeconds > 0) {
     state.worldVelocityMetersPerSecond.addScaledVector(
       state.planarAccelerationWorldMetersPerSecondSquared,
-      dt
+      deltaTimeSeconds
     )
     state.worldVelocityMetersPerSecond.y = 0
   }
@@ -141,17 +141,22 @@ export function integratePlanarVelocityFromWorldAcceleration(
   updatePlanarVelocityTelemetry(state)
 }
 
-export function integrateYawRate(state, yawRateRadiansPerSecond, dt) {
+export function integrateYawRate(
+  state,
+  yawRateRadiansPerSecond,
+  deltaTimeSeconds
+) {
   const previousYawRateRadiansPerSecond = state.yawRateRadiansPerSecond
 
   state.yawRateRadiansPerSecond = yawRateRadiansPerSecond
   state.yawAccelerationRadiansPerSecondSquared =
-    dt > 0
-      ? (yawRateRadiansPerSecond - previousYawRateRadiansPerSecond) / dt
+    deltaTimeSeconds > 0
+      ? (yawRateRadiansPerSecond - previousYawRateRadiansPerSecond) /
+        deltaTimeSeconds
       : 0
 
-  if (dt > 0) {
-    state.yawRadians += state.yawRateRadiansPerSecond * dt
+  if (deltaTimeSeconds > 0) {
+    state.yawRadians += state.yawRateRadiansPerSecond * deltaTimeSeconds
   }
 
   updatePlanarBasisFromYaw(state)
@@ -163,20 +168,20 @@ export function integrateYawAcceleration(
   yawAccelerationRadiansPerSecondSquared,
   yawRateDampingPerSecond,
   maxYawRateRadiansPerSecond,
-  dt
+  deltaTimeSeconds
 ) {
   state.yawAccelerationRadiansPerSecondSquared = sanitizeNumber(
     yawAccelerationRadiansPerSecondSquared
   )
 
-  if (dt > 0) {
+  if (deltaTimeSeconds > 0) {
     state.yawRateRadiansPerSecond +=
-      state.yawAccelerationRadiansPerSecondSquared * dt
+      state.yawAccelerationRadiansPerSecondSquared * deltaTimeSeconds
 
     if (Number.isFinite(yawRateDampingPerSecond) && yawRateDampingPerSecond > 0) {
       state.yawRateRadiansPerSecond *= Math.max(
         0,
-        1 - yawRateDampingPerSecond * dt
+        1 - yawRateDampingPerSecond * deltaTimeSeconds
       )
     }
 
@@ -197,17 +202,20 @@ export function integrateYawAcceleration(
       state.yawRateRadiansPerSecond = 0
     }
 
-    state.yawRadians += state.yawRateRadiansPerSecond * dt
+    state.yawRadians += state.yawRateRadiansPerSecond * deltaTimeSeconds
   }
 
   updatePlanarBasisFromYaw(state)
   updatePlanarVelocityTelemetry(state)
 }
 
-export function integratePlanarPosition(position, state, dt) {
-  if (dt <= 0) return
+export function integratePlanarPosition(position, state, deltaTimeSeconds) {
+  if (deltaTimeSeconds <= 0) return
 
-  position.addScaledVector(state.worldVelocityMetersPerSecond, dt)
+  position.addScaledVector(
+    state.worldVelocityMetersPerSecond,
+    deltaTimeSeconds
+  )
 }
 
 function sanitizeNumber(value) {

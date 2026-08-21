@@ -282,9 +282,12 @@ const configPanel = createConfigPanel({
         globalThis.location.search = params.toString()
       }
     }
-    // Vehicle config changes would require controller rebuild
-    // For now, we just acknowledge the apply
-    console.log('[ConfigPanel] Applied:', { terrain, vehicleConfig })
+    if (vehicleConfig !== initialVehicleConfig) {
+      console.warn(
+        '[ConfigPanel] Vehicle configuration changes require an application restart and were not applied.',
+        { vehicleConfig }
+      )
+    }
   },
   onReset: () => {
     configPanel.setTerrain('proving-ground')
@@ -467,47 +470,6 @@ function animate() {
 function sanitizeRenderDeltaSeconds(frameDeltaSeconds) {
   if (!Number.isFinite(frameDeltaSeconds) || frameDeltaSeconds <= 0) return 0
   return Math.min(frameDeltaSeconds, maxFrameDeltaSeconds)
-}
-
-/* =========================
-   Phase 3 Wheel-Surface Particle Emission
-========================= */
-let particleEmitStepCounter = 0
-
-function emitWheelSurfaceParticles(snapshot) {
-  if (!particleSystem) return
-  particleEmitStepCounter += 1
-  const wheelStates = Array.isArray(snapshot.wheelStates) ? snapshot.wheelStates : []
-  const speedMetersPerSecond = Number.isFinite(snapshot.speedMetersPerSecond)
-    ? snapshot.speedMetersPerSecond
-    : 0
-
-  for (let index = 0; index < wheelStates.length; index += 1) {
-    const wheelState = wheelStates[index]
-    if (!wheelState || !wheelState.isGrounded) continue
-    const contact = wheelState.contactPointWorldPosition
-    if (!contact || !Number.isFinite(contact.x)) continue
-    if (((particleEmitStepCounter + index) % 3) !== 0) continue
-
-    const kind = particleKindForSurface(wheelState.surfaceKind)
-    if (kind === 'water-spray') {
-      particleSystem.emit(kind, contact.x, Number.isFinite(contact.y) ? contact.y : 0, contact.z, 2)
-    } else if (kind && speedMetersPerSecond > 1.5) {
-      particleSystem.emit(kind, contact.x, Number.isFinite(contact.y) ? contact.y : 0, contact.z, 1)
-    }
-  }
-}
-
-function particleKindForSurface(surfaceKind) {
-  switch (surfaceKind) {
-    case 'water': return 'water-spray'
-    case 'mud': return 'mud'
-    case 'dirt':
-    case 'sand':
-    case 'grass': return 'dust'
-    case 'snow': return 'snow'
-    default: return null
-  }
 }
 
 animate()

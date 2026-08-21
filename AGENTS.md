@@ -272,7 +272,7 @@ Before finalizing a design report or large PR, quickly ask:
   ```
 - **Validation Checklist** (Before Pushing):
   1. `npm run build` passes.
-  2. `node --test "test/*.test.js"` passes (note: `node --test test/` fails here because the directory is not treated as a glob; `npm test` is not currently defined).
+  2. `npm test` passes.
   3. `rg` confirms no prohibited feature implementation was introduced. Future-work mentions in README, AGENTS.md, skill docs, or comments are allowed; executable-code matches must be inspected and explained.
   4. Manual check: Driving, Braking, Reset, and HUD updates work.
   5. No unintended behavior regression.

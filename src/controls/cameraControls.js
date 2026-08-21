@@ -173,8 +173,11 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
    * Writes results into 'outPos' and 'outTarget' to avoid allocation.
    */
   function computeDesired(outPos, outTarget, fwdWorld, vWorld, aWorld) {
-    const speed = vWorld.length()
-    const pullback = Math.min(params.maxPullback, speed * params.speedPullback)
+    const speedMetersPerSecond = vWorld.length()
+    const pullback = Math.min(
+      params.maxPullback,
+      speedMetersPerSecond * params.speedPullback
+    )
 
     // Calculate Accel effects
     const accelMag = aWorld.length()
@@ -204,7 +207,10 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
     // 2. Look Target Calculation
     outTarget.copy(carPos)
       .addScaledVector(_up, params.lookHeight)
-      .addScaledVector(fwdWorld, speed * params.lookAhead)
+      .addScaledVector(
+        fwdWorld,
+        speedMetersPerSecond * params.lookAhead
+      )
   }
 
   function update(dt) {

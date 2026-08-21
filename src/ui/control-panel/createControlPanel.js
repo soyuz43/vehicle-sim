@@ -13,6 +13,7 @@ import { createButton } from '../design-system/components/Button.js';
 import { createValueDisplay } from '../design-system/components/ValueDisplay.js';
 import { createVStack, createHStack } from '../design-system/layout/Stack.js';
 import { useMobileBottomSheet } from '../design-system/layout/Responsive.js';
+import { readJsonFromStorage, writeJsonToStorage } from '../design-system/browserStorage.js';
 
 const SLIDER_DEFINITIONS = [
   { key: 'driveTorqueMultiplier', label: 'Drive Torque', defaultValue: 1, min: 0.25, max: 5, step: 0.05 },
@@ -48,24 +49,19 @@ export function createControlPanel(config = {}) {
   let diffType = 'open';
   let tirePressureKpa = cfg.tirePressure.kpa;
 
-  try {
-    const stored = localStorage.getItem('control-panel-state');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      dynamicsValues = { ...dynamicsValues, ...parsed.dynamics };
-      diffType = parsed.diffType ?? diffType;
-      tirePressureKpa = parsed.tirePressureKpa ?? tirePressureKpa;
-    }
-  } catch (_) {}
+  const parsed = readJsonFromStorage('control-panel-state');
+  if (parsed) {
+    dynamicsValues = { ...dynamicsValues, ...parsed.dynamics };
+    diffType = parsed.diffType ?? diffType;
+    tirePressureKpa = parsed.tirePressureKpa ?? tirePressureKpa;
+  }
 
   function persistState() {
-    try {
-      localStorage.setItem('control-panel-state', JSON.stringify({
-        dynamics: dynamicsValues,
-        diffType,
-        tirePressureKpa,
-      }));
-    } catch (_) {}
+    writeJsonToStorage('control-panel-state', {
+      dynamics: dynamicsValues,
+      diffType,
+      tirePressureKpa,
+    });
   }
 
   // Create main panel

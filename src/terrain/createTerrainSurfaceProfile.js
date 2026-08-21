@@ -16,11 +16,7 @@ export function createTerrainSurfaceProfile(config = {}) {
     config.profileName === 'flat'
       ? 'flat-spawn-profile'
       : 'uneven-proving-ground-v1'
-  const surfaceKind =
-    config.surfaceKind ??
-    (profileName === 'flat-spawn-profile'
-      ? 'flat-asphalt'
-      : 'asphalt-proving-ground')
+  const surfaceKind = config.surfaceKind ?? 'asphalt'
   const frictionCoefficient = sanitizeNonNegativeNumber(
     config.frictionCoefficient,
     DEFAULT_FRICTION_COEFFICIENT

@@ -5,6 +5,7 @@
  */
 
 import { tokens, lightThemeOverrides, getToken } from './tokens.js';
+import { readStringFromStorage, writeStringToStorage } from './browserStorage.js';
 
 const THEME_ATTR = 'data-ui-theme';
 const STORAGE_KEY = 'ui-theme-preference';
@@ -84,11 +85,7 @@ function applyTheme(theme) {
   if (root && typeof root.setAttribute === 'function') {
     root.setAttribute(THEME_ATTR, theme);
   }
-  try {
-    localStorage.setItem(STORAGE_KEY, theme);
-  } catch (_) {
-    // Ignore storage errors (private browsing, etc.)
-  }
+  writeStringToStorage(STORAGE_KEY, theme);
 }
 
 /**
@@ -100,30 +97,25 @@ export function initTheme() {
     return;
   }
 
-  let theme = 'dark';
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark') {
-      theme = stored;
-    } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-      theme = 'light';
-    }
-  } catch (_) {
-    if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-      theme = 'light';
-    }
+  const storedTheme = readStringFromStorage(STORAGE_KEY);
+  let theme = storedTheme === 'light' || storedTheme === 'dark'
+    ? storedTheme
+    : 'dark';
+  const systemMediaQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: light)')
+    : null;
+  if (theme === 'dark' && systemMediaQuery?.matches) {
+    theme = 'light';
   }
   applyTheme(theme);
 
   // Listen for system theme changes (only if user hasn't set explicit preference)
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-      mediaQueryListener = (e) => applyTheme(e.matches ? 'light' : 'dark');
-      window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', mediaQueryListener);
-    }
-  } catch (_) {
-    // Ignore
+  const preferenceMediaQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: light)')
+    : null;
+  if (!storedTheme && preferenceMediaQuery?.addEventListener) {
+    mediaQueryListener = (e) => applyTheme(e.matches ? 'light' : 'dark');
+    preferenceMediaQuery.addEventListener('change', mediaQueryListener);
   }
 
   // Reduced motion preference

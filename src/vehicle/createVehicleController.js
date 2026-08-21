@@ -3300,7 +3300,7 @@ function createWheelRuntimeStates(vehicle, spec) {
             tractionStateSeverity01: 0,
             isGrounded: true,
             isSlipping: false,
-            surfaceKind: 'flat-asphalt-placeholder',
+            surfaceKind: 'asphalt',
             frictionCoefficient: spec.defaultSurfaceFrictionCoefficient,
             staticNormalForceNewtons: 0,
             longitudinalLoadTransferNormalForceDeltaNewtons: 0,

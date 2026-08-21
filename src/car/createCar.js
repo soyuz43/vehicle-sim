@@ -85,13 +85,13 @@ export function createCar() {
 
   const frontSpindleSupports = [
     createSpindleInnerSupport(
-      'front-left-spindle-inner-support-placeholder',
+      'front-left-spindle-inner-support-visual',
       -FRAME_RAIL_X,
       FRONT_AXLE_Z,
       materials.frame
     ),
     createSpindleInnerSupport(
-      'front-right-spindle-inner-support-placeholder',
+      'front-right-spindle-inner-support-visual',
       FRAME_RAIL_X,
       FRONT_AXLE_Z,
       materials.frame
@@ -159,7 +159,7 @@ export function createCar() {
   const articulatedSegments = [
     createArticulatedSegment(
       'front-left-spindle-link',
-      'non-driven-spindle-link-placeholder',
+      'non-driven-spindle-link-visual',
       'front-left',
       new THREE.Vector3(-FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
       new THREE.Vector3(-1, 0, 0),
@@ -168,7 +168,7 @@ export function createCar() {
     ),
     createArticulatedSegment(
       'front-right-spindle-link',
-      'non-driven-spindle-link-placeholder',
+      'non-driven-spindle-link-visual',
       'front-right',
       new THREE.Vector3(FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
       new THREE.Vector3(1, 0, 0),
@@ -177,7 +177,7 @@ export function createCar() {
     ),
     createArticulatedSegment(
       'rear-left-half-shaft',
-      'driven-half-shaft-placeholder',
+      'driven-half-shaft-visual',
       'rear-left',
       new THREE.Vector3(-REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
       new THREE.Vector3(-1, 0, 0),
@@ -186,7 +186,7 @@ export function createCar() {
     ),
     createArticulatedSegment(
       'rear-right-half-shaft',
-      'driven-half-shaft-placeholder',
+      'driven-half-shaft-visual',
       'rear-right',
       new THREE.Vector3(REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
       new THREE.Vector3(1, 0, 0),
@@ -283,7 +283,7 @@ export function createCar() {
       hangerNodes: rearDifferentialHangers.map((hanger) => hanger.name),
     },
     drivetrain: {
-      layout: 'rear-wheel-drive-visual-placeholder',
+      layout: 'rear-wheel-drive-visual-layout',
       drivenWheels: ['rear-left', 'rear-right'],
       representationKind: 'independent-half-shafts-and-front-spindle-links-v1',
       differentialHousingNode: rearDifferentialHousing.name,
@@ -622,7 +622,7 @@ function createRearDifferentialHousing(material) {
     new THREE.SphereGeometry(REAR_DIFFERENTIAL_RADIUS, 20, 12),
     material
   )
-  housing.name = 'rear-differential-housing-placeholder'
+  housing.name = 'rear-differential-housing-visual'
   housing.castShadow = true
   housing.position.set(0, WHEEL_Y, REAR_AXLE_Z)
   housing.scale.set(1.35, 1, 1)
@@ -634,7 +634,7 @@ function createDriveshaft(material) {
   const geometry = new THREE.CylinderGeometry(0.045, 0.045, length, 16)
   const driveshaft = new THREE.Mesh(geometry, material)
 
-  driveshaft.name = 'center-driveshaft-placeholder'
+  driveshaft.name = 'center-driveshaft-visual'
   driveshaft.castShadow = true
   driveshaft.rotation.x = Math.PI / 2
   driveshaft.position.set(

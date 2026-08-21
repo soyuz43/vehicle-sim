@@ -16,6 +16,7 @@ import { createButton } from '../design-system/components/Button.js';
 import { createVStack, createHStack } from '../design-system/layout/Stack.js';
 import { useMobileBottomSheet } from '../design-system/layout/Responsive.js';
 import { getIconSvg } from '../design-system/icons.js';
+import { readJsonFromStorage, writeJsonToStorage } from '../design-system/browserStorage.js';
 
 const SECTIONS = [
   { id: 'chassis', title: 'Chassis', icon: 'database' },
@@ -41,10 +42,7 @@ export function createTelemetryPanel(config = {}) {
   // Load persisted collapse state
   let persistedState = {};
   if (cfg.persistState) {
-    try {
-      const stored = localStorage.getItem(cfg.storageKey);
-      if (stored) persistedState = JSON.parse(stored);
-    } catch (_) {}
+    persistedState = readJsonFromStorage(cfg.storageKey) ?? {};
   }
 
   // Create main panel
@@ -431,9 +429,7 @@ export function createTelemetryPanel(config = {}) {
 
   function persistState(partial) {
     persistedState = { ...persistedState, ...partial };
-    try {
-      localStorage.setItem(cfg.storageKey, JSON.stringify(persistedState));
-    } catch (_) {}
+    writeJsonToStorage(cfg.storageKey, persistedState);
   }
 
   // Search filter
