@@ -29,6 +29,7 @@
 
 const COMBINED_SLIP_EPSILON_NEWTONS = 1e-9
 const MAX_SLIP_ANGLE_RADIANS = 1.5
+const COMBINED_SLIP_KINETIC_FRICTION_FLOOR = 0.65
 
 function sanitizePositiveNumber(value, fallback = 0) {
   const n = Number(value)
@@ -73,6 +74,14 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
     wheelState.tractionLimitNewtons,
     frictionCoefficient * normalForceNewtons
   )
+  const kineticFrictionFloor = clamp(
+    sanitizeNumber(
+      spec.combinedSlipKineticFrictionFloor,
+      COMBINED_SLIP_KINETIC_FRICTION_FLOOR
+    ),
+    0,
+    1
+  )
 
   // Reset/applied telemetry fields so downstream summaries stay consistent.
   wheelState.uncappedLongitudinalTireForceNewtons = 0
@@ -89,6 +98,7 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
   wheelState.combinedTireForceSaturationRatio = 0
   wheelState.isCombinedTireForceSaturated = false
   wheelState.isSlipping = false
+  wheelState.isCombinedTireForceFloored = false
 
   if (!wheelState.isGrounded || tractionLimitNewtons <= 0) {
     return wheelState
@@ -122,6 +132,16 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
     const inverseSlip = tractionLimitNewtons / elasticMagnitudeNewtons
     const falloff = 1 - Math.pow(1 - inverseSlip, 3)
     combinedForceMagnitudeNewtons = tractionLimitNewtons * falloff
+    // Kinetic-friction floor: the classic brush formulation lets the sliding
+    // force decay asymptotically toward zero at extreme slip, which makes
+    // severe lockup / breakaway feel artificially gripless. Clamp the magnitude
+    // to a fraction of the traction limit so the tire retains a bounded
+    // sliding friction force along the slip direction.
+    const kineticFloorNewtons = kineticFrictionFloor * tractionLimitNewtons
+    if (combinedForceMagnitudeNewtons < kineticFloorNewtons) {
+      combinedForceMagnitudeNewtons = kineticFloorNewtons
+      wheelState.isCombinedTireForceFloored = true
+    }
     combinedForceScale01 =
       elasticMagnitudeNewtons > 0
         ? combinedForceMagnitudeNewtons / elasticMagnitudeNewtons

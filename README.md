@@ -58,11 +58,11 @@
 
 ### Vertical Dynamics
 - 3-DOF heave/pitch/roll solver replacing quasi-static load transfer
-- Enabled via `verticalDynamicsEnabled` flag
+- Enabled via `verticalDynamicsEnabled` flag (enabled by default)
 
 ### Combined-Slip Modeling  
-- Brush/Fiala tire model replacing simple linear approach
-- Enabled via `combinedSlipTireModelEnabled` flag
+- Brush/Fiala tire model replacing the simple linear approach and friction-circle combined cap
+- Enabled via `combinedSlipTireModelEnabled` flag (disabled by default)
 
 ### Enhanced ABS
 - Target-slip advanced control algorithm

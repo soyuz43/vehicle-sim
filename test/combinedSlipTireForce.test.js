@@ -108,3 +108,26 @@ test('batch update applies to every wheel', () => {
   assert.ok(wheels[0].appliedLongitudinalForceNewtons > 0)
   assert.ok(wheels[1].appliedLateralTireForceNewtons < 0)
 })
+
+test('kinetic-friction floor prevents high-slip force decay to zero', () => {
+  const muFz = 3433;
+  const floor = 0.65;
+  // Extreme longitudinal slip: without the floor the brush model decays the
+  // sliding force toward zero; with the floor it must stay >= floor*mu*Fz.
+  const wheel = makeWheel({ kappa: 20 });
+  updateWheelCombinedSlipTireForce(wheel);
+  assert.ok(wheel.isCombinedTireForceSaturated);
+  assert.ok(wheel.isCombinedTireForceFloored);
+  assert.ok(
+    Math.abs(wheel.appliedLongitudinalForceNewtons) >= floor * muFz - 1e-6,
+    `high-slip force ${Math.abs(wheel.appliedLongitudinalForceNewtons)} below kinetic floor ${floor * muFz}`
+  );
+  assert.ok(Math.abs(wheel.appliedLongitudinalForceNewtons) <= muFz + 1e-6);
+});
+
+test('moderate sliding slip is not floored', () => {
+  // A slip just past the peak is above the floor and should not be clamped.
+  const wheel = makeWheel({ kappa: 2.5 });
+  updateWheelCombinedSlipTireForce(wheel);
+  assert.ok(!wheel.isCombinedTireForceFloored);
+});
