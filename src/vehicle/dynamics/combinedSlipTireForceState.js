@@ -21,11 +21,18 @@
 // (realistic breakaway/slide behavior), instead of the previous hard flat clamp.
 //
 // Honest limitations (documented seams, not fake realism):
-//   - Single constant friction coefficient; no speed/load/temperature dependence yet.
-//   - Fiala brush, not a full Pacejka Magic Formula.
-//   - High-slip asymptote decays toward zero (classic brush artifact); a kinetic-
-//     friction floor can be added later. Lateral slip angle is clamped before tan()
-//     to keep the elastic term finite.
+//   - For the 'brushFiala' preset: single constant friction coefficient, no
+//     speed/load/temperature dependence yet, and the high-slip asymptote decays
+//     toward zero (classic brush artifact) mitigated by a kinetic-friction floor.
+//   - Other presets select a parameterized Pacejka-style Magic Formula curve from
+//     tireModelLibrary.js. This is still a single-compound Magic Formula, not a
+//     full validated tire database, and also lacks load/speed/temperature terms
+//     (the slide-region curve is normalized so the peak is the friction-circle
+//     limit; the kinetic-friction floor is not applied because the curve already
+//     decays to a bounded, non-zero asymptote).
+//   - Lateral slip angle is clamped before tan() to keep the elastic term finite.
+
+import { getTirePreset, magicFormulaSlideFactor } from './tireModelLibrary.js'
 
 const COMBINED_SLIP_EPSILON_NEWTONS = 1e-9
 const MAX_SLIP_ANGLE_RADIANS = 1.5
@@ -70,10 +77,26 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
     wheelState.normalForceNewtons,
     0
   )
-  const tractionLimitNewtons = sanitizePositiveNumber(
-    wheelState.tractionLimitNewtons,
-    frictionCoefficient * normalForceNewtons
-  )
+
+  // Tire-compound dispatch: the 'brushFiala' preset reproduces the original
+  // brush/Fiala seam exactly. Other presets (Magic Formula) scale the friction
+  // circle by the compound's peak friction coefficient instead of the surface
+  // friction coefficient, and replace the slide-region falloff curve below.
+  const tirePreset = getTirePreset(spec.combinedSlipTirePresetName)
+
+  let tractionLimitNewtons
+  if (tirePreset.isMagicFormula) {
+    const compoundMu = sanitizePositiveNumber(
+      tirePreset.peakFrictionCoefficient,
+      frictionCoefficient
+    )
+    tractionLimitNewtons = compoundMu * normalForceNewtons
+  } else {
+    tractionLimitNewtons = sanitizePositiveNumber(
+      wheelState.tractionLimitNewtons,
+      frictionCoefficient * normalForceNewtons
+    )
+  }
   const kineticFrictionFloor = clamp(
     sanitizeNumber(
       spec.combinedSlipKineticFrictionFloor,
@@ -127,8 +150,33 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
     // Adhesion region: forces follow the elastic (linear) relationship.
     combinedForceMagnitudeNewtons = elasticMagnitudeNewtons
     combinedForceScale01 = 1
+  } else if (tirePreset.isMagicFormula) {
+    // Sliding region (Magic Formula preset): blend the axis-specific curves by
+    // each axis's share of elastic slip energy. This uses the matching pure-slip
+    // curve on either axis and transitions smoothly for combined slip.
+    const longitudinalSlipShare =
+      elasticLongitudinalForceNewtons / elasticMagnitudeNewtons
+    const lateralSlipShare = elasticLateralForceNewtons / elasticMagnitudeNewtons
+    const longitudinalSlideFactor = magicFormulaSlideFactor(
+      normalizedCombinedSlip,
+      tirePreset.longitudinal
+    )
+    const lateralSlideFactor = magicFormulaSlideFactor(
+      normalizedCombinedSlip,
+      tirePreset.lateral
+    )
+    const combinedSlideFactor =
+      longitudinalSlipShare * longitudinalSlipShare * longitudinalSlideFactor +
+      lateralSlipShare * lateralSlipShare * lateralSlideFactor
+    const rawMagnitudeNewtons =
+      tractionLimitNewtons * combinedSlideFactor
+    combinedForceMagnitudeNewtons = Math.max(rawMagnitudeNewtons, 0)
+    combinedForceScale01 =
+      elasticMagnitudeNewtons > 0
+        ? combinedForceMagnitudeNewtons / elasticMagnitudeNewtons
+        : 1
   } else {
-    // Sliding region: brush falloff past the grip peak, distributed along slip.
+    // Sliding region (brush/Fiala): original falloff + kinetic-friction floor.
     const inverseSlip = tractionLimitNewtons / elasticMagnitudeNewtons
     const falloff = 1 - Math.pow(1 - inverseSlip, 3)
     combinedForceMagnitudeNewtons = tractionLimitNewtons * falloff
