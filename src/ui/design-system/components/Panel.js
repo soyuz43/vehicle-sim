@@ -48,6 +48,10 @@ export function createPanel(config = {}) {
     width: `${panelWidth}px`,
     minWidth: `${panelMinWidth}px`,
     maxWidth: `${panelMaxWidth}px`,
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    maxHeight: 'calc(50vh - var(--ui-space-xl))',
     background: 'var(--ui-color-bg-panel)',
     border: '1px solid var(--ui-color-border-default)',
     borderTopLeftRadius: 0,
@@ -65,6 +69,7 @@ export function createPanel(config = {}) {
     userSelect: 'none',
     contain: 'layout style',
   });
+  root.style.maxHeight = 'calc(50dvh - var(--ui-space-xl))';
 
   const anchorStyle = ANCHORS[cfg.anchor] ?? ANCHORS['top-right'];
   Object.assign(root.style, anchorStyle);
@@ -129,12 +134,23 @@ export function createPanel(config = {}) {
   header.appendChild(actions);
 
   const contentWrapper = document.createElement('div');
+  contentWrapper.id = `${cfg.id}-content`;
   Object.assign(contentWrapper.style, {
-    overflow: 'hidden',
+    minHeight: '0',
+    flex: '1 1 auto',
+    overflowX: 'hidden',
+    overflowY: 'auto',
+    overscrollBehavior: 'contain',
     transition: `max-height var(--ui-panel-collapseAnimation), opacity var(--ui-panel-collapseAnimation)`,
     maxHeight: collapsed ? '0' : 'none',
     opacity: collapsed ? '0' : '1',
   });
+  contentWrapper.setAttribute('aria-hidden', String(collapsed));
+  contentWrapper.inert = collapsed;
+  if (collapseBtn) {
+    collapseBtn.setAttribute('aria-controls', contentWrapper.id);
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+  }
 
   const content = document.createElement('div');
   content.style.padding = 'var(--ui-space-md)';
@@ -144,12 +160,18 @@ export function createPanel(config = {}) {
   root.appendChild(contentWrapper);
 
   let dragData = null;
-  if (cfg.draggable) {
+  let draggable = cfg.draggable;
+  if (draggable) {
     header.addEventListener('pointerdown', onDragStart);
   }
 
   function onDragStart(e) {
-    if (e.target !== header && !titleEl.contains(e.target) && e.button !== 0) return;
+    if (
+      !draggable ||
+      e.button !== 0 ||
+      !header.contains(e.target) ||
+      e.target.closest?.('button, input, select, textarea, [data-panel-no-drag]')
+    ) return;
     e.preventDefault();
     header.style.cursor = 'grabbing';
     dragData = {
@@ -208,9 +230,12 @@ export function createPanel(config = {}) {
     collapsed = !collapsed;
     contentWrapper.style.maxHeight = collapsed ? '0' : 'none';
     contentWrapper.style.opacity = collapsed ? '0' : '1';
+    contentWrapper.setAttribute('aria-hidden', String(collapsed));
+    contentWrapper.inert = collapsed;
     if (collapseBtn) {
       collapseBtn.setAttribute('aria-label', collapsed ? 'Expand panel' : 'Collapse panel');
       collapseBtn.title = collapsed ? 'Expand' : 'Collapse';
+      collapseBtn.setAttribute('aria-expanded', String(!collapsed));
       collapseBtn.querySelector('svg').innerHTML = collapsed
         ? '<polyline points="6 9 12 15 18 9"></polyline>'
         : '<polyline points="18 15 12 9 6 15"></polyline>';
@@ -226,6 +251,15 @@ export function createPanel(config = {}) {
     return collapsed;
   }
 
+  function setDraggable(enabled) {
+    const next = Boolean(enabled);
+    if (next === draggable) return;
+    draggable = next;
+    header.style.cursor = draggable ? 'grab' : 'default';
+    if (draggable) header.addEventListener('pointerdown', onDragStart);
+    else header.removeEventListener('pointerdown', onDragStart);
+  }
+
   document.body.appendChild(root);
   return {
     element: root,
@@ -236,9 +270,11 @@ export function createPanel(config = {}) {
     expand: () => setCollapsed(false),
     toggle: toggleCollapse,
     isCollapsed,
+    setDraggable,
+    isDraggable: () => draggable,
     setTitle: (text) => { titleEl.textContent = text; },
     destroy: () => {
-      if (cfg.draggable) header.removeEventListener('pointerdown', onDragStart);
+      if (draggable) header.removeEventListener('pointerdown', onDragStart);
       root.remove();
     },
   };

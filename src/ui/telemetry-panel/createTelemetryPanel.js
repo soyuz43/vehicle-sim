@@ -68,8 +68,6 @@ export function createTelemetryPanel(config = {}) {
   content.style.display = 'flex';
   content.style.flexDirection = 'column';
   content.style.gap = 'var(--ui-space-sm)';
-  content.style.maxHeight = 'calc(100vh - 100px)';
-  content.style.overflowY = 'auto';
 
   // Search/filter bar
   const searchRow = createHStack({ gap: 'var(--ui-space-sm)', align: 'center' });

@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   showValue: true,
   marks: null,
   disabled: false,
+  ariaLabel: '',
   onChange: null,
   onInput: null,
 };
@@ -74,6 +75,7 @@ export function createSlider(config = {}) {
   input.step = String(cfg.step);
   input.value = String(cfg.value);
   input.disabled = cfg.disabled;
+  if (cfg.ariaLabel) input.setAttribute('aria-label', cfg.ariaLabel);
   Object.assign(input.style, {
     width: '100%',
     height: '20px',
@@ -108,7 +110,9 @@ export function createSlider(config = {}) {
 
   function handleInput(e) {
     const val = Number(e.target.value);
-    cfg._valueDisplay.textContent = cfg.formatValue(val) + (cfg.unit ? ' ' + cfg.unit : '');
+    if (cfg._valueDisplay) {
+      cfg._valueDisplay.textContent = cfg.formatValue(val) + (cfg.unit ? ' ' + cfg.unit : '');
+    }
     cfg.onInput?.(val, e);
   }
 
@@ -127,7 +131,9 @@ export function createSlider(config = {}) {
     setValue: (val) => {
       const clamped = Math.max(cfg.min, Math.min(cfg.max, val));
       input.value = String(clamped);
-      cfg._valueDisplay.textContent = cfg.formatValue(clamped) + (cfg.unit ? ' ' + cfg.unit : '');
+      if (cfg._valueDisplay) {
+        cfg._valueDisplay.textContent = cfg.formatValue(clamped) + (cfg.unit ? ' ' + cfg.unit : '');
+      }
     },
     setDisabled: (disabled) => {
       cfg.disabled = disabled;

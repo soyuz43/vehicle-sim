@@ -22,11 +22,11 @@ const SLIDER_DEFINITIONS = [
 ];
 
 const REAR_DIFF_OPTIONS = [
-  { key: 'open', label: 'Open' },
-  { key: 'limited-slip', label: 'Limited-Slip' },
-  { key: 'torsen', label: 'Torsen' },
-  { key: 'locked', label: 'Locked' },
-  { key: 'welded', label: 'Welded' },
+  { value: 'open', label: 'Open' },
+  { value: 'limited-slip', label: 'Limited-Slip' },
+  { value: 'torsen', label: 'Torsen' },
+  { value: 'locked', label: 'Locked' },
+  { value: 'welded', label: 'Welded' },
 ];
 
 const DEFAULT_CONFIG = {
@@ -84,8 +84,6 @@ export function createControlPanel(config = {}) {
   content.style.display = 'flex';
   content.style.flexDirection = 'column';
   content.style.gap = 'var(--ui-space-sm)';
-  content.style.maxHeight = 'calc(100vh - 100px)';
-  content.style.overflowY = 'auto';
 
   // === TIRE PRESSURE SECTION ===
   const tireSection = createSection({
@@ -128,6 +126,7 @@ export function createControlPanel(config = {}) {
   // Pressure slider
   const pressureSlider = createSlider({
     label: '',
+    ariaLabel: 'Tire pressure (kPa)',
     value: tirePressureKpa,
     min: cfg.tirePressure.min,
     max: cfg.tirePressure.max,
@@ -204,12 +203,14 @@ export function createControlPanel(config = {}) {
   const diffRow = createHStack({ gap: 'var(--ui-space-sm)', align: 'center' });
   const diffLabel = document.createElement('label');
   diffLabel.textContent = 'Rear Diff';
+  diffLabel.htmlFor = 'rear-differential-select';
   diffLabel.style.fontSize = 'var(--ui-typeScale-sm)';
   diffLabel.style.fontWeight = 'var(--ui-fontWeight-medium)';
   diffLabel.style.color = 'var(--ui-color-text-secondary)';
   diffLabel.style.flex = '0 0 80px';
 
   const diffSelect = createSelect({
+    id: 'rear-differential',
     options: REAR_DIFF_OPTIONS,
     value: diffType,
     onChange: (val) => {
