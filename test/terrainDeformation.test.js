@@ -7,6 +7,51 @@ import { createTerrainSurfaceProfile } from '../src/terrain/createTerrainSurface
 import { createObstacleAwareSurfaceProfile } from '../src/terrain/createObstacleAwareSurfaceProfile.js'
 import { createMovableObstacleField } from '../src/terrain/obstacles/createMovableObstacleField.js'
 import { SURFACE_MATERIAL_KINDS } from '../src/terrain/createSurfaceMaterialCatalog.js'
+import { createFixedTimestepRunner } from '../src/simulation/createFixedTimestepRunner.js'
+
+test('fixed-step vehicle snapshots accrue deformation across moving contacts', () => {
+  const deformation = createTerrainDeformation()
+  const vehicleSnapshot = {
+    position: { x: 0, y: 0, z: 0 },
+    speedMetersPerSecond: 5,
+    wheelStates: [
+      {
+        isGrounded: true,
+        surfaceKind: SURFACE_MATERIAL_KINDS.MUD,
+        suspensionNormalForceNewtons: 4000,
+        contactPointWorldPosition: { x: 0, y: 0, z: 0 },
+      },
+    ],
+  }
+  let stepsRun = 0
+  const fixedSimulationRunner = createFixedTimestepRunner({
+    fixedTimeStepSeconds: 1 / 60,
+    maxFrameDeltaSeconds: 1 / 60,
+    maxStepsPerFrame: 1,
+    step: (fixedDt) => {
+      vehicleSnapshot.position.x = stepsRun * 2
+      vehicleSnapshot.wheelStates[0].contactPointWorldPosition.x =
+        vehicleSnapshot.position.x
+      deformation.update(
+        fixedDt,
+        vehicleSnapshot.wheelStates,
+        vehicleSnapshot.speedMetersPerSecond
+      )
+      stepsRun += 1
+    },
+  })
+
+  for (let frameIndex = 0; frameIndex < 4; frameIndex += 1) {
+    fixedSimulationRunner.update(1 / 60)
+  }
+
+  const deformationSnapshot = deformation.getSnapshot()
+  assert.equal(stepsRun, 4)
+  assert.equal(vehicleSnapshot.position.x, 6)
+  assert.ok(deformationSnapshot.activeCellCount >= 4)
+  assert.ok(deformationSnapshot.maxDepthMeters > 0)
+  assert.ok(deformation.getHeightOffsetAtWorldXZ(0, 0) < 0)
+})
 
 test('no deformation initially; offset is zero', () => {
   const d = createTerrainDeformation()

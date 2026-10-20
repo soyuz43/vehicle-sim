@@ -354,6 +354,14 @@ const fixedSimulationRunner = createFixedTimestepRunner({
     }
     const vehicleSnapshot = vehicleController.update(fixedDt, input)
 
+    if (terrainSelection.obstacleField) {
+      terrainDeformation.update(
+        fixedDt,
+        vehicleSnapshot.wheelStates,
+        vehicleSnapshot.speedMetersPerSecond
+      )
+    }
+
     if (vehicleObstacleInteraction) {
       vehicleObstacleSnapshot.position = vehicleSnapshot.position
       vehicleObstacleSnapshot.worldVelocityMetersPerSecond =
