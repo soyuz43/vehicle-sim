@@ -274,6 +274,12 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Disabled by default to preserve the validated baseline and regression tests;
   // enable to exercise the combined-slip tire seam.
   combinedSlipTireModelEnabled: false,
+  // Combined-slip tire-compound preset (selectable seam). Defaults to
+  // 'brushFiala', which reproduces the original brush/Fiala model exactly;
+  // other presets select a parameterized Pacejka-style Magic Formula curve
+  // from tireModelLibrary.js. Only consulted when combinedSlipTireModelEnabled
+  // is true, so the default baseline is unchanged.
+  combinedSlipTirePresetName: 'brushFiala',
   lateralTireForceSaturationEpsilonNewtons: 0.001,
 
   // Longitudinal and lateral tire force share a simple friction-circle cap.
