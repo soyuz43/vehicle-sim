@@ -313,8 +313,10 @@ scene.add(particleSystem.object3D)
 let vehicleObstacleInteraction = null
 if (terrainSelection.obstacleField) {
   vehicleObstacleInteraction = createVehicleObstacleInteraction({
-    vehicleController,
     obstacleField: terrainSelection.obstacleField,
+    terrainHeightFn: terrainSelection.baseProfile.getHeightAtWorldXZ,
+    applyVehiclePlanarImpulse:
+      vehicleController.applyExternalPlanarImpulseNewtonsSecond,
   })
 }
 
@@ -330,6 +332,14 @@ const tireSlipFeedback = createTireSlipFeedback({
 /* =========================
    Simulation Runner
 ========================= */
+const vehicleObstacleSnapshot = {
+  position: null,
+  worldVelocityMetersPerSecond: null,
+  yawRateRadiansPerSecond: 0,
+  chassisMassProperties: null,
+  wheelStates: null,
+}
+
 const fixedSimulationRunner = createFixedTimestepRunner({
   fixedTimeStepSeconds: 1 / 60,
   maxFrameDeltaSeconds: 0.1,
@@ -342,10 +352,18 @@ const fixedSimulationRunner = createFixedTimestepRunner({
       right: keyState.right,
       handbrake: keyState.handbrake ? 1 : 0,
     }
-    vehicleController.update(fixedDt, input)
+    const vehicleSnapshot = vehicleController.update(fixedDt, input)
 
     if (vehicleObstacleInteraction) {
-      vehicleObstacleInteraction.step(fixedDt)
+      vehicleObstacleSnapshot.position = vehicleSnapshot.position
+      vehicleObstacleSnapshot.worldVelocityMetersPerSecond =
+        vehicleSnapshot.worldVelocityMetersPerSecond
+      vehicleObstacleSnapshot.yawRateRadiansPerSecond =
+        vehicleSnapshot.yawRateRadiansPerSecond
+      vehicleObstacleSnapshot.chassisMassProperties =
+        vehicleSnapshot.chassisMassProperties
+      vehicleObstacleSnapshot.wheelStates = vehicleSnapshot.wheelStates
+      vehicleObstacleInteraction.step(fixedDt, vehicleObstacleSnapshot)
     }
   },
 })
