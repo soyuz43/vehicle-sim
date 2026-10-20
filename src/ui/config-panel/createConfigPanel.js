@@ -50,7 +50,6 @@ const DEFAULT_CONFIG = {
   onReset: null,
   initialTerrain: 'proving-ground',
   initialVehicleConfig: null,
-  availableInMode: 'offroad', // 'proving-ground' | 'offroad' | 'both'
 };
 
 export function createConfigPanel(config = {}) {
@@ -83,8 +82,6 @@ export function createConfigPanel(config = {}) {
   content.style.display = 'flex';
   content.style.flexDirection = 'column';
   content.style.gap = 'var(--ui-space-sm)';
-  content.style.maxHeight = 'calc(100vh - 100px)';
-  content.style.overflowY = 'auto';
 
   // === TERRAIN SECTION ===
   const terrainSection = createSection({
@@ -101,6 +98,8 @@ export function createConfigPanel(config = {}) {
   terrainContent.style.gap = 'var(--ui-space-sm)';
 
   const terrainSelect = createSelect({
+    id: 'config-terrain',
+    label: 'Terrain',
     options: TERRAIN_OPTIONS,
     value: currentTerrain,
     onChange: (val) => {
@@ -134,7 +133,7 @@ export function createConfigPanel(config = {}) {
   const vehicleSection = createSection({
     id: 'config-vehicle',
     title: 'Vehicle',
-    badge: { label: 'OFFROAD', variant: 'warning' },
+    badge: { label: 'SETUP', variant: 'info' },
     initiallyCollapsed: false,
   });
   content.appendChild(vehicleSection.element);
@@ -152,7 +151,7 @@ export function createConfigPanel(config = {}) {
   modeNotice.style.background = 'var(--ui-color-bg-input)';
   modeNotice.style.borderRadius = 'var(--ui-radius-sm)';
   modeNotice.style.border = '1px solid var(--ui-color-border-subtle)';
-  modeNotice.innerHTML = `${getIconSvg('info', 12)} Vehicle changes only apply in <strong>Offroad</strong> mode. Proving ground uses fixed spec.`;
+  modeNotice.textContent = 'Selections update this preview only. Apply does not change the running controller or rendered vehicle.';
   vehicleContent.appendChild(modeNotice);
 
   // Slot selectors
@@ -165,7 +164,7 @@ export function createConfigPanel(config = {}) {
 
     const label = document.createElement('label');
     label.textContent = SLOT_LABELS[slot] ?? slot;
-    label.htmlFor = `config-${slot}`;
+    label.htmlFor = `config-${slot}-select`;
     label.style.fontSize = 'var(--ui-typeScale-sm)';
     label.style.fontWeight = 'var(--ui-fontWeight-medium)';
     label.style.color = 'var(--ui-color-text-secondary)';
@@ -180,12 +179,36 @@ export function createConfigPanel(config = {}) {
       value: currentVehicleConfig.slots[slot],
       onChange: (val) => {
         currentVehicleConfig = setVehicleConfigurationSlot(currentVehicleConfig, slot, val);
+        updateVehicleSetupPreview();
+        cfg.onVehicleChange?.(cloneVehicleConfiguration(currentVehicleConfig));
         markDirty();
       },
     });
     slotSelects[slot] = select;
     row.appendChild(select.element);
     vehicleContent.appendChild(row);
+  }
+
+  const vehicleSetupPreview = document.createElement('div');
+  vehicleSetupPreview.id = 'config-vehicle-preview';
+  vehicleSetupPreview.setAttribute('role', 'status');
+  vehicleSetupPreview.setAttribute('aria-live', 'polite');
+  vehicleSetupPreview.style.fontSize = 'var(--ui-typeScale-xs)';
+  vehicleSetupPreview.style.lineHeight = 'var(--ui-lineHeight-relaxed)';
+  vehicleSetupPreview.style.color = 'var(--ui-color-text-secondary)';
+  vehicleSetupPreview.style.padding = 'var(--ui-space-xs) var(--ui-space-sm)';
+  vehicleSetupPreview.style.background = 'var(--ui-color-bg-input)';
+  vehicleSetupPreview.style.borderRadius = 'var(--ui-radius-sm)';
+  vehicleSetupPreview.style.border = '1px solid var(--ui-color-border-subtle)';
+  vehicleContent.appendChild(vehicleSetupPreview);
+  updateVehicleSetupPreview();
+
+  function updateVehicleSetupPreview() {
+    const selectedComponents = VEHICLE_COMPONENT_SLOTS.map((slot) => {
+      const component = VEHICLE_COMPONENT_CATALOG[slot]?.components[currentVehicleConfig.slots[slot]];
+      return component ? `${SLOT_LABELS[slot] ?? slot}: ${component.label}` : null;
+    }).filter(Boolean);
+    vehicleSetupPreview.textContent = `Selected setup preview only — ${selectedComponents.join(' · ')}`;
   }
 
   // === ACTION BAR ===
@@ -213,8 +236,9 @@ export function createConfigPanel(config = {}) {
       applyChanges();
     },
   });
+  applyBtn.element.disabled = !isDirty;
+  applyBtn.element.setAttribute('aria-disabled', String(!isDirty));
   applyBtn.element.style.opacity = isDirty ? '1' : '0.5';
-  applyBtn.element.style.pointerEvents = isDirty ? 'auto' : 'none';
 
   actionBar.appendChild(resetBtn.element);
   actionBar.appendChild(applyBtn.element);
@@ -222,8 +246,9 @@ export function createConfigPanel(config = {}) {
 
   function markDirty() {
     isDirty = true;
+    applyBtn.element.disabled = false;
+    applyBtn.element.setAttribute('aria-disabled', 'false');
     applyBtn.element.style.opacity = '1';
-    applyBtn.element.style.pointerEvents = 'auto';
     // Update panel title to show dirty state
     panel.titleEl.textContent = 'Session Config ●';
     panel.titleEl.style.color = 'var(--ui-color-semantic-warning)';
@@ -231,8 +256,9 @@ export function createConfigPanel(config = {}) {
 
   function clearDirty() {
     isDirty = false;
+    applyBtn.element.disabled = true;
+    applyBtn.element.setAttribute('aria-disabled', 'true');
     applyBtn.element.style.opacity = '0.5';
-    applyBtn.element.style.pointerEvents = 'none';
     panel.titleEl.textContent = 'Session Config';
     panel.titleEl.style.color = '';
   }
@@ -247,6 +273,8 @@ export function createConfigPanel(config = {}) {
       }
     }
     updateTerrainDescription(terrainDesc, currentTerrain);
+    updateVehicleSetupPreview();
+    cfg.onVehicleChange?.(cloneVehicleConfiguration(currentVehicleConfig));
     clearDirty();
     cfg.onReset?.();
   }
@@ -276,6 +304,7 @@ export function createConfigPanel(config = {}) {
         slotSelects[slot].setValue(currentVehicleConfig.slots[slot]);
       }
     }
+    updateVehicleSetupPreview();
   }
 
   function getConfig() {

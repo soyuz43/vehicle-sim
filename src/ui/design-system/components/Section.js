@@ -27,13 +27,19 @@ export function createSection(config = {}) {
   root.style.overflow = 'hidden';
 
   // Header
-  const header = document.createElement('div');
+  const header = document.createElement('button');
+  header.type = 'button';
   header.style.display = 'flex';
   header.style.alignItems = 'center';
   header.style.justifyContent = 'space-between';
+  header.style.width = '100%';
   header.style.padding = 'var(--ui-space-sm) var(--ui-space-md)';
   header.style.background = 'var(--ui-color-bg-panel)';
+  header.style.border = 'none';
   header.style.borderBottom = '1px solid var(--ui-color-border-subtle)';
+  header.style.color = 'inherit';
+  header.style.font = 'inherit';
+  header.style.textAlign = 'left';
   header.style.cursor = 'pointer';
   header.style.transition = 'background var(--ui-transition-fast)';
 
@@ -85,6 +91,7 @@ export function createSection(config = {}) {
 
   // Content wrapper
   const contentWrapper = document.createElement('div');
+  contentWrapper.id = `${cfg.id}-content`;
   contentWrapper.style.overflow = 'hidden';
   contentWrapper.style.transition = 'max-height var(--ui-transition-slow), opacity var(--ui-transition-base)';
 
@@ -103,28 +110,45 @@ export function createSection(config = {}) {
   root.appendChild(contentWrapper);
 
   let collapsed = cfg.initiallyCollapsed;
+  header.setAttribute('aria-controls', contentWrapper.id);
+  header.setAttribute('aria-expanded', String(!collapsed));
+  contentWrapper.setAttribute('aria-hidden', String(collapsed));
+  contentWrapper.inert = collapsed;
   if (collapsed) {
     contentWrapper.style.maxHeight = '0';
     contentWrapper.style.opacity = '0';
     chevron.style.transform = 'rotate(-90deg)';
   } else {
-    contentWrapper.style.maxHeight = content.scrollHeight + 'px';
+    contentWrapper.style.maxHeight = 'none';
     contentWrapper.style.opacity = '1';
   }
 
   function toggle() {
     collapsed = !collapsed;
     if (collapsed) {
+      contentWrapper.style.maxHeight = `${contentWrapper.scrollHeight}px`;
+      contentWrapper.getBoundingClientRect();
       contentWrapper.style.maxHeight = '0';
       contentWrapper.style.opacity = '0';
       chevron.style.transform = 'rotate(-90deg)';
     } else {
-      contentWrapper.style.maxHeight = content.scrollHeight + 'px';
+      contentWrapper.style.maxHeight = `${contentWrapper.scrollHeight}px`;
       contentWrapper.style.opacity = '1';
       chevron.style.transform = 'rotate(0deg)';
     }
+    header.setAttribute('aria-expanded', String(!collapsed));
+    contentWrapper.setAttribute('aria-hidden', String(collapsed));
+    contentWrapper.inert = collapsed;
     cfg.onToggle?.(collapsed);
   }
+
+  function handleContentTransition(event) {
+    if (event.propertyName === 'max-height' && !collapsed) {
+      contentWrapper.style.maxHeight = 'none';
+    }
+  }
+
+  contentWrapper.addEventListener('transitionend', handleContentTransition);
 
   header.addEventListener('click', toggle);
 
@@ -144,13 +168,14 @@ export function createSection(config = {}) {
       } else {
         content.appendChild(node);
       }
-      if (!collapsed) contentWrapper.style.maxHeight = content.scrollHeight + 'px';
+      if (!collapsed) contentWrapper.style.maxHeight = 'none';
     },
     setBadge: (badge) => {
       // Re-render badge would need more complex implementation
     },
     destroy: () => {
       header.removeEventListener('click', toggle);
+      contentWrapper.removeEventListener('transitionend', handleContentTransition);
       root.remove();
     },
   };

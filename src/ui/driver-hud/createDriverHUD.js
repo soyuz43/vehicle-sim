@@ -238,7 +238,7 @@ export function createDriverHUD(config = {}) {
   let mobileSheet = null;
   if (typeof window !== 'undefined') {
     mobileSheet = useMobileBottomSheet(panel, {
-      breakpoint: 'md',
+      breakpoint: 'lg',
       onOpen: () => { panel.element.style.pointerEvents = 'auto'; },
       onClose: () => { panel.element.style.pointerEvents = 'auto'; },
     });

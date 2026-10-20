@@ -10,7 +10,10 @@ import { createCar } from './car/createCar.js'
 import { CameraManager } from './controls/CameraManager.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
 import { createControllerConfig } from './vehicle/config/applyVehicleConfiguration.js'
-import { createDefaultVehicleConfiguration } from './vehicle/config/createVehicleConfiguration.js'
+import {
+  areVehicleConfigurationsEqual,
+  createDefaultVehicleConfiguration,
+} from './vehicle/config/createVehicleConfiguration.js'
 import { createTireSlipFeedback } from './effects/tireSlipFeedback/createTireSlipFeedback.js'
 import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
 import { createTerrainDeformation } from './terrain/deformation/createTerrainDeformation.js'
@@ -24,6 +27,7 @@ import { createTelemetryPanel } from './ui/telemetry-panel/createTelemetryPanel.
 import { createControlPanel } from './ui/control-panel/createControlPanel.js'
 import { createConfigPanel } from './ui/config-panel/createConfigPanel.js'
 import { initTheme } from './ui/design-system/theme.js'
+import { initResponsive } from './ui/design-system/layout/Responsive.js'
 
 /* =========================
    Scene
@@ -74,6 +78,7 @@ scene.add(sun)
    Theme & Design System
 ========================= */
 initTheme()
+initResponsive()
 
 /* =========================
    Terrain
@@ -255,13 +260,12 @@ const controlPanel = createControlPanel({
   },
 })
 
-// Config Panel (top-left, below telemetry) - replaces TerrainSelector + VehicleCustomizationUI
+// Config Panel (bottom-left) - replaces TerrainSelector + VehicleCustomizationUI
 const configPanel = createConfigPanel({
-  anchor: 'top-left',
+  anchor: 'bottom-left',
   initiallyCollapsed: false,
   initialTerrain: terrainSelection.name,
   initialVehicleConfig,
-  availableInMode: terrainSelection.obstacleField ? 'offroad' : 'proving-ground',
   onTerrainChange: (terrainName) => {
     const search = globalThis.location?.search
     const params = new URLSearchParams(typeof search === 'string' ? search : '')
@@ -269,9 +273,6 @@ const configPanel = createConfigPanel({
     if (globalThis.location) {
       globalThis.location.search = params.toString()
     }
-  },
-  onVehicleChange: (vehicleConfig) => {
-    // Vehicle config changes are applied via onApply
   },
   onApply: ({ terrain, vehicleConfig }) => {
     if (terrain !== terrainSelection.name) {
@@ -282,9 +283,9 @@ const configPanel = createConfigPanel({
         globalThis.location.search = params.toString()
       }
     }
-    if (vehicleConfig !== initialVehicleConfig) {
+    if (!areVehicleConfigurationsEqual(vehicleConfig, initialVehicleConfig)) {
       console.warn(
-        '[ConfigPanel] Vehicle configuration changes require an application restart and were not applied.',
+        '[ConfigPanel] Vehicle component selections are preview-only; the running controller and rendered vehicle are unchanged.',
         { vehicleConfig }
       )
     }

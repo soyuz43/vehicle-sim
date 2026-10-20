@@ -143,6 +143,22 @@ test('ConfigPanel builds terrain selector and vehicle slot selects', async () =>
   assert.equal(vehicleConfig.slots.drivetrain, 'drivetrain-stock')
   assert.equal(vehicleConfig.slots.brakes, 'brakes-stock')
   assert.equal(vehicleConfig.slots.aero, 'aero-stock')
+
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+  for (const slot of ['chassis', 'suspension', 'wheels', 'drivetrain', 'brakes', 'aero']) {
+    const select = findElement(ui.element, (element) => element.id === 'config-' + slot + '-select')
+    const label = findElement(ui.element, (element) => element.tagName === 'label' && element.htmlFor === select.id)
+    assert.ok(label, slot + " select has an associated label")
+  }
+  const terrainSelect = findElement(ui.element, (element) => element.id === 'config-terrain-select')
+  assert.ok(findElement(ui.element, (element) => element.tagName === 'label' && element.htmlFor === terrainSelect.id))
 })
 
 test('changing terrain selector updates terrain', async () => {
@@ -179,12 +195,22 @@ test('changing vehicle slot updates configuration', async () => {
     onVehicleChange: (config) => { vehicleChanged = config; },
   })
 
-  // Test public API for vehicle config
-  const newConfig = ui.getVehicleConfig()
-  newConfig.slots.chassis = 'chassis-heavytruck'
-  ui.setVehicleConfig(newConfig)
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-heavytruck'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
 
   assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-heavytruck')
+  assert.equal(vehicleChanged.slots.chassis, 'chassis-heavytruck')
+  assert.match(findById(ui.element, 'config-vehicle-preview').textContent, /Heavy Truck/)
+  assert.equal(ui.isDirty(), true)
 })
 
 test('dirty state tracking via UI interaction', async () => {
