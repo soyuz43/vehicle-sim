@@ -72,6 +72,60 @@ test('momentum exchange pushes obstacle forward and reacts on vehicle', () => {
   assert.ok(Number.isFinite(obstacle.velocity.x))
 })
 
+test('main-shaped wiring advances obstacles and resolves a moving vehicle contact', () => {
+  const field = createMovableObstacleField({ obstacles: BOX })
+  const vehicleController = {
+    snapshot: {
+      position: { x: -2, y: 0, z: 0 },
+      worldVelocityMetersPerSecond: { x: 0, y: 0, z: 0 },
+      yawRateRadiansPerSecond: 0,
+      chassisMassProperties: {
+        massKg: 1400,
+        yawMomentOfInertiaKgMeterSquared: 2000,
+      },
+      wheelStates: [
+        {
+          isGrounded: true,
+          isObstacleContact: true,
+          obstacleId: 'box',
+          contactPointWorldPosition: { x: -0.5, y: 0, z: 0 },
+        },
+      ],
+    },
+    update() {
+      return this.snapshot
+    },
+    applyExternalPlanarImpulseNewtonsSecond: (impulseX, impulseZ, yawImpulse) => {
+      const massKg = vehicleController.snapshot.chassisMassProperties.massKg
+      const yawInertiaKgMeterSquared =
+        vehicleController.snapshot.chassisMassProperties.yawMomentOfInertiaKgMeterSquared
+      vehicleController.snapshot.worldVelocityMetersPerSecond.x += impulseX / massKg
+      vehicleController.snapshot.worldVelocityMetersPerSecond.z += impulseZ / massKg
+      vehicleController.snapshot.yawRateRadiansPerSecond += yawImpulse / yawInertiaKgMeterSquared
+    },
+  }
+  const interaction = createVehicleObstacleInteraction({
+    obstacleField: field,
+    terrainHeightFn: () => 0,
+    applyVehiclePlanarImpulse:
+      vehicleController.applyExternalPlanarImpulseNewtonsSecond,
+  })
+
+  interaction.step(1 / 60, vehicleController.update(1 / 60, {}))
+  const obstacle = field.getObstacleById('box')
+  assert.ok(Math.abs(obstacle.position.y) < 1e-6, 'obstacle advances onto terrain')
+  assert.equal(obstacle.velocity.x, 0, 'resting vehicle does not impart an impulse')
+
+  vehicleController.snapshot.worldVelocityMetersPerSecond.x = 5
+  interaction.step(1 / 60, vehicleController.update(1 / 60, {}))
+
+  assert.ok(obstacle.velocity.x > 0, 'moving vehicle pushes obstacle forward')
+  assert.ok(
+    vehicleController.snapshot.worldVelocityMetersPerSecond.x < 5,
+    'vehicle receives the opposite collision impulse'
+  )
+})
+
 test('exchange does not increase system kinetic energy (e=0)', () => {
   const field = createMovableObstacleField({ obstacles: BOX })
   field.stepMovableObstacles(1 / 60, () => 0)

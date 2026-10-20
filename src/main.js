@@ -313,8 +313,10 @@ scene.add(particleSystem.object3D)
 let vehicleObstacleInteraction = null
 if (terrainSelection.obstacleField) {
   vehicleObstacleInteraction = createVehicleObstacleInteraction({
-    vehicleController,
     obstacleField: terrainSelection.obstacleField,
+    terrainHeightFn: terrainSelection.baseProfile.getHeightAtWorldXZ,
+    applyVehiclePlanarImpulse:
+      vehicleController.applyExternalPlanarImpulseNewtonsSecond,
   })
 }
 
@@ -330,39 +332,69 @@ const tireSlipFeedback = createTireSlipFeedback({
 /* =========================
    Simulation Runner
 ========================= */
+const input = {
+  throttle: 0,
+  brake: 0,
+  left: false,
+  right: false,
+  handbrake: 0,
+}
+
+const vehicleObstacleSnapshot = {
+  position: null,
+  worldVelocityMetersPerSecond: null,
+  yawRateRadiansPerSecond: 0,
+  chassisMassProperties: null,
+  wheelStates: null,
+}
+
 const fixedSimulationRunner = createFixedTimestepRunner({
   fixedTimeStepSeconds: 1 / 60,
   maxFrameDeltaSeconds: 0.1,
   maxStepsPerFrame: 6,
   step: (fixedDt, simTime) => {
-    const input = {
-      throttle: keyState.forward ? 1 : 0,
-      brake: keyState.backward ? 1 : 0,
-      left: keyState.left,
-      right: keyState.right,
-      handbrake: keyState.handbrake ? 1 : 0,
+    input.throttle = keyState.forward ? 1 : 0
+    input.brake = keyState.backward ? 1 : 0
+    input.left = keyState.left
+    input.right = keyState.right
+    input.handbrake = keyState.handbrake ? 1 : 0
+    const vehicleSnapshot = vehicleController.update(fixedDt, input)
+
+    if (terrainSelection.obstacleField) {
+      terrainDeformation.update(
+        fixedDt,
+        vehicleSnapshot.wheelStates,
+        vehicleSnapshot.speedMetersPerSecond
+      )
     }
-    vehicleController.update(fixedDt, input)
 
     if (vehicleObstacleInteraction) {
-      vehicleObstacleInteraction.step(fixedDt)
+      vehicleObstacleSnapshot.position = vehicleSnapshot.position
+      vehicleObstacleSnapshot.worldVelocityMetersPerSecond =
+        vehicleSnapshot.worldVelocityMetersPerSecond
+      vehicleObstacleSnapshot.yawRateRadiansPerSecond =
+        vehicleSnapshot.yawRateRadiansPerSecond
+      vehicleObstacleSnapshot.chassisMassProperties =
+        vehicleSnapshot.chassisMassProperties
+      vehicleObstacleSnapshot.wheelStates = vehicleSnapshot.wheelStates
+      vehicleObstacleInteraction.step(fixedDt, vehicleObstacleSnapshot)
     }
   },
 })
 
 const clock = new THREE.Clock()
 const maxFrameDeltaSeconds = 1 / 30
+const uiRefreshIntervalSeconds = 1 / 15
+let uiRefreshAccumulatorSeconds = 0
 
 /* =========================
    HUD Update Functions
 ========================= */
-function updateDriverHUD() {
-  const snapshot = vehicleController.getSnapshot()
-  driverHUD.update(snapshot)
+function updateDriverHUD(vehicleSnapshot) {
+  driverHUD.update(vehicleSnapshot)
 }
 
-function updateTelemetryPanel() {
-  const vehicleSnapshot = vehicleController.getSnapshot()
+function updateTelemetryPanel(vehicleSnapshot) {
   // Build comprehensive snapshot for telemetry
   const snapshot = {
     vehicleSnapshot,
@@ -381,9 +413,8 @@ function updateTelemetryPanel() {
   telemetryPanel.update(snapshot)
 }
 
-function updateControlPanel() {
-  const snapshot = vehicleController.getSnapshot()
-  controlPanel.update(snapshot)
+function updateControlPanel(vehicleSnapshot) {
+  controlPanel.update(vehicleSnapshot)
 }
 
 /* =========================
@@ -432,6 +463,7 @@ function animate() {
   const clampedRenderDeltaSeconds = sanitizeRenderDeltaSeconds(
     renderDeltaSeconds
   )
+  uiRefreshAccumulatorSeconds += clampedRenderDeltaSeconds
 
   cameraManager.update(clampedRenderDeltaSeconds)
   const vehicleSnapshot = vehicleController.getSnapshot()
@@ -461,9 +493,12 @@ function animate() {
   tirePressureVisuals.update(clampedRenderDeltaSeconds)
 
   // Update all UI panels
-  updateDriverHUD()
-  updateTelemetryPanel()
-  updateControlPanel()
+  if (uiRefreshAccumulatorSeconds >= uiRefreshIntervalSeconds) {
+    uiRefreshAccumulatorSeconds %= uiRefreshIntervalSeconds
+    updateDriverHUD(vehicleSnapshot)
+    updateTelemetryPanel(vehicleSnapshot)
+    updateControlPanel(vehicleSnapshot)
+  }
 
   renderer.render(scene, camera)
 }
