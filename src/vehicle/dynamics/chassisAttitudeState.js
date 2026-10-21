@@ -144,12 +144,14 @@ export function computePerAxleRollFromWheelStates(
     const y = wheelState.wheelCenterLocalPosition?.y ??
       wheelState.localPosition?.y
     const x = wheelState.localPosition?.x
+    // +X is the car's left side, so the wheel local x sign maps to the
+    // physical side that way round.
     const xSide = !Number.isFinite(x)
       ? null
       : x < 0
-        ? 'left'
+        ? 'right'
         : x > 0
-          ? 'right'
+          ? 'left'
           : null
     const side = wheelState.side ?? xSide
     if (!Number.isFinite(y) || (side !== 'left' && side !== 'right')) continue
@@ -167,19 +169,22 @@ export function computePerAxleRollFromWheelStates(
     }
   }
 
+  // The left wheels sit on +X, so the track width and the roll slope are
+  // measured from the right side to the left side. A positive roll lifts the
+  // +X (left) side, matching the vertical dynamics body attitude.
   const frontTrackWidthMeters = Number.isFinite(frontLeftX) &&
     Number.isFinite(frontRightX)
-    ? frontRightX - frontLeftX
+    ? frontLeftX - frontRightX
     : sanitizePositiveNumber(spec.frontTrackWidthMeters, 0)
   const rearTrackWidthMeters = Number.isFinite(rearLeftX) &&
     Number.isFinite(rearRightX)
-    ? rearRightX - rearLeftX
+    ? rearLeftX - rearRightX
     : sanitizePositiveNumber(spec.rearTrackWidthMeters, 0)
 
   const frontRollRadians = frontLeftY !== null &&
     frontRightY !== null && frontTrackWidthMeters > SUPPORT_PLANE_EPSILON
     ? clamp(
-        Math.atan2(frontRightY - frontLeftY, frontTrackWidthMeters),
+        Math.atan2(frontLeftY - frontRightY, frontTrackWidthMeters),
         -safeMaximum,
         safeMaximum
       )
@@ -187,7 +192,7 @@ export function computePerAxleRollFromWheelStates(
   const rearRollRadians = rearLeftY !== null &&
     rearRightY !== null && rearTrackWidthMeters > SUPPORT_PLANE_EPSILON
     ? clamp(
-        Math.atan2(rearRightY - rearLeftY, rearTrackWidthMeters),
+        Math.atan2(rearLeftY - rearRightY, rearTrackWidthMeters),
         -safeMaximum,
         safeMaximum
       )

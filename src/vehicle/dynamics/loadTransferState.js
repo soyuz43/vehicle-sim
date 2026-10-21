@@ -327,14 +327,14 @@ function distributeLateralTransferForAxle(
     localLateralAccelerationMetersPerSecondSquared *
     centerOfMassHeightMeters /
     trackWidthMeters
+  // Positive local lateral acceleration points toward vehicle local left
+  // (+X), so the outside side of that turn is local right (-X). Positive
+  // lateral transfer therefore adds load to right wheels and removes it from
+  // left wheels.
   const leftWheelDeltaNewtons =
-    lateralTransferTotalNewtons / leftGroundedWheelStates.length
+    -lateralTransferTotalNewtons / leftGroundedWheelStates.length
   const rightWheelDeltaNewtons =
-    -lateralTransferTotalNewtons / rightGroundedWheelStates.length
-
-  // Positive local lateral acceleration points toward vehicle local right, so
-  // the outside side is local left. Positive lateral transfer therefore adds
-  // load to left wheels and removes it from right wheels.
+    lateralTransferTotalNewtons / rightGroundedWheelStates.length
   for (const wheelState of leftGroundedWheelStates) {
     wheelState.lateralLoadTransferNormalForceDeltaNewtons =
       leftWheelDeltaNewtons

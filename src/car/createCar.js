@@ -73,8 +73,8 @@ export function createCar() {
   const brakeLights = createBrakeLights(materials.brakeLight)
 
   const frameRails = [
-    createFrameRail('left-frame-rail', -FRAME_RAIL_X, materials.frame),
-    createFrameRail('right-frame-rail', FRAME_RAIL_X, materials.frame),
+    createFrameRail('right-frame-rail', -FRAME_RAIL_X, materials.frame),
+    createFrameRail('left-frame-rail', FRAME_RAIL_X, materials.frame),
   ]
 
   const crossmembers = [
@@ -85,13 +85,13 @@ export function createCar() {
 
   const frontSpindleSupports = [
     createSpindleInnerSupport(
-      'front-left-spindle-inner-support-visual',
+      'front-right-spindle-inner-support-visual',
       -FRAME_RAIL_X,
       FRONT_AXLE_Z,
       materials.frame
     ),
     createSpindleInnerSupport(
-      'front-right-spindle-inner-support-visual',
+      'front-left-spindle-inner-support-visual',
       FRAME_RAIL_X,
       FRONT_AXLE_Z,
       materials.frame
@@ -104,7 +104,7 @@ export function createCar() {
   const driveshaft = createDriveshaft(materials.drivetrain)
   const rearDifferentialHangers = [
     createVerticalChassisBracket(
-      'rear-differential-left-hanger',
+      'rear-differential-right-hanger',
       -REAR_DIFFERENTIAL_HANGER_X,
       REAR_AXLE_Z,
       FRAME_Y - FRAME_RAIL_HEIGHT / 2,
@@ -112,7 +112,7 @@ export function createCar() {
       materials.frame
     ),
     createVerticalChassisBracket(
-      'rear-differential-right-hanger',
+      'rear-differential-left-hanger',
       REAR_DIFFERENTIAL_HANGER_X,
       REAR_AXLE_Z,
       FRAME_Y - FRAME_RAIL_HEIGHT / 2,
@@ -132,25 +132,25 @@ export function createCar() {
   ]
   const chassisAnchors = [
     createChassisVisualAnchor(
-      'front-left-spindle-inner-anchor',
+      'front-right-spindle-inner-anchor',
       -FRONT_SPINDLE_INNER_X,
       WHEEL_Y,
       FRONT_AXLE_Z
     ),
     createChassisVisualAnchor(
-      'front-right-spindle-inner-anchor',
+      'front-left-spindle-inner-anchor',
       FRONT_SPINDLE_INNER_X,
       WHEEL_Y,
       FRONT_AXLE_Z
     ),
     createChassisVisualAnchor(
-      'rear-left-half-shaft-inner-anchor',
+      'rear-right-half-shaft-inner-anchor',
       -REAR_HALF_SHAFT_INNER_X,
       WHEEL_Y,
       REAR_AXLE_Z
     ),
     createChassisVisualAnchor(
-      'rear-right-half-shaft-inner-anchor',
+      'rear-left-half-shaft-inner-anchor',
       REAR_HALF_SHAFT_INNER_X,
       WHEEL_Y,
       REAR_AXLE_Z
@@ -158,48 +158,52 @@ export function createCar() {
   ]
   const articulatedSegments = [
     createArticulatedSegment(
-      'front-left-spindle-link',
-      'non-driven-spindle-link-visual',
-      'front-left',
-      new THREE.Vector3(-FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
-      new THREE.Vector3(-1, 0, 0),
-      'front-left-spindle-inner-anchor',
-      materials.metal
-    ),
-    createArticulatedSegment(
       'front-right-spindle-link',
       'non-driven-spindle-link-visual',
       'front-right',
-      new THREE.Vector3(FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
-      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
+      new THREE.Vector3(-1, 0, 0),
       'front-right-spindle-inner-anchor',
       materials.metal
     ),
     createArticulatedSegment(
-      'rear-left-half-shaft',
-      'driven-half-shaft-visual',
-      'rear-left',
-      new THREE.Vector3(-REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
-      new THREE.Vector3(-1, 0, 0),
-      'rear-left-half-shaft-inner-anchor',
-      materials.drivetrain
+      'front-left-spindle-link',
+      'non-driven-spindle-link-visual',
+      'front-left',
+      new THREE.Vector3(FRONT_SPINDLE_INNER_X, WHEEL_Y, FRONT_AXLE_Z),
+      new THREE.Vector3(1, 0, 0),
+      'front-left-spindle-inner-anchor',
+      materials.metal
     ),
     createArticulatedSegment(
       'rear-right-half-shaft',
       'driven-half-shaft-visual',
       'rear-right',
+      new THREE.Vector3(-REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
+      new THREE.Vector3(-1, 0, 0),
+      'rear-right-half-shaft-inner-anchor',
+      materials.drivetrain
+    ),
+    createArticulatedSegment(
+      'rear-left-half-shaft',
+      'driven-half-shaft-visual',
+      'rear-left',
       new THREE.Vector3(REAR_HALF_SHAFT_INNER_X, WHEEL_Y, REAR_AXLE_Z),
       new THREE.Vector3(1, 0, 0),
-      'rear-right-half-shaft-inner-anchor',
+      'rear-left-half-shaft-inner-anchor',
       materials.drivetrain
     ),
   ]
 
+  // The car frame is +Z forward and +Y up, so +X is the car's LEFT side
+  // (the driver's right hand points to -X = forward x up). Wheel ids and the
+  // side label below follow that physical handedness. The wheel geometry is
+  // unchanged; only the names move to the wheel they actually describe.
   const wheels = [
-    createWheel('front-left', -WHEEL_X, FRONT_AXLE_Z, materials),
-    createWheel('front-right', WHEEL_X, FRONT_AXLE_Z, materials),
-    createWheel('rear-left', -WHEEL_X, REAR_AXLE_Z, materials),
-    createWheel('rear-right', WHEEL_X, REAR_AXLE_Z, materials),
+    createWheel('front-right', -WHEEL_X, FRONT_AXLE_Z, materials),
+    createWheel('front-left', WHEEL_X, FRONT_AXLE_Z, materials),
+    createWheel('rear-right', -WHEEL_X, REAR_AXLE_Z, materials),
+    createWheel('rear-left', WHEEL_X, REAR_AXLE_Z, materials),
   ]
 
   const contactPatches = wheels.map((wheel) =>
@@ -516,8 +520,8 @@ function createNose(material) {
 
 function createBrakeLights(material) {
   return [
-    createBrakeLight('brake-light-left', -BRAKE_LIGHT_X, material),
-    createBrakeLight('brake-light-right', BRAKE_LIGHT_X, material),
+    createBrakeLight('brake-light-right', -BRAKE_LIGHT_X, material),
+    createBrakeLight('brake-light-left', BRAKE_LIGHT_X, material),
   ]
 }
 
@@ -713,28 +717,28 @@ function createWheel(id, x, z, materials) {
     `rim-bead-seat-left-${id}`,
     dimensions.beadSeatRadiusMeters,
     dimensions.beadSeatWidthMeters,
-    -dimensions.beadSeatAxialPositionMeters,
+    dimensions.beadSeatAxialPositionMeters,
     materials.rim
   )
   const rightBeadSeat = createRigidWheelCylinder(
     `rim-bead-seat-right-${id}`,
     dimensions.beadSeatRadiusMeters,
     dimensions.beadSeatWidthMeters,
-    dimensions.beadSeatAxialPositionMeters,
+    -dimensions.beadSeatAxialPositionMeters,
     materials.rim
   )
   const leftFlange = createRigidWheelCylinder(
     `rim-flange-left-${id}`,
     dimensions.rimFlangeRadiusMeters,
     dimensions.rimFlangeWidthMeters,
-    -dimensions.rimFlangeAxialPositionMeters,
+    dimensions.rimFlangeAxialPositionMeters,
     materials.rim
   )
   const rightFlange = createRigidWheelCylinder(
     `rim-flange-right-${id}`,
     dimensions.rimFlangeRadiusMeters,
     dimensions.rimFlangeWidthMeters,
-    dimensions.rimFlangeAxialPositionMeters,
+    -dimensions.rimFlangeAxialPositionMeters,
     materials.rim
   )
   const rotationWitness = createWheelRotationWitness(
@@ -792,7 +796,7 @@ function createWheel(id, x, z, materials) {
       rimFlangeAxialPositionMeters: dimensions.rimFlangeAxialPositionMeters,
     },
     axle: z > 0 ? 'front' : 'rear',
-    side: x < 0 ? 'left' : 'right',
+    side: x < 0 ? 'right' : 'left',
     driven: z < 0,
     steerable: z > 0,
     steeringPivotLocal: new THREE.Vector3(x, WHEEL_Y, z),

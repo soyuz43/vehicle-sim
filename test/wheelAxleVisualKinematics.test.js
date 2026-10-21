@@ -144,8 +144,9 @@ test('symmetric and asymmetric suspension travel keep segments attached independ
     Math.abs(symmetricOffsets[2] - symmetricOffsets[3]) < 0.00001
   )
 
+  // The raised half of the course is the +X (left) side of the car.
   const asymmetric = createTerrainController((xMeters, zMeters) =>
-    zMeters > 0 && xMeters < 0 ? 0.15 : 0
+    zMeters > 0 && xMeters > 0 ? 0.15 : 0
   )
   const asymmetricSnapshot = asymmetric.controller.getSnapshot()
   const frontLeft = findAlignmentWheel(asymmetricSnapshot, 'front-left')
@@ -236,7 +237,7 @@ test('terrain normals and per-wheel pressure remain visual-kinematically indepen
 test('reset restores exact baseline alignment after pressure, steering, spin, and travel', () => {
   const terrain = { leftHeightMeters: 0 }
   const { car, controller } = createTerrainController((xMeters) =>
-    xMeters < -0.5 ? terrain.leftHeightMeters : 0
+    xMeters > 0.5 ? terrain.leftHeightMeters : 0
   )
   const baseline = captureVisualKinematics(controller.getSnapshot(), car)
 
@@ -278,7 +279,7 @@ test('proving-ground features plus airborne and recontact preserve visual attach
 
   const terrain = { leftDepthMeters: 0 }
   const { controller } = createTerrainController((xMeters) =>
-    xMeters < -0.5 ? -terrain.leftDepthMeters : 0
+    xMeters > 0.5 ? -terrain.leftDepthMeters : 0
   )
   terrain.leftDepthMeters = 0.55
   let snapshot = controller.update(STEP_SECONDS, {})
