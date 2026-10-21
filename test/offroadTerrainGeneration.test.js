@@ -213,6 +213,34 @@ test('roughness is bounded to the supported amplitude range', () => {
   )
 })
 
+test('obstacle dimensions scale with the course extent', () => {
+  const selection = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
+  const obstacles = readObstacleGeometrySamples(selection)
+
+  assert.equal(obstacles.length, 8)
+  assert.equal(obstacles[0].id, 'rock-dome-1')
+  assert.equal(obstacles[0].radiusMeters, 1.8)
+  assert.equal(obstacles[0].xMeters, -36)
+  assert.equal(obstacles[0].zMeters, 36)
+  assert.equal(obstacles[4].id, 'block-1')
+  assert.equal(obstacles[4].halfExtentXMeters, 1.2)
+  assert.equal(obstacles[4].halfExtentZMeters, 1.2)
+  assert.equal(obstacles[4].heightMeters, 1)
+  assert.equal(obstacles[4].xMeters, 24)
+  assert.equal(obstacles[4].zMeters, 60)
+})
+
+test('a feature scale on the 400 m course keeps the legacy dimension scaling', () => {
+  const selection = selectTerrain('?terrain=offroad&featureScale=1.2')
+  const obstacles = readObstacleGeometrySamples(selection)
+
+  assert.equal(obstacles.length, 8)
+  assert.equal(obstacles[0].radiusMeters, 0.9 * 1.2)
+  assert.equal(obstacles[4].halfExtentXMeters, 0.6 * 1.2)
+  assert.equal(obstacles[4].halfExtentZMeters, 0.6 * 1.2)
+  assert.equal(obstacles[4].heightMeters, 0.5 * 1.2)
+})
+
 test('unseeded offroad keeps the legacy obstacle layout', () => {
   const selection = selectTerrain('?terrain=offroad')
 
@@ -343,6 +371,19 @@ function readTerrainSamples(selection) {
       },
     }
   })
+}
+
+function readObstacleGeometrySamples(selection) {
+  return selection.obstacleField.getObstacles().map((obstacle) => ({
+    id: obstacle.id,
+    shape: obstacle.shape,
+    xMeters: obstacle.initialCenterXMeters,
+    zMeters: obstacle.initialCenterZMeters,
+    radiusMeters: obstacle.radiusMeters,
+    heightMeters: obstacle.heightMeters,
+    halfExtentXMeters: obstacle.halfExtentXMeters,
+    halfExtentZMeters: obstacle.halfExtentZMeters,
+  }))
 }
 
 function readObstacleSamples(selection) {

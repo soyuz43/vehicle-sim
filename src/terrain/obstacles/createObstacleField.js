@@ -292,12 +292,10 @@ function defaultObstacles(config = {}) {
         index < defaultDescriptors.length
           ? scaleLegacyObstacleDescriptor(
               defaultDescriptors[index],
-              courseScale,
-              featureScale
+              courseScale
             )
           : createDeterministicExtraObstacle(index - defaultDescriptors.length, {
               courseScale,
-              featureScale,
               sizeMeters,
             })
       )
@@ -318,16 +316,16 @@ function defaultObstacles(config = {}) {
         centerZMeters:
           descriptor.centerZMeters * courseScale + (random() - 0.5) * 4 * courseScale,
         radiusMeters: descriptor.radiusMeters
-          ? descriptor.radiusMeters * featureScale
+          ? descriptor.radiusMeters * courseScale
           : undefined,
         heightMeters: descriptor.heightMeters
-          ? descriptor.heightMeters * featureScale
+          ? descriptor.heightMeters * courseScale
           : undefined,
         halfExtentXMeters: descriptor.halfExtentXMeters
-          ? descriptor.halfExtentXMeters * featureScale
+          ? descriptor.halfExtentXMeters * courseScale
           : undefined,
         halfExtentZMeters: descriptor.halfExtentZMeters
-          ? descriptor.halfExtentZMeters * featureScale
+          ? descriptor.halfExtentZMeters * courseScale
           : undefined,
       })
       continue
@@ -343,7 +341,7 @@ function defaultObstacles(config = {}) {
         shape: 'dome',
         centerXMeters,
         centerZMeters,
-        radiusMeters: (0.4 + random() * 0.8) * featureScale,
+        radiusMeters: (0.4 + random() * 0.8) * courseScale,
         surfaceKind: SURFACE_MATERIAL_KINDS.ROCK,
       })
     } else if (shapeRoll < 0.85) {
@@ -352,8 +350,8 @@ function defaultObstacles(config = {}) {
         shape: 'cylinder',
         centerXMeters,
         centerZMeters,
-        radiusMeters: (0.4 + random() * 0.5) * featureScale,
-        heightMeters: (0.4 + random() * 0.6) * featureScale,
+        radiusMeters: (0.4 + random() * 0.5) * courseScale,
+        heightMeters: (0.4 + random() * 0.6) * courseScale,
         surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
       })
     } else {
@@ -362,9 +360,9 @@ function defaultObstacles(config = {}) {
         shape: 'box',
         centerXMeters,
         centerZMeters,
-        halfExtentXMeters: (0.4 + random() * 0.4) * featureScale,
-        halfExtentZMeters: (0.4 + random() * 0.4) * featureScale,
-        heightMeters: (0.4 + random() * 0.6) * featureScale,
+        halfExtentXMeters: (0.4 + random() * 0.4) * courseScale,
+        halfExtentZMeters: (0.4 + random() * 0.4) * courseScale,
+        heightMeters: (0.4 + random() * 0.6) * courseScale,
         surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
       })
     }
@@ -375,23 +373,23 @@ function defaultObstacles(config = {}) {
 
 // Legacy obstacle descriptors keep their relative layout and are scaled with
 // the course, so a resized course stays proportional to the 400 m reference.
-function scaleLegacyObstacleDescriptor(descriptor, courseScale, featureScale) {
+function scaleLegacyObstacleDescriptor(descriptor, courseScale) {
   const scaled = {
     ...descriptor,
     centerXMeters: descriptor.centerXMeters * courseScale,
     centerZMeters: descriptor.centerZMeters * courseScale,
   }
   if (descriptor.radiusMeters) {
-    scaled.radiusMeters = descriptor.radiusMeters * featureScale
+    scaled.radiusMeters = descriptor.radiusMeters * courseScale
   }
   if (descriptor.heightMeters) {
-    scaled.heightMeters = descriptor.heightMeters * featureScale
+    scaled.heightMeters = descriptor.heightMeters * courseScale
   }
   if (descriptor.halfExtentXMeters) {
-    scaled.halfExtentXMeters = descriptor.halfExtentXMeters * featureScale
+    scaled.halfExtentXMeters = descriptor.halfExtentXMeters * courseScale
   }
   if (descriptor.halfExtentZMeters) {
-    scaled.halfExtentZMeters = descriptor.halfExtentZMeters * featureScale
+    scaled.halfExtentZMeters = descriptor.halfExtentZMeters * courseScale
   }
   return scaled
 }
@@ -402,7 +400,7 @@ function scaleLegacyObstacleDescriptor(descriptor, courseScale, featureScale) {
 // course limit, so the extras stay spread out instead of stacking up at the
 // clamp boundary.
 function createDeterministicExtraObstacle(extraIndex, options) {
-  const { courseScale, featureScale, sizeMeters } = options
+  const { courseScale, sizeMeters } = options
   const bandSlot = extraIndex % EXTRA_OBSTACLE_BAND_SLOT_COUNT
   const laneIndex =
     Math.floor(extraIndex / EXTRA_OBSTACLE_BAND_SLOT_COUNT) * 2 + (extraIndex % 2)
@@ -421,7 +419,7 @@ function createDeterministicExtraObstacle(extraIndex, options) {
       shape,
       centerXMeters,
       centerZMeters,
-      radiusMeters: 0.8 * featureScale,
+      radiusMeters: 0.8 * courseScale,
       surfaceKind: SURFACE_MATERIAL_KINDS.ROCK,
     }
   }
@@ -431,9 +429,9 @@ function createDeterministicExtraObstacle(extraIndex, options) {
       shape,
       centerXMeters,
       centerZMeters,
-      halfExtentXMeters: 0.6 * featureScale,
-      halfExtentZMeters: 0.6 * featureScale,
-      heightMeters: 0.5 * featureScale,
+      halfExtentXMeters: 0.6 * courseScale,
+      halfExtentZMeters: 0.6 * courseScale,
+      heightMeters: 0.5 * courseScale,
       surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
     }
   }
@@ -442,8 +440,8 @@ function createDeterministicExtraObstacle(extraIndex, options) {
     shape: 'cylinder',
     centerXMeters,
     centerZMeters,
-    radiusMeters: 0.5 * featureScale,
-    heightMeters: 0.6 * featureScale,
+    radiusMeters: 0.5 * courseScale,
+    heightMeters: 0.6 * courseScale,
     surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
   }
 }

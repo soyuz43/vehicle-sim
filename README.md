@@ -88,6 +88,8 @@
 ### Procedural Off-road Terrain
 The proving-ground profile is unchanged. Off-road mode with its default configuration and no seed retains the established course; adding a seed selects a repeatable variation of its height, surface-region placement, and generated obstacle layout. The generated heightfield remains a pure world-coordinate sample, so query order does not affect results. Deformation remains a separate runtime layer.
 
+Resizing the course scales the course features proportionally: the jumps, the whoops, and the obstacle dimensions all follow the course extent, so a larger course is a proportionally larger course rather than the 400 m course with empty space appended. The obstacle mass and inertia follow the scaled geometry, and because the movability thresholds are absolute, the obstacles of a larger course stay fixed.
+
 A seeded configuration can be selected through the URL:
 
 ```text
