@@ -2,6 +2,8 @@
 
 import { normalizeTerrainSeed } from './seededTerrainNoise.js'
 
+export const MAX_OFFROAD_ROUGHNESS_METERS = 2
+
 export const DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG = Object.freeze({
   seed: null,
   sizeMeters: 400,
@@ -18,9 +20,11 @@ export function createOffroadTerrainGenerationConfig(config = {}) {
     DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG.featureScale,
     'featureScale'
   )
-  const roughnessMeters = normalizeNonNegativeValue(
+  const roughnessMeters = normalizeBoundedValue(
     config.roughnessMeters,
     DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG.roughnessMeters,
+    0,
+    MAX_OFFROAD_ROUGHNESS_METERS,
     'roughnessMeters'
   )
   const obstacleDensity = normalizeBoundedValue(
@@ -93,14 +97,6 @@ function normalizePositiveValue(value, fallback, name) {
   const resolvedValue = value ?? fallback
   if (!Number.isFinite(resolvedValue) || resolvedValue <= 0) {
     throw new RangeError(`${name} must be a finite positive number`)
-  }
-  return resolvedValue
-}
-
-function normalizeNonNegativeValue(value, fallback, name) {
-  const resolvedValue = value ?? fallback
-  if (!Number.isFinite(resolvedValue) || resolvedValue < 0) {
-    throw new RangeError(`${name} must be a finite non-negative number`)
   }
   return resolvedValue
 }

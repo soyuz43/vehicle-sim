@@ -97,7 +97,7 @@ A seeded configuration can be selected through the URL:
 - `seed`: optional string (1–128 trimmed characters) or safe integer; omitting it preserves the legacy course.
 - `terrainSizeMeters`: square terrain width and depth, centered at the world origin. Programmatic configuration may instead supply matching square `boundsMeters`.
 - `featureScale`: positive, unitless scale for the course features.
-- `roughnessMeters`: non-negative amplitude for the terrain variation.
+- `roughnessMeters`: amplitude for the terrain variation, accepted in the range 0 – 2 m. Out-of-range URL values fall back to the 0.05 m default; out-of-range direct configuration throws a `RangeError`.
 - `obstacleDensity`: multiplier from 0 to 4 relative to the default obstacle count; explicitly supplied obstacle descriptors take precedence.
 - `water=true` enables the water surface for off-road mode; `terrain=offroad-water` also enables it.
 

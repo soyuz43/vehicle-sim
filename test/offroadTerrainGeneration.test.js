@@ -190,6 +190,29 @@ test('generation config validates seed, bounds, and physical configuration input
   }), RangeError)
 })
 
+test('roughness is bounded to the supported amplitude range', () => {
+  assert.equal(
+    selectTerrain('?terrain=offroad&roughnessMeters=12').generationConfig.roughnessMeters,
+    0.05
+  )
+  assert.equal(
+    selectTerrain('?terrain=offroad&roughnessMeters=2').generationConfig.roughnessMeters,
+    2
+  )
+  assert.equal(
+    selectTerrain('?terrain=offroad&roughnessMeters=0.12').generationConfig.roughnessMeters,
+    0.12
+  )
+  assert.throws(
+    () => createOffroadTerrainGenerationConfig({ roughnessMeters: 2.5 }),
+    RangeError
+  )
+  assert.equal(
+    createOffroadTerrainGenerationConfig({ roughnessMeters: 2 }).roughnessMeters,
+    2
+  )
+})
+
 test('offroad profile config can enable the water surface programmatically', () => {
   const selection = selectTerrain('?terrain=offroad', {
     offroadProfileConfig: { waterEnabled: true },

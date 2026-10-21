@@ -1,6 +1,9 @@
 // src/terrain/createTerrainSelection.js
 
-import { createOffroadTerrainGenerationConfig } from './createOffroadTerrainGenerationConfig.js'
+import {
+  createOffroadTerrainGenerationConfig,
+  MAX_OFFROAD_ROUGHNESS_METERS,
+} from './createOffroadTerrainGenerationConfig.js'
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
 import { createOffroadPlaygroundProfile } from './createEnhancedTerrainSurfaceProfile.js'
 import { createMovableObstacleField } from './obstacles/createMovableObstacleField.js'
@@ -123,7 +126,10 @@ function resolveGenerationConfig(name, config) {
       generationOverrides.roughnessMeters ??
       profileOverrides.roughnessMeters ??
       profileOverrides.noiseAmplitude ??
-      readNumberParam('roughnessMeters', (value) => value >= 0) ??
+      readNumberParam(
+        'roughnessMeters',
+        (value) => value >= 0 && value <= MAX_OFFROAD_ROUGHNESS_METERS
+      ) ??
       0.05,
     obstacleDensity:
       generationOverrides.obstacleDensity ??
