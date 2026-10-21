@@ -42,9 +42,16 @@ export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
 export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
-// The start ramp is a localized spawn incline at the south course edge. The
-// zone is the length of the ramp measured from the south course edge and the
+// The start ramp is a localized incline at the south course edge. The zone
+// is the length of the ramp measured from the south course edge and the
 // feather is the width of the smooth fade at each end of the zone.
+//
+// Placement, unresolved: on the 400 m course this ramp occupies
+// z = -200 m to z = -170 m, while the vehicle spawns at the world origin
+// (0, ~0, 0) and drives toward +Z. The ramp therefore sits 200 m behind
+// the spawn and is reachable only in reverse. Whether the ramp belongs at
+// the spawn, or the spawn belongs at the ramp, is a course-design decision
+// that has not been made, so the ramp is left where it is.
 export const START_RAMP_ZONE_METERS = 30
 export const START_RAMP_FEATHER_METERS = 5
 // The step-up jump reaches its crest two thirds of the way along its length
