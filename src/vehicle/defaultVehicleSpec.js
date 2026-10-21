@@ -55,15 +55,12 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // suspension spring force deviation drives body heave. Disabling it makes
   // the vertical dynamics state inert again.
   //
-  // The name is historical: this flag originally gated only the planar
-  // (forward/lateral acceleration) forcing term. It now gates every vertical
-  // dynamics forcing term, including terrain heave forcing, so the name
-  // understates its own scope. It is kept as-is because the flag is
-  // user-visible in README.md, and renaming a published flag needs a config
-  // migration path.
-  // Rename to `verticalDynamicsForcingEnabled` when a config migration path
-  // is available.
-  verticalDynamicsPlanarForceCouplingEnabled: true,
+  // This flag gates every vertical dynamics forcing term. It was named
+  // `verticalDynamicsPlanarForceCouplingEnabled` until the terrain heave
+  // forcing landed, which the old name no longer described. The flag has no
+  // persisted, URL-parameter, or panel-toggle surface, so it was renamed
+  // outright rather than kept as an alias.
+  verticalDynamicsForcingEnabled: true,
 
   // Chassis terrain following is a bounded quasi-static support-height
   // approximation. It deliberately does not create vertical velocity, heave,

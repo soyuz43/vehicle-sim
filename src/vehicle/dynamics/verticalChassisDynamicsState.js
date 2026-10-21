@@ -281,10 +281,10 @@ export function updateVerticalChassisDynamics(
   const groundedWheelCount = safeWheelStates.filter(
     (wheelState) => wheelState.isGrounded === true
   ).length
-  const terrainCouplingEnabled =
-    spec.verticalDynamicsPlanarForceCouplingEnabled === true
+  const verticalForcingEnabled =
+    spec.verticalDynamicsForcingEnabled === true
   const planarForceCouplingActive =
-    terrainCouplingEnabled && groundedWheelCount > 0
+    verticalForcingEnabled && groundedWheelCount > 0
   const localForwardAccelerationMetersPerSecondSquared = sanitizeNumber(
     planarMotion?.planarAccelerationLocalForwardMetersPerSecondSquared
   )
@@ -449,7 +449,7 @@ export function updateVerticalChassisDynamics(
     // terrain coupling is active; with the coupling off the heave stays inert
     // exactly as before.
     state.heaveVelocityMetersPerSecond =
-      terrainCouplingEnabled && groundedWheelCount === 0
+      verticalForcingEnabled && groundedWheelCount === 0
         ? 0
         : nextHeaveRate
     state.pitchRateRadiansPerSecond = nextPitchRate

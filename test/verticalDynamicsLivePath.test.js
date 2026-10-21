@@ -354,7 +354,7 @@ test('terrain bump produces finite pitch and roll response', () => {
 
 test('disabling planar force coupling restores inert vertical excitation', () => {
   const controller = createController({
-    verticalDynamicsPlanarForceCouplingEnabled: false,
+    verticalDynamicsForcingEnabled: false,
   })
 
   for (let step = 0; step < 45; step += 1) {
@@ -484,7 +484,7 @@ test('contact loss does not spike the heave', () => {
 
 test('disabling the coupling flag keeps the heave inert', () => {
   const controller = createController({
-    verticalDynamicsPlanarForceCouplingEnabled: false,
+    verticalDynamicsForcingEnabled: false,
   })
 
   for (let step = 0; step < 45; step += 1) {
@@ -498,7 +498,7 @@ test('disabling the coupling flag keeps the heave inert', () => {
 
 test('disabling the coupling flag leaves the terrain heave inert', () => {
   const samples = runStepUpJumpDrive({
-    verticalDynamicsPlanarForceCouplingEnabled: false,
+    verticalDynamicsForcingEnabled: false,
   })
 
   for (const sample of samples) {
@@ -515,7 +515,7 @@ test('quasi-static fallback is unaffected by the heave forcing', () => {
   const withCoupling = runStepUpJumpDrive({ verticalDynamicsEnabled: false })
   const withoutCoupling = runStepUpJumpDrive({
     verticalDynamicsEnabled: false,
-    verticalDynamicsPlanarForceCouplingEnabled: false,
+    verticalDynamicsForcingEnabled: false,
   })
 
   assert.equal(withCoupling.length, withoutCoupling.length)
