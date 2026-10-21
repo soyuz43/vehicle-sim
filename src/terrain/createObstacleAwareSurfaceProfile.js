@@ -215,6 +215,11 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
     waterSurface,
     weatherState,
     getHeightAtWorldXZ,
+    // Normal of the composed field (ground plus deformation, water and
+    // obstacle overlays), not the base profile normal: the base enhanced
+    // profile inherits a flat (0, 1, 0) normal from its flat base profile,
+    // so this recomputation is the only meaningful normal this wrapper has.
+    calculateNormalAtWorldXZ,
     querySurfaceAtWorldPosition,
   }
 }
