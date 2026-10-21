@@ -15,3 +15,11 @@ test('slippery aero description matches its disabled-downforce setting', () => {
   assert.match(aero.description, /downforce disabled/i)
   assert.doesNotMatch(aero.description, /mild downforce/i)
 })
+
+test('disabled stock aero entries omit unused downforce coefficients', () => {
+  for (const componentId of ['aero-stock', 'aero-slippery']) {
+    const aero = VEHICLE_COMPONENT_CATALOG.aero.components[componentId]
+    assert.equal(aero.spec.aeroDownforceEnabled, false)
+    assert.equal(Object.hasOwn(aero.spec, 'aeroDownforceCoefficientNewtonsPerMeterSquared'), false)
+  }
+})
