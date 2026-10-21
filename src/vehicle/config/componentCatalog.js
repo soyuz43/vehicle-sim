@@ -330,7 +330,7 @@ const AERO_COMPONENTS = Object.freeze({
     id: 'aero-slippery',
     label: 'Slippery',
     description:
-      'Reduced drag coefficient and frontal area with mild downforce for ' +
+      'Reduced drag coefficient and frontal area, with downforce disabled for ' +
       'lower high-speed resistance.',
     spec: {
       dragCoefficient: 0.27,
