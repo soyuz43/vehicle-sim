@@ -73,6 +73,36 @@ test('runRenderFrame passes the same snapshot to all three panels', () => {
   assert.equal(deps.panels.calls.controlPanel[0][0], expectedSnapshot)
 })
 
+// Future guard: panels must see the current frame's snapshot, not the previous one.
+test('runRenderFrame reads the snapshot before updating panels', () => {
+  const deps = createTestRenderDeps()
+  const expectedSnapshot = deps.simulation.vehicleController.getSnapshot()
+  const calls = []
+  const panelNames = ['driverHUD', 'telemetryPanel', 'controlPanel']
+
+  runRenderFrame(deps, 1 / 30)
+  deps.simulation.vehicleController.getSnapshot = () => {
+    calls.push('getSnapshot')
+    return expectedSnapshot
+  }
+  for (const panelName of panelNames) {
+    deps.panels[panelName].update = () => calls.push(`${panelName}.update`)
+  }
+
+  runRenderFrame(deps, 1 / 30)
+
+  const snapshotReadIndex = calls.indexOf('getSnapshot')
+  assert.notEqual(snapshotReadIndex, -1, 'getSnapshot must be called for the frame')
+  for (const panelName of panelNames) {
+    const panelUpdateIndex = calls.indexOf(`${panelName}.update`)
+    assert.notEqual(panelUpdateIndex, -1, `${panelName} must update on the UI refresh frame`)
+    assert.ok(
+      snapshotReadIndex < panelUpdateIndex,
+      `getSnapshot must precede ${panelName}.update`
+    )
+  }
+})
+
 test('runRenderFrame calls renderer.render once', () => {
   const deps = createTestRenderDeps()
 
