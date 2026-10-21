@@ -94,6 +94,8 @@ The off-road surface layout is a route across the course rather than a tiling of
 
 The rock garden is a lattice of course-scaled cells, each holding eight seeded cosine bumps whose centres, radii, and amplitudes vary from cell to cell, so the garden contributes a real per-position bump field rather than a flat patch. The cell size and the bump radii scale with the course and the amplitude is scaled with it as well, so the bump footprint and the bump slope of a resized course both follow the course extent: the height at twice the coordinate of the 400 m course is twice the height, up to the terrain noise, which is a position-based material property and is deliberately not scaled. The bump field raises the 400 m course by up to about 0.40 m inside the garden.
 
+The garden is a bounded band. On the 400 m course it covers z from -100 m to 0 m and x from -190 m to 10 m, which is the rock band of the course and the western half of the course at that band, and the band scales with the course the way the jumps and the whoops do, so the 800 m course has a band of 200 m in z and 400 m in x. The mask ramps up over a 10 m feather at each band edge and is zero outside the band, so the sand, dirt, and grass regions of the course carry no garden.
+
 A seeded configuration can be selected through the URL:
 
 ```text

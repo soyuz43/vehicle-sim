@@ -19,6 +19,18 @@ const DEFAULT_TERRAIN_SIZE_METERS = 320
 const ROCK_GARDEN_CELL_SIZE_METERS = 20
 const ROCK_GARDEN_BUMP_COUNT = 8
 const ROCK_GARDEN_CHANNEL_COUNT = 5
+// Rock garden band: the discrete footprint of the garden, expressed as
+// course-scaled offsets. The south and north edges are measured from the
+// south course edge and match the z extent of the rock surface region, the
+// west edge is measured from the west course edge and starts at the rock
+// surface region, and the east edge is measured from the centre line and
+// stops where the grass surface region starts. The feather is the width of
+// the smooth ramp at each band edge.
+export const ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS = 100
+export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
+export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
+export const ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS = 10
+export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
 
 const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
@@ -208,6 +220,23 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   const courseOffsets = createOffroadCourseOffsets(seed, courseScale)
   const rockNoiseSeed = seed === null ? 12345 : hashTerrainSeed(`${seed}:rocks`)
 
+  const rockGardenBandFeatherMeters = ROCK_GARDEN_BAND_FEATHER_METERS * courseScale
+  const rockGardenBandWestEdgeMeters =
+    -halfSize +
+    ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.xMeters
+  const rockGardenBandEastEdgeMeters =
+    ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.xMeters
+  const rockGardenBandSouthEdgeMeters =
+    -halfSize +
+    ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.zMeters
+  const rockGardenBandNorthEdgeMeters =
+    -halfSize +
+    ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.zMeters
+
   return function offroadPlaygroundHeightEvaluator(worldXMeters, worldZMeters, baseHeightMeters) {
     let heightMeters = baseHeightMeters
 
@@ -250,15 +279,35 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
       1.0 * jumpScale * courseScale
     )
 
-    const rockGardenZone = smoothStep(
-      worldZMeters,
-      -halfSize + 100 * courseScale + courseOffsets.zMeters,
-      -halfSize + 200 * courseScale + courseOffsets.zMeters
-    ) * smoothStep(
-      worldXMeters,
-      -halfSize + 10 * courseScale + courseOffsets.xMeters,
-      10 * courseScale + courseOffsets.xMeters
-    )
+    // The garden is a bounded band: the mask ramps up over the feather at
+    // the west and south edges, holds its full strength across the band,
+    // and ramps back down over the feather at the east and north edges.
+    // Without the closing edges the mask stayed at full strength for every
+    // position north of the band and east of it, which spread the garden
+    // over the sand, dirt, and grass regions of the course.
+    const rockGardenZone =
+      smoothStep(
+        worldZMeters,
+        rockGardenBandSouthEdgeMeters,
+        rockGardenBandSouthEdgeMeters + rockGardenBandFeatherMeters
+      ) *
+      (1 -
+        smoothStep(
+          worldZMeters,
+          rockGardenBandNorthEdgeMeters - rockGardenBandFeatherMeters,
+          rockGardenBandNorthEdgeMeters
+        )) *
+      smoothStep(
+        worldXMeters,
+        rockGardenBandWestEdgeMeters,
+        rockGardenBandWestEdgeMeters + rockGardenBandFeatherMeters
+      ) *
+      (1 -
+        smoothStep(
+          worldXMeters,
+          rockGardenBandEastEdgeMeters - rockGardenBandFeatherMeters,
+          rockGardenBandEastEdgeMeters
+        ))
     if (rockGardenZone > 0) {
       heightMeters +=
         rockGardenZone *
