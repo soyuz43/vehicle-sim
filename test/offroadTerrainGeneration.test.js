@@ -213,6 +213,85 @@ test('roughness is bounded to the supported amplitude range', () => {
   )
 })
 
+test('the obstacle visuals are added to the scene', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad')
+
+  assert.ok(simulation.obstacleVisuals)
+  assert.ok(simulation.obstacleVisuals.group)
+  assert.ok(
+    simulation.scene.children.includes(simulation.obstacleVisuals.group),
+    'the obstacle group is missing from the scene'
+  )
+  assert.equal(simulation.obstacleVisuals.meshes.length, 8)
+})
+
+test('the terrain mesh carries the terrain only while the contact query keeps the obstacles', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad')
+  const positions = simulation.terrain.geometry.getAttribute('position')
+  const baseProfile = simulation.terrainSelection.baseProfile
+  let maximumMeshDeviationMeters = 0
+
+  for (let index = 0; index < positions.count; index += 1) {
+    const xMeters = positions.getX(index)
+    const zMeters = positions.getZ(index)
+    maximumMeshDeviationMeters = Math.max(
+      maximumMeshDeviationMeters,
+      Math.abs(
+        positions.getY(index) - baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+      )
+    )
+  }
+
+  // The mesh stores its vertex positions as float32, so the rendered
+  // height is the float32 rounding of the profile height. A height of up to
+  // 4 m rounds within 2.4e-7 m, so 1e-6 m is the storage noise floor.
+  assert.ok(
+    maximumMeshDeviationMeters <= 1e-6,
+    'the terrain mesh does not match the terrain-only profile: ' +
+      maximumMeshDeviationMeters +
+      ' m'
+  )
+
+  const obstacle = simulation.terrainSelection.obstacleField
+    .getObstacles()
+    .find((candidate) => candidate.id === 'rock-dome-1')
+  const xMeters = obstacle.initialCenterXMeters
+  const zMeters = obstacle.initialCenterZMeters
+  const contactSample = simulation.terrainContactQuery.queryAtWorldXZ(xMeters, zMeters)
+  const groundHeightMeters = baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+
+  assert.ok(
+    contactSample.terrainHeightMeters > groundHeightMeters,
+    'the contact query no longer reports the obstacle top'
+  )
+  assert.equal(contactSample.obstacleId, 'rock-dome-1')
+})
+
+test('the proving ground mesh is unchanged by the obstacle rendering', () => {
+  const simulation = createSimulationForSearch('?terrain=proving-ground')
+  const positions = simulation.terrain.geometry.getAttribute('position')
+  const surfaceProfile = simulation.terrainSurfaceProfile
+  let maximumMeshDeviationMeters = 0
+
+  for (let index = 0; index < positions.count; index += 1) {
+    const xMeters = positions.getX(index)
+    const zMeters = positions.getZ(index)
+    maximumMeshDeviationMeters = Math.max(
+      maximumMeshDeviationMeters,
+      Math.abs(
+        positions.getY(index) - surfaceProfile.getHeightAtWorldXZ(xMeters, zMeters)
+      )
+    )
+  }
+
+  assert.ok(
+    maximumMeshDeviationMeters <= 1e-6,
+    'the proving ground mesh changed: ' + maximumMeshDeviationMeters + ' m'
+  )
+  assert.equal(simulation.obstacleVisuals, null)
+  assert.equal(simulation.terrain.userData.terrain.renderSubdivisions, 256)
+})
+
 test('the terrain render grid follows the terrain size', () => {
   const provingGround = createSimulationForSearch('?terrain=proving-ground')
   const offroad = createSimulationForSearch('?terrain=offroad')

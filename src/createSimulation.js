@@ -38,7 +38,12 @@ export function createSimulation(deps = {}) {
     deformationField: terrainDeformation,
   })
   const terrainSurfaceProfile = terrainSelection.surfaceProfile
-  const terrain = createTerrain({ surfaceProfile: terrainSurfaceProfile })
+  // The ground mesh carries the terrain only. The obstacles are rendered as
+  // their own primitive meshes, so the ground grid does not have to
+  // represent them, and the physics contact query keeps sampling the
+  // obstacle-aware profile.
+  const terrainRenderProfile = terrainSelection.baseProfile
+  const terrain = createTerrain({ surfaceProfile: terrainRenderProfile })
   scene.add(terrain)
 
   let deformationVisuals = null
@@ -56,8 +61,9 @@ export function createSimulation(deps = {}) {
   let obstacleVisuals = null
   if (terrainSelection.obstacleField) {
     obstacleVisuals = createObstacleFieldVisuals(terrainSelection.obstacleField, {
-      baseProfile: terrainSurfaceProfile,
+      baseProfile: terrainRenderProfile,
     })
+    scene.add(obstacleVisuals.group)
   }
 
   let waterVisuals = null
