@@ -259,7 +259,7 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
     if (rockGardenZone > 0) {
       heightMeters +=
         rockGardenZone *
-        rockGardenBumps(worldXMeters, worldZMeters, rockNoiseSeed) *
+        rockGardenBumps(worldXMeters, worldZMeters, rockNoiseSeed, courseScale) *
         rockGardenScale *
         courseScale
     }
@@ -450,7 +450,7 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
 }
 
-function rockGardenBumps(worldX, worldZ, seed = 12345) {
+function rockGardenBumps(worldX, worldZ, seed = 12345, courseScale = 1) {
   // Multiple overlapping cosine bumps for irregular rock garden feel
   let height = 0
   // Use deterministic pseudo-random based on position
@@ -459,10 +459,13 @@ function rockGardenBumps(worldX, worldZ, seed = 12345) {
     return h - Math.floor(h)
   }
   for (let i = 0; i < 8; i++) {
-    const bx = worldX + hash(i, 0) * 20
-    const bz = worldZ + hash(0, i) * 20
-    const rx = 1.5 + hash(i, 1) * 2
-    const rz = 1.5 + hash(1, i) * 2
+    // The bump radii and the cluster span scale with the course, so a resized
+    // course keeps the same bump footprint relative to the course extent and
+    // the bump slope is preserved by the amplitude scaling at the call site.
+    const bx = worldX + hash(i, 0) * 20 * courseScale
+    const bz = worldZ + hash(0, i) * 20 * courseScale
+    const rx = (1.5 + hash(i, 1) * 2) * courseScale
+    const rz = (1.5 + hash(1, i) * 2) * courseScale
     const amp = 0.08 + hash(i, 2) * 0.12
     const nx = (worldX - bx) / Math.max(rx, Number.EPSILON)
     const nz = (worldZ - bz) / Math.max(rz, Number.EPSILON)

@@ -213,6 +213,53 @@ test('roughness is bounded to the supported amplitude range', () => {
   )
 })
 
+test('the 400 m rock garden keeps its established heights', () => {
+  const selection = selectTerrain('?terrain=offroad')
+  const samples = [
+    { xMeters: -120, zMeters: -80, heightMeters: 0.22795991302162763 },
+    { xMeters: -50, zMeters: -60, heightMeters: 0.9684624831791371 },
+    { xMeters: 0, zMeters: -30, heightMeters: -0.17785176494742969 },
+    { xMeters: 5, zMeters: -95, heightMeters: 0.007689162349243821 },
+    { xMeters: -30, zMeters: -10, heightMeters: 0.515691946895867 },
+  ]
+
+  for (const sample of samples) {
+    assert.equal(
+      selection.baseProfile.getHeightAtWorldXZ(sample.xMeters, sample.zMeters),
+      sample.heightMeters
+    )
+  }
+})
+
+test('the rock garden currently contributes no per-position height variation', () => {
+  // Known defect, asserted so that it cannot be forgotten: the rock garden
+  // bump function currently returns a position-independent constant, so the
+  // garden contributes no bump structure at all. The difference between the
+  // garden and the same course with the rock garden scaled out is exactly
+  // the rock garden contribution, and it is zero everywhere today.
+  //
+  // Fixing the bump function fails this test on purpose: whoever fixes it
+  // has to update this assertion and the reference heights above.
+  const withGarden = createOffroadPlaygroundProfile({ rockGardenScale: 1 })
+  const withoutGarden = createOffroadPlaygroundProfile({ rockGardenScale: 0 })
+  let maximumContributionMeters = 0
+
+  for (let zMeters = -95; zMeters <= -5; zMeters += 5) {
+    for (let xMeters = -180; xMeters <= 0; xMeters += 5) {
+      const contributionMeters = Math.abs(
+        withGarden.getHeightAtWorldXZ(xMeters, zMeters) -
+          withoutGarden.getHeightAtWorldXZ(xMeters, zMeters)
+      )
+      maximumContributionMeters = Math.max(
+        maximumContributionMeters,
+        contributionMeters
+      )
+    }
+  }
+
+  assert.equal(maximumContributionMeters, 0)
+})
+
 test('obstacle dimensions scale with the course extent', () => {
   const selection = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
   const obstacles = readObstacleGeometrySamples(selection)
