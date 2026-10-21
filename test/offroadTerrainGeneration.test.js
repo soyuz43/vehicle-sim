@@ -1102,6 +1102,119 @@ test('the mud pit keeps the width it declares', () => {
   assert.equal(grassBand.surfaceKind, 'grass')
 })
 
+test('the whoops section keeps its rhythmic amplitude north of the ramp-up', () => {
+  // The analytic off-road profile, sampled at x = 0. The default seed is
+  // null, so the course layout is the same one the app renders.
+  const profile = createOffroadPlaygroundProfile({ seed: null })
+  const heightAt = (zMeters) => profile.getHeightAtWorldXZ(0, zMeters)
+
+  // Known behaviour, not a bug until the maintainer decides: the whoops mask
+  // ramps up over z = 80..140 and never releases, so the full amplitude
+  // persists to the north course edge and rides on top of the exit ramp that
+  // is subtracted over z = 160..200. This test pins the current shape for
+  // regression protection. It does not assert that the ramp-up, or the
+  // missing release, is the intended design.
+  const WHOOPS_START_Z_METERS = 140
+  const WHOOPS_END_Z_METERS = 200
+  const HALF_WAVELENGTH_METERS = 1.5 // half of the 3 m sine wavelength
+
+  // Inside the whoops the ground has to keep swinging: every half
+  // wavelength step has to clear 0.10 m of height change.
+  for (
+    let zMeters = WHOOPS_START_Z_METERS;
+    zMeters + HALF_WAVELENGTH_METERS <= WHOOPS_END_Z_METERS;
+    zMeters += HALF_WAVELENGTH_METERS
+  ) {
+    const deltaMeters = Math.abs(
+      heightAt(zMeters + HALF_WAVELENGTH_METERS) - heightAt(zMeters)
+    )
+    assert.ok(
+      deltaMeters >= 0.1,
+      'expected a whoops step of at least 0.10 m at z=' +
+        zMeters +
+        ', got ' +
+        deltaMeters
+    )
+  }
+
+  // The sampled anchors have to sit on a profile that rises and falls. A
+  // single half wavelength step can land on two sine zero crossings, so the
+  // amplitude is measured as the peak to peak spread over a quarter
+  // wavelength window (0.75 m) around each anchor instead.
+  for (const anchorZMeters of [140, 160, 180, 200]) {
+    const samples = []
+    // The window has to stay inside the course, so the last anchor is
+    // measured backwards.
+    const direction = anchorZMeters + 3 <= WHOOPS_END_Z_METERS ? 1 : -1
+    for (let index = 0; index <= 4; index += 1) {
+      samples.push(heightAt(anchorZMeters + direction * index * 0.75))
+    }
+    const peakToPeakMeters = Math.max(...samples) - Math.min(...samples)
+    assert.ok(
+      peakToPeakMeters >= 0.1,
+      'expected a whoops peak to peak of at least 0.10 m at z=' +
+        anchorZMeters +
+        ', got ' +
+        peakToPeakMeters
+    )
+  }
+
+  // The ramp-up gains roughness as it runs north. Read the local roughness
+  // as the largest height step inside a 1 m window around the anchor.
+  const readLocalRoughness = (zMeters) => {
+    let roughnessMeters = 0
+    for (let offset = -2; offset <= 1; offset += 1) {
+      roughnessMeters = Math.max(
+        roughnessMeters,
+        Math.abs(heightAt(zMeters + offset * 0.5 + 0.5) - heightAt(zMeters + offset * 0.5))
+      )
+    }
+    return roughnessMeters
+  }
+
+  assert.ok(
+    readLocalRoughness(80) <= 0.02,
+    'expected the whoops ramp-up to start flat at z=80, got ' +
+      readLocalRoughness(80)
+  )
+  assert.ok(
+    readLocalRoughness(100) <= 0.08,
+    'expected the whoops ramp-up to still be shallow at z=100, got ' +
+      readLocalRoughness(100)
+  )
+  assert.ok(
+    readLocalRoughness(120) >= 0.05,
+    'expected the whoops ramp-up to be gaining roughness at z=120, got ' +
+      readLocalRoughness(120)
+  )
+  assert.ok(
+    readLocalRoughness(140) >= 0.1,
+    'expected the whoops ramp-up to reach full amplitude at z=140, got ' +
+      readLocalRoughness(140)
+  )
+
+  // The stretch immediately south of the ramp-up carries no feature, so the
+  // ground there has to stay smooth. The wider z <= 80 range does not: it
+  // holds the start ramp, the tabletop, the step-up and the gap jump, each
+  // of which is legitimately steeper than 0.03 m per half wavelength.
+  for (
+    let zMeters = 60;
+    zMeters + HALF_WAVELENGTH_METERS <= 80;
+    zMeters += HALF_WAVELENGTH_METERS
+  ) {
+    const deltaMeters = Math.abs(
+      heightAt(zMeters + HALF_WAVELENGTH_METERS) - heightAt(zMeters)
+    )
+    assert.ok(
+      deltaMeters <= 0.03,
+      'expected smooth ground south of the whoops ramp-up at z=' +
+        zMeters +
+        ', got ' +
+        deltaMeters
+    )
+  }
+})
+
 function readRockGardenBand(selection) {
   const { sizeMeters, featureScale } = selection.generationConfig
   const courseScale = featureScale * (sizeMeters / 400)
