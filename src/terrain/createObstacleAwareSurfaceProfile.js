@@ -165,7 +165,11 @@ export function createObstacleAwareSurfaceProfile(config = {}) {
     }
 
     // Apply weather effects if we have a weather state
-    if (weatherState && typeof weatherState.applyWeatherEffectToMaterial === 'function') {
+    if (
+      result.surfaceKind !== 'water' &&
+      weatherState &&
+      typeof weatherState.applyWeatherEffectToMaterial === 'function'
+    ) {
       // Create a temporary material object to apply weather effects
       const tempMaterial = {
         frictionCoefficient: result.frictionCoefficient,

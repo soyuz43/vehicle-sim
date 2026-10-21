@@ -47,6 +47,15 @@ function resolveSnapshotPath(snapshot, path) {
     .reduce((value, key) => value?.[key], snapshot)
 }
 
+// This scan records explicit dot-property reads (up to two properties deep)
+// through the aliases listed in `aliasPaths`. It rejects direct computed
+// access through those aliases and object-destructuring declarations, and
+// verifies that the alias setup statements below remain unchanged.
+//
+// It does NOT record full paths deeper than two properties, computed access
+// after a property dereference (e.g. `snapshot.forces['newField']`), secondary
+// re-aliases (e.g. `const x = snapshot.forces; x.newField`), or reflective
+// access (`Object.keys`, `for-in`). Extend the checks if the panel uses these.
 function collectTelemetryPanelSnapshotReadPaths() {
   const panelSource = readFileSync(
     new URL('../src/ui/telemetry-panel/createTelemetryPanel.js', import.meta.url),
