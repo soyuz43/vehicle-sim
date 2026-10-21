@@ -47,7 +47,11 @@ test('runRenderFrame calls getSnapshot exactly once', () => {
     return snapshot
   }
 
-  runRenderFrame(deps, 1 / 15)
+  runRenderFrame(deps, 1 / 30)
+  assert.equal(snapshotReadCount, 1)
+
+  snapshotReadCount = 0
+  runRenderFrame(deps, 1 / 30)
 
   // If this ever fails, check for a second getSnapshot call in the render path — the throttle fix depends on one call per frame.
   assert.equal(snapshotReadCount, 1)
