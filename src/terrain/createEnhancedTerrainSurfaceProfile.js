@@ -16,6 +16,9 @@ import {
 } from './seededTerrainNoise.js'
 
 const DEFAULT_TERRAIN_SIZE_METERS = 320
+const ROCK_GARDEN_CELL_SIZE_METERS = 20
+const ROCK_GARDEN_BUMP_COUNT = 8
+const ROCK_GARDEN_CHANNEL_COUNT = 5
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
 
 const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
@@ -450,30 +453,71 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
 }
 
+// Rock garden bumps: a field of overlapping cosine bumps anchored to
+// world positions. The garden is a lattice of 20 m cells and every cell
+// holds eight bumps whose centres, radii, and amplitudes are derived from
+// the seed, so the pattern is stable in world space and differs from place
+// to place.
+//
+// The cell size and the bump radii scale with the course, so a resized
+// course keeps the same bump layout relative to the course extent. The
+// amplitude is scaled by the call site, which keeps the bump slope
+// proportional to the course scale as well.
 function rockGardenBumps(worldX, worldZ, seed = 12345, courseScale = 1) {
-  // Multiple overlapping cosine bumps for irregular rock garden feel
-  let height = 0
-  // Use deterministic pseudo-random based on position
-  const hash = (x, z) => {
-    const h = Math.sin(x * 12.9898 + z * 78.233 + seed) * 43758.5453
-    return h - Math.floor(h)
+  const cellSizeMeters = ROCK_GARDEN_CELL_SIZE_METERS * courseScale
+  const baseCellX = Math.floor(worldX / cellSizeMeters)
+  const baseCellZ = Math.floor(worldZ / cellSizeMeters)
+  // Deterministic pseudo-random value for a lattice coordinate pair.
+  const hash = (a, b) => {
+    let h =
+      (seed ^
+        Math.imul(a + 0x9e3779b9, 0x85ebca6b) ^
+        Math.imul(b - 0x9e3779b9, 0xc2b2ae35)) >>>
+      0
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0
+    h = Math.imul(h ^ (h >>> 12), 0x297a2d39) >>> 0
+    h = (h ^ (h >>> 15)) >>> 0
+    return h / 4294967296
   }
-  for (let i = 0; i < 8; i++) {
-    // The bump radii and the cluster span scale with the course, so a resized
-    // course keeps the same bump footprint relative to the course extent and
-    // the bump slope is preserved by the amplitude scaling at the call site.
-    const bx = worldX + hash(i, 0) * 20 * courseScale
-    const bz = worldZ + hash(0, i) * 20 * courseScale
-    const rx = (1.5 + hash(i, 1) * 2) * courseScale
-    const rz = (1.5 + hash(1, i) * 2) * courseScale
-    const amp = 0.08 + hash(i, 2) * 0.12
-    const nx = (worldX - bx) / Math.max(rx, Number.EPSILON)
-    const nz = (worldZ - bz) / Math.max(rz, Number.EPSILON)
-    const r = Math.hypot(nx, nz)
-    if (r < 1) {
-      height += amp * 0.5 * (1 + Math.cos(Math.PI * r))
+  let height = 0
+
+  // A bump only reaches points inside its own cell or one of the eight
+  // neighbouring cells, so the three by three cell neighbourhood covers
+  // every bump that can contribute at this position.
+  for (let cellOffsetX = -1; cellOffsetX <= 1; cellOffsetX += 1) {
+    for (let cellOffsetZ = -1; cellOffsetZ <= 1; cellOffsetZ += 1) {
+      const cellX = baseCellX + cellOffsetX
+      const cellZ = baseCellZ + cellOffsetZ
+      const cellOriginXMeters = cellX * cellSizeMeters
+      const cellOriginZMeters = cellZ * cellSizeMeters
+
+      for (let index = 0; index < ROCK_GARDEN_BUMP_COUNT; index += 1) {
+        const hashX = cellX * ROCK_GARDEN_BUMP_COUNT + index
+        const hashZ = cellZ * ROCK_GARDEN_CHANNEL_COUNT
+        const centerXMeters =
+          cellOriginXMeters +
+          hash(hashX, hashZ) * ROCK_GARDEN_CELL_SIZE_METERS * courseScale
+        const centerZMeters =
+          cellOriginZMeters +
+          hash(hashX, hashZ + 1) * ROCK_GARDEN_CELL_SIZE_METERS * courseScale
+        const radiusXMeters =
+          (1.5 + hash(hashX, hashZ + 2) * 2) * courseScale
+        const radiusZMeters =
+          (1.5 + hash(hashX, hashZ + 3) * 2) * courseScale
+        const amplitudeMeters = 0.08 + hash(hashX, hashZ + 4) * 0.12
+        const nx =
+          (worldX - centerXMeters) / Math.max(radiusXMeters, Number.EPSILON)
+        const nz =
+          (worldZ - centerZMeters) / Math.max(radiusZMeters, Number.EPSILON)
+        const r = Math.hypot(nx, nz)
+
+        if (r < 1) {
+          height += amplitudeMeters * 0.5 * (1 + Math.cos(Math.PI * r))
+        }
+      }
     }
   }
+
   return height
 }
 

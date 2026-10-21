@@ -319,10 +319,10 @@ test('the 400 m rock garden keeps its established heights', () => {
   const selection = selectTerrain('?terrain=offroad')
   const samples = [
     { xMeters: -120, zMeters: -80, heightMeters: 0.22795991302162763 },
-    { xMeters: -50, zMeters: -60, heightMeters: 0.9684624831791371 },
+    { xMeters: -50, zMeters: -60, heightMeters: 1.00356511443987 },
     { xMeters: 0, zMeters: -30, heightMeters: -0.17785176494742969 },
     { xMeters: 5, zMeters: -95, heightMeters: 0.007689162349243821 },
-    { xMeters: -30, zMeters: -10, heightMeters: 0.515691946895867 },
+    { xMeters: -30, zMeters: -10, heightMeters: 0.6119842395622259 },
   ]
 
   for (const sample of samples) {
@@ -333,33 +333,83 @@ test('the 400 m rock garden keeps its established heights', () => {
   }
 })
 
-test('the rock garden currently contributes no per-position height variation', () => {
-  // Known defect, asserted so that it cannot be forgotten: the rock garden
-  // bump function currently returns a position-independent constant, so the
-  // garden contributes no bump structure at all. The difference between the
-  // garden and the same course with the rock garden scaled out is exactly
-  // the rock garden contribution, and it is zero everywhere today.
-  //
-  // Fixing the bump function fails this test on purpose: whoever fixes it
-  // has to update this assertion and the reference heights above.
+test('the rock garden contributes per-position height variation', () => {
+  // The difference between the garden and the same course with the rock
+  // garden scaled out is exactly the rock garden contribution.
   const withGarden = createOffroadPlaygroundProfile({ rockGardenScale: 1 })
   const withoutGarden = createOffroadPlaygroundProfile({ rockGardenScale: 0 })
-  let maximumContributionMeters = 0
+  const contributions = []
 
   for (let zMeters = -95; zMeters <= -5; zMeters += 5) {
     for (let xMeters = -180; xMeters <= 0; xMeters += 5) {
-      const contributionMeters = Math.abs(
+      contributions.push(
         withGarden.getHeightAtWorldXZ(xMeters, zMeters) -
           withoutGarden.getHeightAtWorldXZ(xMeters, zMeters)
-      )
-      maximumContributionMeters = Math.max(
-        maximumContributionMeters,
-        contributionMeters
       )
     }
   }
 
-  assert.equal(maximumContributionMeters, 0)
+  const minimumContributionMeters = Math.min(...contributions)
+  const maximumContributionMeters = Math.max(...contributions)
+
+  assert.ok(
+    maximumContributionMeters > 0.1,
+    'the rock garden does not raise the ground, got ' + maximumContributionMeters
+  )
+  assert.ok(
+    maximumContributionMeters - minimumContributionMeters > 0.1,
+    'the rock garden contribution does not vary per position, got ' +
+      (maximumContributionMeters - minimumContributionMeters)
+  )
+  assert.ok(
+    minimumContributionMeters >= 0,
+    'the rock garden lowers the ground, got ' + minimumContributionMeters
+  )
+})
+
+test('the 800 m course scales the rock garden heights proportionally', () => {
+  // A resized course is a proportionally larger course, so the height at
+  // twice the coordinate of the 400 m course is twice the height. The rock
+  // garden contributes an exactly proportional bump field: the cell size and
+  // the bump radii scale with the course and the amplitude is scaled at the
+  // call site, so the bump heights and their footprint both double.
+  //
+  // Tolerance justification: the only term of the off-road height field
+  // that is deliberately not scaled is the terrain noise, which is a
+  // position-based material property rather than a course feature. Its
+  // amplitude is bounded by 1.875 * roughnessMeters = 0.09375 m, so it
+  // contributes at most 0.28125 m to the difference (0.09375 m for the
+  // scaled course plus twice 0.09375 m for the doubled reference). The
+  // measured maximum over the 861 rock-garden sample points below is
+  // 0.190936 m, and the 0.3 m tolerance sits above both that measurement
+  // and the analytic bound.
+  const reference = selectTerrain('?terrain=offroad')
+  const scaled = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
+  let maximumDeviationMeters = 0
+
+  for (let zMeters = -100; zMeters <= 0; zMeters += 5) {
+    for (let xMeters = -190; xMeters <= 10; xMeters += 5) {
+      const referenceHeightMeters = reference.baseProfile.getHeightAtWorldXZ(
+        xMeters,
+        zMeters
+      )
+      const scaledHeightMeters = scaled.baseProfile.getHeightAtWorldXZ(
+        2 * xMeters,
+        2 * zMeters
+      )
+      maximumDeviationMeters = Math.max(
+        maximumDeviationMeters,
+        Math.abs(scaledHeightMeters - 2 * referenceHeightMeters)
+      )
+    }
+  }
+
+  assert.ok(
+    maximumDeviationMeters <= 0.3,
+    'scaled rock garden deviation ' +
+      maximumDeviationMeters +
+      ' m exceeds the 0.3 m tolerance'
+  )
 })
 
 test('obstacle dimensions scale with the course extent', () => {
