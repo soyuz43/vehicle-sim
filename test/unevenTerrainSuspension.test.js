@@ -365,12 +365,14 @@ test('alternating proving bumps respond per wheel without shared contact state',
     terrainContactQuery: query,
   })
   const snapshot = controller.getSnapshot()
+  // The proving bump at this station sits on the -X (right) side of the
+  // course, so the right-hand wheel carries the extra compression.
   const frontLeft = findWheel(snapshot, 'front-left')
   const frontRight = findWheel(snapshot, 'front-right')
-  const rearLeft = findWheel(snapshot, 'rear-left')
+  const rearRight = findWheel(snapshot, 'rear-right')
 
-  assert.ok(frontLeft.suspensionCompressionMeters > frontRight.suspensionCompressionMeters)
-  assert.ok(frontLeft.suspensionCompressionMeters > rearLeft.suspensionCompressionMeters)
+  assert.ok(frontRight.suspensionCompressionMeters > frontLeft.suspensionCompressionMeters)
+  assert.ok(frontRight.suspensionCompressionMeters > rearRight.suspensionCompressionMeters)
   assert.notEqual(
     frontLeft.contactPointWorldPosition,
     frontRight.contactPointWorldPosition
@@ -387,7 +389,7 @@ test('deep dip transitions airborne and recontact without a damper spike; ABS st
   const mutableTerrain = { deepDipEnabled: false }
   const profile = createPlaneProfile({
     heightAtWorldXZ: (xMeters) =>
-      mutableTerrain.deepDipEnabled && xMeters < -0.5 ? -0.55 : 0,
+      mutableTerrain.deepDipEnabled && xMeters > 0.5 ? -0.55 : 0,
   })
   const controller = createVehicleController({
     vehicle: createCar(),
@@ -726,7 +728,7 @@ test('contact hysteresis retains a shallow droop only after contact is already e
   const mutableTerrain = { depthMeters: 0 }
   const profile = createPlaneProfile({
     heightAtWorldXZ: (xMeters) =>
-      xMeters < -0.5 ? -mutableTerrain.depthMeters : 0,
+      xMeters > 0.5 ? -mutableTerrain.depthMeters : 0,
   })
   const controller = createVehicleController({
     vehicle: createCar(),

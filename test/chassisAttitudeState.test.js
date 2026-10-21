@@ -60,7 +60,8 @@ test('asymmetric left/right support produces finite roll with expected sign', ()
   )
 
   assert.ok(Number.isFinite(estimate.rollRadians))
-  assert.ok(estimate.rollRadians < 0)
+  // Raising the left (+X) side is a positive roll.
+  assert.ok(estimate.rollRadians > 0)
   assert.ok(Math.abs(estimate.pitchRadians) < 1e-12)
 })
 
@@ -185,8 +186,8 @@ test('per-axle roll uses the matching axle track width', () => {
   const wheelStates = [
     createWheelState('front-left', NaN, 1.45, 0, { side: 'left' }),
     createWheelState('front-right', NaN, 1.45, 0, { side: 'right' }),
-    createWheelState('rear-left', -1, -1.45, 0),
-    createWheelState('rear-right', 1, -1.45, 0.2),
+    createWheelState('rear-left', 1, -1.45, 0.2),
+    createWheelState('rear-right', -1, -1.45, 0),
   ]
   const roll = computePerAxleRollFromWheelStates(wheelStates, 0.12)
 
@@ -218,10 +219,10 @@ test('vertical-dynamics per-axle roll smooths and honors the live roll clamp', (
     1 / 60
   )
   assert.ok(
-    state.frontRollRadians < 0,
-    `expected negative roll, got ${state.frontRollRadians}`
+    state.frontRollRadians > 0,
+    `expected positive roll, got ${state.frontRollRadians}`
   )
-  assert.ok(state.frontRollRadians > -0.03)
+  assert.ok(state.frontRollRadians < 0.03)
 
   for (let index = 0; index < 120; index += 1) {
     updatePerAxleRollStateFromWheelStates(
@@ -231,7 +232,7 @@ test('vertical-dynamics per-axle roll smooths and honors the live roll clamp', (
       1 / 60
     )
   }
-  assert.ok(Math.abs(state.frontRollRadians + 0.03) < 1e-9)
+  assert.ok(Math.abs(state.frontRollRadians - 0.03) < 1e-9)
 })
 
 function createWheelStates({
@@ -240,28 +241,29 @@ function createWheelStates({
   rearOffsetMeters = 0,
   uniformOffsetMeters = 0,
 } = {}) {
+  // +X is the car's left side.
   return [
     createWheelState(
       'front-left',
-      -1.25,
+      1.25,
       1.45,
       uniformOffsetMeters + leftOffsetMeters + frontOffsetMeters
     ),
     createWheelState(
       'front-right',
-      1.25,
+      -1.25,
       1.45,
       uniformOffsetMeters + frontOffsetMeters
     ),
     createWheelState(
       'rear-left',
-      -1.25,
+      1.25,
       -1.45,
       uniformOffsetMeters + leftOffsetMeters + rearOffsetMeters
     ),
     createWheelState(
       'rear-right',
-      1.25,
+      -1.25,
       -1.45,
       uniformOffsetMeters + rearOffsetMeters
     ),
@@ -278,7 +280,9 @@ function createWheelState(
   return {
     id,
     axle: id.startsWith('front') ? 'front' : 'rear',
-    side: options.side ?? (xMeters < 0 ? 'left' : xMeters > 0 ? 'right' : null),
+    // +X is the car's left side, so the local x sign maps to the physical
+    // side that way round.
+    side: options.side ?? (xMeters < 0 ? 'right' : xMeters > 0 ? 'left' : null),
     isGrounded: options.isGrounded ?? true,
     localPosition: {
       x: xMeters,
