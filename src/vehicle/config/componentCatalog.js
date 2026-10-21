@@ -302,8 +302,8 @@ const BRAKES_COMPONENTS = Object.freeze({
     id: 'brakes-big',
     label: 'Big Brake Kit',
     description:
-      '2000 Nm service brake torque and 20000 N budget; heaviest decel ' +
-      'authority, at the cost of added unsprung mass behavior via torque.',
+      'Bigger discs provide 2000 Nm service brake torque and a 20000 N budget, ' +
+      'with higher thermal capacity for sustained braking.',
     spec: {
       maxServiceBrakeTorqueNewtonMeters: 2000,
       maxBrakeForceNewtons: 20000,
