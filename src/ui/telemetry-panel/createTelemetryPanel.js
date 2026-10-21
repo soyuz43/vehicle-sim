@@ -455,13 +455,13 @@ export function createTelemetryPanel(config = {}) {
 
   // Update function
   function update(snapshot) {
-    const vehicle = snapshot.vehicleSnapshot;
-    const forces = snapshot.forces;
-    const powertrainKin = snapshot.powertrainKinematics;
-    const rearDiff = snapshot.rearDifferentialState;
-    const wheelStates = snapshot.wheelStates;
-    const loadTransfer = snapshot.loadTransferSummary;
-    const chassisAttitude = snapshot.chassisAttitude;
+    const vehicle = snapshot.vehicleSnapshot ?? snapshot;
+    const forces = snapshot.forces ?? vehicle.forces;
+    const powertrainKin = snapshot.powertrainKinematics ?? vehicle.powertrainKinematics;
+    const rearDiff = snapshot.rearDifferentialState ?? vehicle.rearDifferentialState;
+    const wheelStates = snapshot.wheelStates ?? vehicle.wheelStates;
+    const loadTransfer = snapshot.loadTransferSummary ?? vehicle.loadTransferSummary;
+    const chassisAttitude = snapshot.chassisAttitude ?? vehicle.chassisAttitude;
 
     // Chassis
     valueDisplays.get('speed')?.setValue(vehicle.speedMetersPerSecond);
