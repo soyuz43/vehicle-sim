@@ -584,6 +584,13 @@ function rockGardenBumps(worldX, worldZ, seed = 12345, courseScale = 1) {
           (1.5 + hash(hashX, hashZ + 2) * 2) * courseScale
         const radiusZMeters =
           (1.5 + hash(hashX, hashZ + 3) * 2) * courseScale
+        // Design value, not a tuning artefact: a rock garden of 8 cm to
+        // 20 cm rocks, the same order as the other course surfaces. The
+        // sharpest crest in the band excites about 6.8 g of vertical
+        // acceleration at 13 m/s before the suspension filters it, and
+        // the whoops section of the course is geometrically harsher, so
+        // the amplitude is not to be reduced without a course design
+        // decision.
         const amplitudeMeters = 0.08 + hash(hashX, hashZ + 4) * 0.12
         const nx =
           (worldX - centerXMeters) / Math.max(radiusXMeters, Number.EPSILON)
