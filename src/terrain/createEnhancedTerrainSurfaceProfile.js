@@ -563,21 +563,30 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
 }
 
 // Render/physics resolution note:
+// The dominant source of render/physics divergence on the 400 m course is
+// the step-up jump, not the rock garden. Its trailing edge falls 0.8 m over
+// 1 m, a peak slope of 1.2 m/m, which is below what the 1.25 m render
+// spacing (DEFAULT_RENDER_SAMPLE_SPACING_METERS in createTerrain.js) can
+// resolve, so the rendered mesh interpolates linearly across the falloff.
+// Measured against the analytic profile, the maximum render error is
+// 0.4273 m at the step-up jump, 0.2435 m at the gap jump, 0.2065 m at the
+// tabletop jump, and 0.1430 m in the rock garden band.
+//
 // The bump field is defined analytically with radii of 1.5 m to 3.5 m, so
-// the smallest bump is 3 m across. The terrain render mesh samples the
-// heightfield at 1.25 m (DEFAULT_RENDER_SAMPLE_SPACING_METERS in
-// createTerrain.js), which covers a bump with two to six render samples,
-// so the rendered surface shows faceted chatter where the analytic field
-// has a rounded bump. The physics is unaffected: the contact query
-// evaluates the same analytic profile that the render mesh samples, so a
-// wheel follows the true profile and not the rendered one.
+// the smallest bump is 3 m across. The 1.25 m render spacing covers a bump
+// with two to six render samples, so the rendered surface shows faceted
+// chatter where the analytic field has a rounded bump.
+//
+// The physics is unaffected in every case: the contact query evaluates the
+// same analytic profile that the render mesh samples, so a wheel follows the
+// true profile and not the rendered one.
 //
 // This is the resolution budget of heightmap rendering, not a bug, and the
 // two surfaces are not expected to agree. Do not close the gap by raising
 // the render resolution alone: the grid is capped at 512 subdivisions and
-// the measured mesh generation cost is about 0.28 s at 400 m against
-// 0.77 s at that cap, so a finer grid buys startup time on every course
-// size instead of a feature that has to read crisply.
+// the measured mesh generation cost is 0.167 s at 400 m, 0.173 s at 500 m,
+// and 0.308 s at the 512 subdivision cap, so a finer grid buys startup time
+// on every course size instead of a feature that has to read crisply.
 //
 // The intended architecture is an analytic heightfield for the terrain and
 // discrete meshes (createObstacleFieldVisuals.js) for anything that must
