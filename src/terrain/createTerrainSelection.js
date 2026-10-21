@@ -63,6 +63,7 @@ export function createTerrainSelection(config = {}) {
       baseProfile: enhancedProfile,
       obstacleField,
       deformationField,
+      weatherState,
     })
   } else {
     surfaceProfile = createTerrainSurfaceProfile(config.baseProfileConfig ?? {})

@@ -3,6 +3,7 @@
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
 import {
   DEFAULT_SURFACE_MATERIAL_CATALOG,
+  applySurfaceCondition,
   getSurfaceMaterial,
   resolveSurfaceProperties,
   SURFACE_MATERIAL_KINDS,
@@ -72,7 +73,7 @@ export function createEnhancedTerrainSurfaceProfile(config = {}) {
 
     // Apply condition modifier if specified
     if (surfaceCondition) {
-      material = applySurfaceConditionToMaterial(material, surfaceCondition)
+      material = applySurfaceCondition(material, surfaceCondition)
     }
 
     // Apply region-specific condition if applicable
@@ -83,7 +84,7 @@ export function createEnhancedTerrainSurfaceProfile(config = {}) {
         surfaceRegionConditions
       )
       if (regionCondition) {
-        material = applySurfaceConditionToMaterial(material, regionCondition)
+        material = applySurfaceCondition(material, regionCondition)
       }
     }
 
@@ -92,8 +93,8 @@ export function createEnhancedTerrainSurfaceProfile(config = {}) {
 
     target.surfaceMaterialKind = material.kind
     target.surfaceDisplayName = material.displayName
-    target.dampingCoefficient = properties.dampingCoefficient
-    target.rollingResistanceCoefficient = properties.rollingResistanceCoefficient
+    target.dampingCoefficient = material.dampingCoefficient
+    target.rollingResistanceCoefficient = material.rollingResistanceCoefficient
     target.deformabilityCoefficient = properties.deformabilityCoefficient
     target.thermalConductivity = properties.thermalConductivity
     target.roughnessRmsMeters = properties.roughnessRmsMeters
@@ -104,11 +105,9 @@ export function createEnhancedTerrainSurfaceProfile(config = {}) {
     target.visualRoughness = material.visualRoughness
     target.visualMetalness = material.visualMetalness
 
-    // The surface material catalog is the authoritative per-kind friction
-    // source. The base profile already resolved the active surfaceKind
-    // (including any surface region); we override its friction with the
-    // catalog value so material physics stays consistent across the surface.
-    target.frictionCoefficient = properties.frictionCoefficient
+    // The catalog material remains the source of per-kind properties, with
+    // configured surface conditions applied before exposing them to contact.
+    target.frictionCoefficient = material.frictionCoefficient
 
     return target
   }
@@ -126,26 +125,6 @@ export function createEnhancedTerrainSurfaceProfile(config = {}) {
       }
     }
     return null
-  }
-
-  function applySurfaceConditionToMaterial(material, conditionName) {
-    const modifiers = {
-      DRY: { frictionMultiplier: 1.0, dampingMultiplier: 1.0, rollingResistanceMultiplier: 1.0 },
-      WET: { frictionMultiplier: 0.6, dampingMultiplier: 1.2, rollingResistanceMultiplier: 1.1 },
-      ICY: { frictionMultiplier: 0.15, dampingMultiplier: 0.5, rollingResistanceMultiplier: 0.8 },
-      DUSTY: { frictionMultiplier: 0.7, dampingMultiplier: 1.1, rollingResistanceMultiplier: 1.05 },
-      LOOSE: { frictionMultiplier: 0.8, dampingMultiplier: 1.5, rollingResistanceMultiplier: 1.3 },
-      PACKED: { frictionMultiplier: 1.1, dampingMultiplier: 0.8, rollingResistanceMultiplier: 0.9 },
-    }
-    const modifier = modifiers[conditionName?.toUpperCase()]
-    if (!modifier) return material
-    return {
-      ...material,
-      frictionCoefficient: material.frictionCoefficient * modifier.frictionMultiplier,
-      dampingCoefficient: material.dampingCoefficient * modifier.dampingMultiplier,
-      rollingResistanceCoefficient:
-        material.rollingResistanceCoefficient * modifier.rollingResistanceMultiplier,
-    }
   }
 
   // Proxy base profile methods
