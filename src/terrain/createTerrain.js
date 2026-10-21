@@ -3,7 +3,10 @@
 import * as THREE from 'three'
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
 
-const DEFAULT_RENDER_SUBDIVISIONS = 256
+const DEFAULT_RENDER_SAMPLE_SPACING_METERS = 1.25
+const MIN_RENDER_SUBDIVISIONS = 256
+const MAX_RENDER_SUBDIVISIONS = 512
+const MIN_EXPLICIT_RENDER_SUBDIVISIONS = 16
 
 export function createTerrain(config = {}) {
   const surfaceProfile =
@@ -17,10 +20,7 @@ export function createTerrain(config = {}) {
       surfaceRegions: config.surfaceRegions,
     })
   const size = surfaceProfile.sizeMeters
-  const subdivisions = sanitizeSubdivisionCount(
-    config.subdivisions,
-    DEFAULT_RENDER_SUBDIVISIONS
-  )
+  const subdivisions = resolveRenderSubdivisions(config.subdivisions, size)
 
   // This static mesh samples the same pure profile consumed by the physics
   // contact query. It is intentionally not raycast back into simulation.
@@ -60,16 +60,28 @@ export function createTerrain(config = {}) {
     sizeMeters: size,
     halfSizeMeters: size / 2,
     renderSubdivisions: subdivisions,
+    renderSampleSpacingMeters: size / subdivisions,
     surfaceProfile,
   }
 
   return mesh
 }
 
-function sanitizeSubdivisionCount(value, fallback) {
-  const subdivisions = Math.round(
-    Number.isFinite(value) ? value : fallback
-  )
+function resolveRenderSubdivisions(explicitSubdivisions, sizeMeters) {
+  if (Number.isFinite(explicitSubdivisions)) {
+    return THREE.MathUtils.clamp(
+      Math.round(explicitSubdivisions),
+      MIN_EXPLICIT_RENDER_SUBDIVISIONS,
+      MAX_RENDER_SUBDIVISIONS
+    )
+  }
 
-  return THREE.MathUtils.clamp(subdivisions, 16, 512)
+  // Without an explicit subdivision count the render grid follows the terrain
+  // size, so the rendered sample spacing stays roughly constant across course
+  // sizes instead of growing with the course.
+  return THREE.MathUtils.clamp(
+    Math.ceil(sizeMeters / DEFAULT_RENDER_SAMPLE_SPACING_METERS),
+    MIN_RENDER_SUBDIVISIONS,
+    MAX_RENDER_SUBDIVISIONS
+  )
 }

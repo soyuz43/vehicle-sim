@@ -105,6 +105,8 @@ A seeded configuration can be selected through the URL:
 
 Embedded callers can provide these options through `createSimulation({ terrainSelectionConfig: { offroadGenerationConfig: { ... } } })`. Programmatic bounds use `{ minXMeters, maxXMeters, minZMeters, maxZMeters }` and must describe a square centered at the origin. `waterEnabled` is also available as a programmatic boolean on either `offroadProfileConfig` or `offroadGenerationConfig`; `offroadGenerationConfig` takes precedence over `offroadProfileConfig`, and `terrain=offroad-water` always forces the water surface on.
 
+The terrain render grid follows the terrain size. It targets a 1.25 m sample spacing and is clamped to 256–512 subdivisions, so the 320 m proving ground renders at 256 subdivisions, the 400 m off-road course at 320 (1.25 m), a 500 m course at 400 (1.25 m), and a course of 640 m or more at the 512 subdivision cap (1.56 m at 800 m, 1.95 m at 1000 m). The measured mesh generation cost is about 0.22 s at 400 m, 0.26 s at 500 m, and 0.43 s at the 512 subdivision cap.
+
 The same seed and configuration reproduce the same terrain heights, normals, surface kinds, and obstacle descriptors. Invalid direct configuration throws `TypeError` or `RangeError`; malformed URL option values are ignored in favor of defaults. This is finite terrain generation at selection time, not infinite streaming or terrain that regenerates while driving.
 
 ## Visualization

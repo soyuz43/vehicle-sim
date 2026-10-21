@@ -213,6 +213,29 @@ test('roughness is bounded to the supported amplitude range', () => {
   )
 })
 
+test('the terrain render grid follows the terrain size', () => {
+  const provingGround = createSimulationForSearch('?terrain=proving-ground')
+  const offroad = createSimulationForSearch('?terrain=offroad')
+  const resized = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
+  const large = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=1000')
+
+  assert.equal(provingGround.terrain.userData.terrain.renderSubdivisions, 256)
+  assert.equal(offroad.terrain.userData.terrain.renderSubdivisions, 320)
+  assert.equal(resized.terrain.userData.terrain.renderSubdivisions, 400)
+  assert.equal(large.terrain.userData.terrain.renderSubdivisions, 512)
+})
+
+test('the terrain render grid reports its sample spacing', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
+  const terrain = simulation.terrain.userData.terrain
+
+  assert.equal(
+    terrain.renderSampleSpacingMeters,
+    terrain.sizeMeters / terrain.renderSubdivisions
+  )
+  assert.equal(terrain.renderSampleSpacingMeters, 1.25)
+})
+
 test('the 400 m rock garden keeps its established heights', () => {
   const selection = selectTerrain('?terrain=offroad')
   const samples = [
