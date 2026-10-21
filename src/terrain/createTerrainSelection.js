@@ -1,18 +1,9 @@
 // src/terrain/createTerrainSelection.js
 
-/**
- * Terrain selection for the virtual 4x4 playground (Phase 2).
- *
- * Reads an optional ?terrain=<name> URL parameter and returns the surface
- * profile (and obstacle field, when applicable) to drive both the render mesh
- * and the physics contact query. The DEFAULT selection reproduces the original
- * proving-ground behavior exactly (createTerrainSurfaceProfile with no
- * arguments), so existing driving/braking/reset on the flat + heightfield sim
- * is unaffected. Selecting "offroad" composes the catalog-driven enhanced
- * profile, the procedural playground generator, and the movable obstacle field.
- * Selecting "offroad-water" adds water features to the offroad playground.
- */
-
+import {
+  createOffroadTerrainGenerationConfig,
+  MAX_OFFROAD_ROUGHNESS_METERS,
+} from './createOffroadTerrainGenerationConfig.js'
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
 import { createOffroadPlaygroundProfile } from './createEnhancedTerrainSurfaceProfile.js'
 import { createMovableObstacleField } from './obstacles/createMovableObstacleField.js'
@@ -23,54 +14,55 @@ import { createWeatherState } from './createWeatherState.js'
 const SUPPORTED_NAMES = Object.freeze(['proving-ground', 'offroad', 'offroad-water'])
 
 export function createTerrainSelection(config = {}) {
-  const deformationField = config.deformationField ?? null
   const requestedName = readUrlParam(config.paramName ?? 'terrain')
-  let name = 'proving-ground'
-  if (requestedName === 'offroad') {
-    name = 'offroad'
-  } else if (requestedName === 'offroad-water') {
-    name = 'offroad-water'
-  }
+  const name = requestedName === 'offroad' || requestedName === 'offroad-water'
+    ? requestedName
+    : 'proving-ground'
   const displayName =
-    name === 'offroad' ? 'Offroad Playground' : 
-    name === 'offroad-water' ? 'Offroad Playground with Water' : 
-    'Proving Ground'
+    name === 'offroad'
+      ? 'Offroad Playground'
+      : name === 'offroad-water'
+        ? 'Offroad Playground with Water'
+        : 'Proving Ground'
 
   let surfaceProfile
   let enhancedProfile = null
   let obstacleField = null
   let waterSurface = null
   let weatherState = null
+  let generationConfig = null
+  const deformationField = config.deformationField ?? null
 
-  if (name === 'offroad') {
-    enhancedProfile = createOffroadPlaygroundProfile(
-      config.offroadProfileConfig ?? {}
-    )
-    obstacleField = createMovableObstacleField(config.obstacleFieldConfig ?? {})
-    surfaceProfile = createObstacleAwareSurfaceProfile({
-      baseProfile: enhancedProfile,
-      obstacleField,
-      deformationField,
+  if (name === 'offroad' || name === 'offroad-water') {
+    generationConfig = resolveGenerationConfig(name, config)
+    enhancedProfile = createOffroadPlaygroundProfile({
+      ...config.offroadProfileConfig,
+      ...generationConfig,
     })
-  } else if (name === 'offroad-water') {
-    enhancedProfile = createOffroadPlaygroundProfile(
-      config.offroadProfileConfig ?? {}
-    )
-    obstacleField = createMovableObstacleField(config.obstacleFieldConfig ?? {})
-    waterSurface = createWaterSurface(config.waterSurfaceConfig ?? {})
-    weatherState = createWeatherState(config.weatherStateConfig ?? {})
+    obstacleField = createMovableObstacleField({
+      ...config.obstacleFieldConfig,
+      seed: generationConfig.seed,
+      sizeMeters: generationConfig.sizeMeters,
+      featureScale: generationConfig.featureScale,
+      obstacleDensity: generationConfig.obstacleDensity,
+    })
+    if (generationConfig.waterEnabled) {
+      waterSurface = createWaterSurface(config.waterSurfaceConfig ?? {})
+    }
+    if (name === 'offroad-water') {
+      weatherState = createWeatherState(config.weatherStateConfig ?? {})
+    }
     surfaceProfile = createObstacleAwareSurfaceProfile({
       baseProfile: enhancedProfile,
       obstacleField,
       deformationField,
+      waterSurface,
       weatherState,
     })
   } else {
     surfaceProfile = createTerrainSurfaceProfile(config.baseProfileConfig ?? {})
   }
 
-  // Place each obstacle's base on the terrain-only height so static meshes
-  // rest correctly and movable obstacles start grounded before stepping.
   if (obstacleField && enhancedProfile) {
     for (const obstacle of obstacleField.getObstacles()) {
       const groundYMeters = enhancedProfile.getHeightAtWorldXZ(
@@ -83,8 +75,6 @@ export function createTerrainSelection(config = {}) {
     }
   }
 
-  // baseProfile is the terrain-only surface (no obstacle overlay) so visual
-  // meshes can be placed on the ground rather than on top of the obstacle.
   return {
     name,
     displayName,
@@ -95,7 +85,82 @@ export function createTerrainSelection(config = {}) {
     deformationField,
     waterSurface,
     weatherState,
+    generationConfig,
   }
+}
+
+function resolveGenerationConfig(name, config) {
+  const profileOverrides = config.offroadProfileConfig ?? {}
+  const generationOverrides = config.offroadGenerationConfig ?? {}
+  const boundsMeters = generationOverrides.boundsMeters ?? profileOverrides.boundsMeters
+  const configuredSizeMeters = generationOverrides.sizeMeters ?? profileOverrides.sizeMeters
+  const sizeMeters = configuredSizeMeters ?? (
+    boundsMeters
+      ? undefined
+      : readNumberParam('terrainSizeMeters', (value) => value > 0) ?? 400
+  )
+  const seed = Object.prototype.hasOwnProperty.call(generationOverrides, 'seed')
+    ? generationOverrides.seed
+    : Object.prototype.hasOwnProperty.call(profileOverrides, 'seed')
+      ? profileOverrides.seed
+      : readTerrainSeedParam()
+  const waterEnabled = name === 'offroad-water'
+    ? true
+    : generationOverrides.waterEnabled ??
+      profileOverrides.waterEnabled ??
+      readBooleanParam('water') ??
+      false
+
+  return createOffroadTerrainGenerationConfig({
+    ...profileOverrides,
+    ...generationOverrides,
+    boundsMeters,
+    sizeMeters,
+    seed,
+    featureScale:
+      generationOverrides.featureScale ??
+      profileOverrides.featureScale ??
+      readNumberParam('featureScale', (value) => value > 0) ??
+      1,
+    roughnessMeters:
+      generationOverrides.roughnessMeters ??
+      profileOverrides.roughnessMeters ??
+      profileOverrides.noiseAmplitude ??
+      readNumberParam(
+        'roughnessMeters',
+        (value) => value >= 0 && value <= MAX_OFFROAD_ROUGHNESS_METERS
+      ) ??
+      0.05,
+    obstacleDensity:
+      generationOverrides.obstacleDensity ??
+      profileOverrides.obstacleDensity ??
+      readNumberParam('obstacleDensity', (value) => value >= 0 && value <= 4) ??
+      1,
+    waterEnabled,
+  })
+}
+
+function readTerrainSeedParam() {
+  const seed = readUrlParam('seed')
+  if (seed === null) return null
+  const normalizedSeed = seed.trim()
+  return normalizedSeed.length > 0 && normalizedSeed.length <= 128
+    ? normalizedSeed
+    : null
+}
+
+function readNumberParam(paramName, isValid) {
+  const rawValue = readUrlParam(paramName)
+  if (rawValue === null || rawValue.trim() === '') return null
+  const value = Number(rawValue)
+  return Number.isFinite(value) && isValid(value) ? value : null
+}
+
+function readBooleanParam(paramName) {
+  const value = readUrlParam(paramName)?.toLowerCase()
+  if (value === 'true' || value === '1') return true
+  if (value === 'false' || value === '0') return false
+  return null
 }
 
 function readUrlParam(paramName) {

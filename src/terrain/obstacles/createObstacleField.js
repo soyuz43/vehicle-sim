@@ -23,8 +23,19 @@ import {
   resolveSurfaceFrictionCoefficient,
   SURFACE_MATERIAL_KINDS,
 } from '../createSurfaceMaterialCatalog.js'
+import { createSeededRandom } from '../seededTerrainNoise.js'
 
 const DEFAULT_EDGE_RAMP_METERS = 0.25
+
+// Deterministic layout for the extra obstacles that an obstacle density
+// above 1 adds beyond the eight legacy descriptors. The obstacles occupy
+// eight z-slots across the 78 m .. 162 m band of the 400 m reference course,
+// with two x-lanes per band row so no two extra obstacles share a position.
+const EXTRA_OBSTACLE_BAND_START_METERS = 78
+const EXTRA_OBSTACLE_BAND_END_METERS = 162
+const EXTRA_OBSTACLE_BAND_SLOT_COUNT = 8
+const EXTRA_OBSTACLE_X_LANES = Object.freeze([-18, 12, -34, 28, -50, 44])
+const EXTRA_OBSTACLE_SHAPES = Object.freeze(['dome', 'box', 'cylinder'])
 
 // Real material densities (kg/m^3) used to derive consistent mass and inertia
 // from obstacle geometry. No magic numbers: mass follows V * density.
@@ -54,7 +65,7 @@ export function createObstacleField(config = {}) {
     DEFAULT_EDGE_RAMP_METERS
   )
   const obstacleDescriptors = normalizeObstacles(
-    config.obstacles ?? defaultObstacles()
+    config.obstacles ?? defaultObstacles(config)
   )
 
   // Returns the highest obstacle top LOCAL height (above its base) at (x,z),
@@ -247,19 +258,204 @@ function accumulateMassInertiaBox(descriptor) {
     (1 / 12) * descriptor.massKg * (sx * sx + sz * sz)
 }
 
-function defaultObstacles() {
-  return [
-    // Boulder domes on the left rock-garden approach.
+function defaultObstacles(config = {}) {
+  const defaultDescriptors = [
     { id: 'rock-dome-1', shape: 'dome', centerXMeters: -18, centerZMeters: 18, radiusMeters: 0.9, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
     { id: 'rock-dome-2', shape: 'dome', centerXMeters: -10, centerZMeters: 26, radiusMeters: 0.6, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
     { id: 'rock-dome-3', shape: 'dome', centerXMeters: -22, centerZMeters: 34, radiusMeters: 1.1, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
     { id: 'rock-dome-4', shape: 'dome', centerXMeters: -6, centerZMeters: 40, radiusMeters: 0.5, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
-    // Concrete blocks on the open dirt trail.
     { id: 'block-1', shape: 'box', centerXMeters: 12, centerZMeters: 30, halfExtentXMeters: 0.6, halfExtentZMeters: 0.6, heightMeters: 0.5, surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE },
     { id: 'block-2', shape: 'box', centerXMeters: 16, centerZMeters: 48, halfExtentXMeters: 0.8, halfExtentZMeters: 0.5, heightMeters: 0.6, surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE },
     { id: 'block-3', shape: 'cylinder', centerXMeters: 4, centerZMeters: 60, radiusMeters: 0.5, heightMeters: 0.7, surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE },
     { id: 'rock-dome-5', shape: 'dome', centerXMeters: -2, centerZMeters: 70, radiusMeters: 0.8, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
   ]
+  const obstacleDensity = Number.isFinite(config.obstacleDensity)
+    ? Math.min(4, Math.max(0, config.obstacleDensity))
+    : 1
+  const sizeMeters = Number.isFinite(config.sizeMeters) && config.sizeMeters > 0
+    ? config.sizeMeters
+    : 400
+  const featureScale = Number.isFinite(config.featureScale) && config.featureScale > 0
+    ? config.featureScale
+    : 1
+  const count = Math.round(defaultDescriptors.length * obstacleDensity)
+  if (count === 0) return []
+  const courseScale = featureScale * (sizeMeters / 400)
+
+  // An unseeded course uses no random source at all: the legacy descriptors
+  // keep their proportional positions and every extra obstacle is placed by
+  // an explicit deterministic rule.
+  if (config.seed == null) {
+    const unseededDescriptors = []
+    for (let index = 0; index < count; index += 1) {
+      unseededDescriptors.push(
+        index < defaultDescriptors.length
+          ? scaleLegacyObstacleDescriptor(
+              defaultDescriptors[index],
+              courseScale
+            )
+          : createDeterministicExtraObstacle(index - defaultDescriptors.length, {
+              courseScale,
+              sizeMeters,
+            })
+      )
+    }
+    return unseededDescriptors
+  }
+
+  const random = createSeededRandom(config.seed)
+  const generatedDescriptors = []
+
+  for (let index = 0; index < count; index += 1) {
+    if (index < defaultDescriptors.length) {
+      const descriptor = defaultDescriptors[index]
+      generatedDescriptors.push({
+        ...descriptor,
+        centerXMeters:
+          descriptor.centerXMeters * courseScale + (random() - 0.5) * 5 * courseScale,
+        centerZMeters:
+          descriptor.centerZMeters * courseScale + (random() - 0.5) * 4 * courseScale,
+        radiusMeters: descriptor.radiusMeters
+          ? descriptor.radiusMeters * courseScale
+          : undefined,
+        heightMeters: descriptor.heightMeters
+          ? descriptor.heightMeters * courseScale
+          : undefined,
+        halfExtentXMeters: descriptor.halfExtentXMeters
+          ? descriptor.halfExtentXMeters * courseScale
+          : undefined,
+        halfExtentZMeters: descriptor.halfExtentZMeters
+          ? descriptor.halfExtentZMeters * courseScale
+          : undefined,
+      })
+      continue
+    }
+
+    const shapeRoll = random()
+    const centerXMeters = (random() * 56 - 28) * courseScale
+    const centerZMeters = (18 + random() * 52) * courseScale
+    const obstacleId = `procedural-obstacle-${index + 1}`
+    if (shapeRoll < 0.65) {
+      generatedDescriptors.push({
+        id: obstacleId,
+        shape: 'dome',
+        centerXMeters,
+        centerZMeters,
+        radiusMeters: (0.4 + random() * 0.8) * courseScale,
+        surfaceKind: SURFACE_MATERIAL_KINDS.ROCK,
+      })
+    } else if (shapeRoll < 0.85) {
+      generatedDescriptors.push({
+        id: obstacleId,
+        shape: 'cylinder',
+        centerXMeters,
+        centerZMeters,
+        radiusMeters: (0.4 + random() * 0.5) * courseScale,
+        heightMeters: (0.4 + random() * 0.6) * courseScale,
+        surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+      })
+    } else {
+      generatedDescriptors.push({
+        id: obstacleId,
+        shape: 'box',
+        centerXMeters,
+        centerZMeters,
+        halfExtentXMeters: (0.4 + random() * 0.4) * courseScale,
+        halfExtentZMeters: (0.4 + random() * 0.4) * courseScale,
+        heightMeters: (0.4 + random() * 0.6) * courseScale,
+        surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+      })
+    }
+  }
+
+  return generatedDescriptors
+}
+
+// Legacy obstacle descriptors keep their relative layout and are scaled with
+// the course, so a resized course stays proportional to the 400 m reference.
+function scaleLegacyObstacleDescriptor(descriptor, courseScale) {
+  const scaled = {
+    ...descriptor,
+    centerXMeters: descriptor.centerXMeters * courseScale,
+    centerZMeters: descriptor.centerZMeters * courseScale,
+  }
+  if (descriptor.radiusMeters) {
+    scaled.radiusMeters = descriptor.radiusMeters * courseScale
+  }
+  if (descriptor.heightMeters) {
+    scaled.heightMeters = descriptor.heightMeters * courseScale
+  }
+  if (descriptor.halfExtentXMeters) {
+    scaled.halfExtentXMeters = descriptor.halfExtentXMeters * courseScale
+  }
+  if (descriptor.halfExtentZMeters) {
+    scaled.halfExtentZMeters = descriptor.halfExtentZMeters * courseScale
+  }
+  return scaled
+}
+
+// Extra obstacles sit on a deterministic lattice: eight z-slots across the
+// 78 m .. 162 m band of the reference course, with two x-lanes per band row.
+// The band is compressed uniformly when the scaled band would run past the
+// course limit, so the extras stay spread out instead of stacking up at the
+// clamp boundary.
+function createDeterministicExtraObstacle(extraIndex, options) {
+  const { courseScale, sizeMeters } = options
+  const bandSlot = extraIndex % EXTRA_OBSTACLE_BAND_SLOT_COUNT
+  const laneIndex =
+    Math.floor(extraIndex / EXTRA_OBSTACLE_BAND_SLOT_COUNT) * 2 + (extraIndex % 2)
+  const centerXMeters = EXTRA_OBSTACLE_X_LANES[laneIndex] * courseScale
+  const centerZMeters = extraObstacleBandPositionMeters(
+    bandSlot,
+    courseScale,
+    sizeMeters
+  )
+  const obstacleId = `procedural-obstacle-${extraIndex + 1}`
+  const shape = EXTRA_OBSTACLE_SHAPES[extraIndex % EXTRA_OBSTACLE_SHAPES.length]
+
+  if (shape === 'dome') {
+    return {
+      id: obstacleId,
+      shape,
+      centerXMeters,
+      centerZMeters,
+      radiusMeters: 0.8 * courseScale,
+      surfaceKind: SURFACE_MATERIAL_KINDS.ROCK,
+    }
+  }
+  if (shape === 'box') {
+    return {
+      id: obstacleId,
+      shape,
+      centerXMeters,
+      centerZMeters,
+      halfExtentXMeters: 0.6 * courseScale,
+      halfExtentZMeters: 0.6 * courseScale,
+      heightMeters: 0.5 * courseScale,
+      surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+    }
+  }
+  return {
+    id: obstacleId,
+    shape: 'cylinder',
+    centerXMeters,
+    centerZMeters,
+    radiusMeters: 0.5 * courseScale,
+    heightMeters: 0.6 * courseScale,
+    surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+  }
+}
+
+function extraObstacleBandPositionMeters(bandSlot, courseScale, sizeMeters) {
+  const bandStartMeters = EXTRA_OBSTACLE_BAND_START_METERS * courseScale
+  const bandEndMeters = EXTRA_OBSTACLE_BAND_END_METERS * courseScale
+  const maxAbsZMeters = Math.max(0, sizeMeters / 2 - 10 * courseScale)
+  const bandScale =
+    bandEndMeters > maxAbsZMeters ? maxAbsZMeters / bandEndMeters : 1
+  const bandFraction = bandSlot / (EXTRA_OBSTACLE_BAND_SLOT_COUNT - 1)
+  return (
+    bandStartMeters + (bandEndMeters - bandStartMeters) * bandFraction
+  ) * bandScale
 }
 
 function sanitizeNonNegativeNumber(value, fallback) {

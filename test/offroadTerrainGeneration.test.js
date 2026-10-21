@@ -1,0 +1,688 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import * as THREE from 'three'
+import { createSimulation } from '../src/createSimulation.js'
+import { createOffroadTerrainGenerationConfig } from '../src/terrain/createOffroadTerrainGenerationConfig.js'
+import { createTerrainSelection } from '../src/terrain/createTerrainSelection.js'
+import { createOffroadPlaygroundProfile } from '../src/terrain/createEnhancedTerrainSurfaceProfile.js'
+
+const SAMPLE_POSITIONS = [
+  { xMeters: 0, zMeters: -175 },
+  { xMeters: -24, zMeters: -86 },
+  { xMeters: 14, zMeters: -48 },
+  { xMeters: 42, zMeters: 35 },
+  { xMeters: 80, zMeters: 115 },
+]
+
+test('same seed reproduces terrain samples, surface kinds, and obstacle placement', () => {
+  const first = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const second = selectTerrain('?terrain=offroad&seed=granite-run-04')
+
+  assert.deepEqual(readTerrainSamples(first), readTerrainSamples(second))
+  assert.deepEqual(readObstacleSamples(first), readObstacleSamples(second))
+  assert.deepEqual(first.generationConfig, second.generationConfig)
+})
+
+test('different seeds vary terrain shape and surface-kind placement', () => {
+  const first = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const second = selectTerrain('?terrain=offroad&seed=granite-run-05')
+  let changedHeightSamples = 0
+  let changedSurfaceKinds = 0
+
+  for (let xMeters = -50; xMeters <= 50; xMeters += 5) {
+    for (let zMeters = -120; zMeters <= -30; zMeters += 5) {
+      const firstSurface = first.surfaceProfile.querySurfaceAtWorldPosition(xMeters, zMeters)
+      const secondSurface = second.surfaceProfile.querySurfaceAtWorldPosition(xMeters, zMeters)
+      if (firstSurface.surfaceKind !== secondSurface.surfaceKind) {
+        changedSurfaceKinds += 1
+      }
+      if (Math.abs(firstSurface.terrainHeightMeters - secondSurface.terrainHeightMeters) > 1e-6) {
+        changedHeightSamples += 1
+      }
+    }
+  }
+
+  assert.ok(changedHeightSamples > 0)
+  assert.ok(changedSurfaceKinds > 0)
+  let minimumHeightMeters = Infinity
+  let maximumHeightMeters = -Infinity
+  for (let xMeters = -200; xMeters <= 200; xMeters += 10) {
+    for (let zMeters = -200; zMeters <= 200; zMeters += 10) {
+      const heightMeters = first.baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+      assert.ok(Number.isFinite(heightMeters))
+      minimumHeightMeters = Math.min(minimumHeightMeters, heightMeters)
+      maximumHeightMeters = Math.max(maximumHeightMeters, heightMeters)
+    }
+  }
+  assert.ok(minimumHeightMeters > -5)
+  assert.ok(maximumHeightMeters < 20)
+  for (const sample of readTerrainSamples(first)) {
+    assert.ok(Number.isFinite(sample.heightMeters))
+    assert.ok(sample.heightMeters > -5 && sample.heightMeters < 20)
+    const normalLength = Math.hypot(
+      sample.normalWorld.x,
+      sample.normalWorld.y,
+      sample.normalWorld.z
+    )
+    assert.ok(Math.abs(normalLength - 1) < 1e-9)
+  }
+  assert.notDeepEqual(readObstacleSamples(first), readObstacleSamples(second))
+})
+
+test('unseeded offroad defaults preserve the established layout', () => {
+  const profile = createOffroadPlaygroundProfile()
+  const explicitUnseededProfile = createOffroadPlaygroundProfile({ seed: null })
+  const defaultSelection = selectTerrain('?terrain=offroad')
+
+  assert.deepEqual(readTerrainSamples({ surfaceProfile: profile }), readTerrainSamples({ surfaceProfile: explicitUnseededProfile }))
+  assert.equal(profile.generationConfig.seed, null)
+  assert.equal(defaultSelection.generationConfig.seed, null)
+  assert.equal(defaultSelection.generationConfig.sizeMeters, 400)
+  assert.equal(defaultSelection.obstacleField.getObstacles().length, 8)
+})
+
+test('proving-ground ignores off-road seed and generation options', () => {
+  const first = selectTerrain('?terrain=proving-ground&seed=first&water=true')
+  const second = selectTerrain('?terrain=proving-ground&seed=second&terrainSizeMeters=900')
+
+  assert.equal(first.generationConfig, null)
+  assert.equal(second.generationConfig, null)
+  assert.deepEqual(readTerrainSamples(first), readTerrainSamples(second))
+})
+
+test('programmatic square bounds configure off-road terrain without a size alias', () => {
+  const selection = selectTerrain('?terrain=offroad', {
+    offroadGenerationConfig: {
+      seed: 'wide-course',
+      boundsMeters: {
+        minXMeters: -250,
+        maxXMeters: 250,
+        minZMeters: -250,
+        maxZMeters: 250,
+      },
+    },
+  })
+
+  assert.equal(selection.generationConfig.sizeMeters, 500)
+  assert.equal(selection.surfaceProfile.sizeMeters, 500)
+})
+
+test('invalid URL generation values fall back to established defaults', () => {
+  const selection = selectTerrain(
+    '?terrain=offroad&seed=&terrainSizeMeters=-1&featureScale=0&roughnessMeters=-1&obstacleDensity=5'
+  )
+
+  assert.equal(selection.generationConfig.seed, null)
+  assert.equal(selection.generationConfig.sizeMeters, 400)
+  assert.equal(selection.generationConfig.featureScale, 1)
+  assert.equal(selection.generationConfig.roughnessMeters, 0.05)
+  assert.equal(selection.generationConfig.obstacleDensity, 1)
+})
+test('feature scale and roughness settings alter the seeded heightfield', () => {
+  const baseline = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const configured = selectTerrain(
+    '?terrain=offroad&seed=granite-run-04&featureScale=1.2&roughnessMeters=0.12'
+  )
+  const baselineHeights = SAMPLE_POSITIONS.map(({ xMeters, zMeters }) =>
+    baseline.baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+  )
+  const configuredHeights = SAMPLE_POSITIONS.map(({ xMeters, zMeters }) =>
+    configured.baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+  )
+
+  assert.notDeepEqual(configuredHeights, baselineHeights)
+})
+test('URL options configure bounds, feature scale, roughness, water, and obstacle density', () => {
+  const selection = selectTerrain(
+    '?terrain=offroad&seed=swamp-02&terrainSizeMeters=500&featureScale=1.2&roughnessMeters=0.12&obstacleDensity=2&water=true',
+    { waterSurfaceConfig: { waterLevelYMeters: 100 } }
+  )
+
+  assert.deepEqual(selection.generationConfig.boundsMeters, {
+    minXMeters: -250,
+    maxXMeters: 250,
+    minZMeters: -250,
+    maxZMeters: 250,
+  })
+  assert.equal(selection.generationConfig.featureScale, 1.2)
+  assert.equal(selection.generationConfig.roughnessMeters, 0.12)
+  assert.equal(selection.generationConfig.waterEnabled, true)
+  assert.equal(selection.generationConfig.obstacleDensity, 2)
+  assert.equal(selection.obstacleField.getObstacles().length, 16)
+  assert.strictEqual(selection.surfaceProfile.waterSurface, selection.waterSurface)
+  assert.equal(selection.surfaceProfile.querySurfaceAtWorldPosition(0, 0).surfaceKind, 'water')
+})
+
+test('createSimulation uses seeded terrain for rendering and contact queries', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad', {
+    offroadGenerationConfig: {
+      seed: 'live-config-09',
+      sizeMeters: 500,
+    },
+  })
+  const contactSample = simulation.terrainContactQuery.queryAtWorldXZ(24, -67)
+  const profileSample = simulation.terrainSurfaceProfile.querySurfaceAtWorldPosition(24, -67)
+
+  assert.equal(simulation.terrain.geometry.parameters.width, 500)
+  assert.equal(simulation.terrainSurfaceProfile.sizeMeters, 500)
+  assert.equal(contactSample.terrainHeightMeters, profileSample.terrainHeightMeters)
+  assert.equal(contactSample.surfaceKind, profileSample.surfaceKind)
+  assert.equal(contactSample.frictionCoefficient, profileSample.frictionCoefficient)
+})
+test('generation config validates seed, bounds, and physical configuration inputs', () => {
+  assert.throws(() => createOffroadTerrainGenerationConfig({ seed: '  ' }), RangeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({ seed: {} }), TypeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({ featureScale: 0 }), RangeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({ roughnessMeters: -0.1 }), RangeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({ obstacleDensity: 5 }), RangeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({
+    sizeMeters: Number.NaN,
+    boundsMeters: { minXMeters: -250, maxXMeters: 250, minZMeters: -250, maxZMeters: 250 },
+  }), RangeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({ waterEnabled: 'yes' }), TypeError)
+  assert.throws(() => createOffroadTerrainGenerationConfig({
+    boundsMeters: {
+      minXMeters: -200,
+      maxXMeters: 200,
+      minZMeters: -100,
+      maxZMeters: 100,
+    },
+  }), RangeError)
+})
+
+test('roughness is bounded to the supported amplitude range', () => {
+  assert.equal(
+    selectTerrain('?terrain=offroad&roughnessMeters=12').generationConfig.roughnessMeters,
+    0.05
+  )
+  assert.equal(
+    selectTerrain('?terrain=offroad&roughnessMeters=2').generationConfig.roughnessMeters,
+    2
+  )
+  assert.equal(
+    selectTerrain('?terrain=offroad&roughnessMeters=0.12').generationConfig.roughnessMeters,
+    0.12
+  )
+  assert.throws(
+    () => createOffroadTerrainGenerationConfig({ roughnessMeters: 2.5 }),
+    RangeError
+  )
+  assert.equal(
+    createOffroadTerrainGenerationConfig({ roughnessMeters: 2 }).roughnessMeters,
+    2
+  )
+})
+
+test('the obstacle visuals are added to the scene', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad')
+
+  assert.ok(simulation.obstacleVisuals)
+  assert.ok(simulation.obstacleVisuals.group)
+  assert.ok(
+    simulation.scene.children.includes(simulation.obstacleVisuals.group),
+    'the obstacle group is missing from the scene'
+  )
+  assert.equal(simulation.obstacleVisuals.meshes.length, 8)
+})
+
+test('the terrain mesh carries the terrain only while the contact query keeps the obstacles', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad')
+  const positions = simulation.terrain.geometry.getAttribute('position')
+  const baseProfile = simulation.terrainSelection.baseProfile
+  let maximumMeshDeviationMeters = 0
+
+  for (let index = 0; index < positions.count; index += 1) {
+    const xMeters = positions.getX(index)
+    const zMeters = positions.getZ(index)
+    maximumMeshDeviationMeters = Math.max(
+      maximumMeshDeviationMeters,
+      Math.abs(
+        positions.getY(index) - baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+      )
+    )
+  }
+
+  // The mesh stores its vertex positions as float32, so the rendered
+  // height is the float32 rounding of the profile height. A height of up to
+  // 4 m rounds within 2.4e-7 m, so 1e-6 m is the storage noise floor.
+  assert.ok(
+    maximumMeshDeviationMeters <= 1e-6,
+    'the terrain mesh does not match the terrain-only profile: ' +
+      maximumMeshDeviationMeters +
+      ' m'
+  )
+
+  const obstacle = simulation.terrainSelection.obstacleField
+    .getObstacles()
+    .find((candidate) => candidate.id === 'rock-dome-1')
+  const xMeters = obstacle.initialCenterXMeters
+  const zMeters = obstacle.initialCenterZMeters
+  const contactSample = simulation.terrainContactQuery.queryAtWorldXZ(xMeters, zMeters)
+  const groundHeightMeters = baseProfile.getHeightAtWorldXZ(xMeters, zMeters)
+
+  assert.ok(
+    contactSample.terrainHeightMeters > groundHeightMeters,
+    'the contact query no longer reports the obstacle top'
+  )
+  assert.equal(contactSample.obstacleId, 'rock-dome-1')
+})
+
+test('the proving ground mesh is unchanged by the obstacle rendering', () => {
+  const simulation = createSimulationForSearch('?terrain=proving-ground')
+  const positions = simulation.terrain.geometry.getAttribute('position')
+  const surfaceProfile = simulation.terrainSurfaceProfile
+  let maximumMeshDeviationMeters = 0
+
+  for (let index = 0; index < positions.count; index += 1) {
+    const xMeters = positions.getX(index)
+    const zMeters = positions.getZ(index)
+    maximumMeshDeviationMeters = Math.max(
+      maximumMeshDeviationMeters,
+      Math.abs(
+        positions.getY(index) - surfaceProfile.getHeightAtWorldXZ(xMeters, zMeters)
+      )
+    )
+  }
+
+  assert.ok(
+    maximumMeshDeviationMeters <= 1e-6,
+    'the proving ground mesh changed: ' + maximumMeshDeviationMeters + ' m'
+  )
+  assert.equal(simulation.obstacleVisuals, null)
+  assert.equal(simulation.terrain.userData.terrain.renderSubdivisions, 256)
+})
+
+test('the terrain render grid follows the terrain size', () => {
+  const provingGround = createSimulationForSearch('?terrain=proving-ground')
+  const offroad = createSimulationForSearch('?terrain=offroad')
+  const resized = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
+  const large = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=1000')
+
+  assert.equal(provingGround.terrain.userData.terrain.renderSubdivisions, 256)
+  assert.equal(offroad.terrain.userData.terrain.renderSubdivisions, 320)
+  assert.equal(resized.terrain.userData.terrain.renderSubdivisions, 400)
+  assert.equal(large.terrain.userData.terrain.renderSubdivisions, 512)
+})
+
+test('the terrain render grid reports its sample spacing', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
+  const terrain = simulation.terrain.userData.terrain
+
+  assert.equal(
+    terrain.renderSampleSpacingMeters,
+    terrain.sizeMeters / terrain.renderSubdivisions
+  )
+  assert.equal(terrain.renderSampleSpacingMeters, 1.25)
+})
+
+test('the 400 m rock garden keeps its established heights', () => {
+  const selection = selectTerrain('?terrain=offroad')
+  const samples = [
+    { xMeters: -120, zMeters: -80, heightMeters: 0.22795991302162763 },
+    { xMeters: -50, zMeters: -60, heightMeters: 1.00356511443987 },
+    { xMeters: 0, zMeters: -30, heightMeters: -0.17785176494742969 },
+    { xMeters: 5, zMeters: -95, heightMeters: 0.007689162349243821 },
+    { xMeters: -30, zMeters: -10, heightMeters: 0.6119842395622259 },
+  ]
+
+  for (const sample of samples) {
+    assert.equal(
+      selection.baseProfile.getHeightAtWorldXZ(sample.xMeters, sample.zMeters),
+      sample.heightMeters
+    )
+  }
+})
+
+test('the rock garden contributes per-position height variation', () => {
+  // The difference between the garden and the same course with the rock
+  // garden scaled out is exactly the rock garden contribution.
+  const withGarden = createOffroadPlaygroundProfile({ rockGardenScale: 1 })
+  const withoutGarden = createOffroadPlaygroundProfile({ rockGardenScale: 0 })
+  const contributions = []
+
+  for (let zMeters = -95; zMeters <= -5; zMeters += 5) {
+    for (let xMeters = -180; xMeters <= 0; xMeters += 5) {
+      contributions.push(
+        withGarden.getHeightAtWorldXZ(xMeters, zMeters) -
+          withoutGarden.getHeightAtWorldXZ(xMeters, zMeters)
+      )
+    }
+  }
+
+  const minimumContributionMeters = Math.min(...contributions)
+  const maximumContributionMeters = Math.max(...contributions)
+
+  assert.ok(
+    maximumContributionMeters > 0.1,
+    'the rock garden does not raise the ground, got ' + maximumContributionMeters
+  )
+  assert.ok(
+    maximumContributionMeters - minimumContributionMeters > 0.1,
+    'the rock garden contribution does not vary per position, got ' +
+      (maximumContributionMeters - minimumContributionMeters)
+  )
+  assert.ok(
+    minimumContributionMeters >= 0,
+    'the rock garden lowers the ground, got ' + minimumContributionMeters
+  )
+})
+
+test('the 800 m course scales the rock garden heights proportionally', () => {
+  // A resized course is a proportionally larger course, so the height at
+  // twice the coordinate of the 400 m course is twice the height. The rock
+  // garden contributes an exactly proportional bump field: the cell size and
+  // the bump radii scale with the course and the amplitude is scaled at the
+  // call site, so the bump heights and their footprint both double.
+  //
+  // Tolerance justification: the only term of the off-road height field
+  // that is deliberately not scaled is the terrain noise, which is a
+  // position-based material property rather than a course feature. Its
+  // amplitude is bounded by 1.875 * roughnessMeters = 0.09375 m, so it
+  // contributes at most 0.28125 m to the difference (0.09375 m for the
+  // scaled course plus twice 0.09375 m for the doubled reference). The
+  // measured maximum over the 861 rock-garden sample points below is
+  // 0.190936 m, and the 0.3 m tolerance sits above both that measurement
+  // and the analytic bound.
+  const reference = selectTerrain('?terrain=offroad')
+  const scaled = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
+  let maximumDeviationMeters = 0
+
+  for (let zMeters = -100; zMeters <= 0; zMeters += 5) {
+    for (let xMeters = -190; xMeters <= 10; xMeters += 5) {
+      const referenceHeightMeters = reference.baseProfile.getHeightAtWorldXZ(
+        xMeters,
+        zMeters
+      )
+      const scaledHeightMeters = scaled.baseProfile.getHeightAtWorldXZ(
+        2 * xMeters,
+        2 * zMeters
+      )
+      maximumDeviationMeters = Math.max(
+        maximumDeviationMeters,
+        Math.abs(scaledHeightMeters - 2 * referenceHeightMeters)
+      )
+    }
+  }
+
+  assert.ok(
+    maximumDeviationMeters <= 0.3,
+    'scaled rock garden deviation ' +
+      maximumDeviationMeters +
+      ' m exceeds the 0.3 m tolerance'
+  )
+})
+
+test('obstacle dimensions scale with the course extent', () => {
+  const selection = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
+  const obstacles = readObstacleGeometrySamples(selection)
+
+  assert.equal(obstacles.length, 8)
+  assert.equal(obstacles[0].id, 'rock-dome-1')
+  assert.equal(obstacles[0].radiusMeters, 1.8)
+  assert.equal(obstacles[0].xMeters, -36)
+  assert.equal(obstacles[0].zMeters, 36)
+  assert.equal(obstacles[4].id, 'block-1')
+  assert.equal(obstacles[4].halfExtentXMeters, 1.2)
+  assert.equal(obstacles[4].halfExtentZMeters, 1.2)
+  assert.equal(obstacles[4].heightMeters, 1)
+  assert.equal(obstacles[4].xMeters, 24)
+  assert.equal(obstacles[4].zMeters, 60)
+})
+
+test('a feature scale on the 400 m course keeps the legacy dimension scaling', () => {
+  const selection = selectTerrain('?terrain=offroad&featureScale=1.2')
+  const obstacles = readObstacleGeometrySamples(selection)
+
+  assert.equal(obstacles.length, 8)
+  assert.equal(obstacles[0].radiusMeters, 0.9 * 1.2)
+  assert.equal(obstacles[4].halfExtentXMeters, 0.6 * 1.2)
+  assert.equal(obstacles[4].halfExtentZMeters, 0.6 * 1.2)
+  assert.equal(obstacles[4].heightMeters, 0.5 * 1.2)
+})
+
+test('unseeded offroad keeps the legacy obstacle layout', () => {
+  const selection = selectTerrain('?terrain=offroad')
+
+  assert.deepEqual(
+    readObstacleSamples(selection).map((obstacle) => [
+      obstacle.xMeters,
+      obstacle.zMeters,
+    ]),
+    [
+      [-18, 18],
+      [-10, 26],
+      [-22, 34],
+      [-6, 40],
+      [12, 30],
+      [16, 48],
+      [4, 60],
+      [-2, 70],
+    ]
+  )
+})
+
+test('unseeded offroad scales the legacy obstacle layout with the course size', () => {
+  const selection = selectTerrain('?terrain=offroad&terrainSizeMeters=500')
+  const [firstObstacle] = readObstacleSamples(selection)
+
+  assert.equal(firstObstacle.xMeters, -22.5)
+  assert.equal(firstObstacle.zMeters, 22.5)
+})
+
+test('unseeded offroad places extra obstacles on a deterministic layout', () => {
+  const selection = selectTerrain('?terrain=offroad&obstacleDensity=2')
+  const obstacles = readObstacleSamples(selection)
+
+  assert.equal(obstacles.length, 16)
+  assert.deepEqual(
+    obstacles.slice(0, 8).map((obstacle) => [obstacle.xMeters, obstacle.zMeters]),
+    [
+      [-18, 18],
+      [-10, 26],
+      [-22, 34],
+      [-6, 40],
+      [12, 30],
+      [16, 48],
+      [4, 60],
+      [-2, 70],
+    ]
+  )
+  assert.equal(obstacles[8].xMeters, -18)
+  assert.equal(obstacles[8].zMeters, 78)
+  const extraPositions = obstacles
+    .slice(8)
+    .map((obstacle) => obstacle.xMeters + ':' + obstacle.zMeters)
+  assert.equal(new Set(extraPositions).size, extraPositions.length)
+})
+
+test('repeated unseeded selections produce the same obstacle layout', () => {
+  const first = selectTerrain('?terrain=offroad&obstacleDensity=2')
+  const second = selectTerrain('?terrain=offroad&obstacleDensity=2')
+
+  assert.deepEqual(readObstacleSamples(first), readObstacleSamples(second))
+})
+
+test('a seeded selection jitters the legacy layout and stays deterministic', () => {
+  const seeded = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const seededAgain = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const unseeded = selectTerrain('?terrain=offroad')
+
+  assert.deepEqual(readObstacleSamples(seeded), readObstacleSamples(seededAgain))
+  assert.notDeepEqual(
+    readObstacleSamples(seeded).map((obstacle) => [
+      obstacle.xMeters,
+      obstacle.zMeters,
+    ]),
+    readObstacleSamples(unseeded).map((obstacle) => [
+      obstacle.xMeters,
+      obstacle.zMeters,
+    ])
+  )
+})
+
+test('offroad profile config can enable the water surface programmatically', () => {
+  const selection = selectTerrain('?terrain=offroad', {
+    offroadProfileConfig: { waterEnabled: true },
+  })
+
+  assert.equal(selection.generationConfig.waterEnabled, true)
+  assert.notEqual(selection.waterSurface, null)
+  assert.equal(selection.surfaceProfile.waterSurface, selection.waterSurface)
+})
+
+test('offroad generation config overrides the profile water setting', () => {
+  const selection = selectTerrain('?terrain=offroad', {
+    offroadProfileConfig: { waterEnabled: true },
+    offroadGenerationConfig: { waterEnabled: false },
+  })
+
+  assert.equal(selection.generationConfig.waterEnabled, false)
+  assert.equal(selection.waterSurface, null)
+})
+
+test('offroad-water forces the water surface on over a disabled profile setting', () => {
+  const selection = selectTerrain('?terrain=offroad-water', {
+    offroadProfileConfig: { waterEnabled: false },
+  })
+
+  assert.equal(selection.generationConfig.waterEnabled, true)
+  assert.notEqual(selection.waterSurface, null)
+  assert.equal(selection.surfaceProfile.waterSurface, selection.waterSurface)
+})
+
+test('water stays disabled by default for off-road terrain', () => {
+  const selection = selectTerrain('?terrain=offroad')
+
+  assert.equal(selection.generationConfig.waterEnabled, false)
+  assert.equal(selection.waterSurface, null)
+})
+
+test('the off-road course has no tarmac outside the start strip', () => {
+  // The off-road region layout is a route across the course, not a tiling of
+  // it, so the ground beside the route belongs to no region. That ground must
+  // read as generic off-road ground, not as the proving-ground tarmac that
+  // the base profile defaults to.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  const startStripEndZMeters = -halfSizeMeters + 40 * courseScale
+  const tarmacSamples = []
+
+  for (let zMeters = -halfSizeMeters + 1; zMeters <= halfSizeMeters - 1; zMeters += 4) {
+    for (let xMeters = -halfSizeMeters + 1; xMeters <= halfSizeMeters - 1; xMeters += 4) {
+      if (zMeters <= startStripEndZMeters) continue
+      const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(
+        xMeters,
+        zMeters
+      )
+      if (surface.surfaceKind === 'asphalt') {
+        tarmacSamples.push({ xMeters, zMeters })
+      }
+    }
+  }
+
+  assert.deepEqual(
+    tarmacSamples,
+    [],
+    'tarmac outside the start strip at ' + JSON.stringify(tarmacSamples.slice(0, 5))
+  )
+  assert.equal(selection.baseProfile.surfaceKind, 'dirt')
+})
+
+test('the mud pit keeps the width it declares', () => {
+  // The mud pit spans the centre of the course and overlaps the rock band on
+  // its left and the grass band on its right. The first matching region
+  // wins, so the pit has to be listed before both bands to keep the
+  // symmetric width it declares.
+  const selection = selectTerrain('?terrain=offroad')
+
+  for (const xMeters of [-14, -12, -10, 0, 10, 12, 14]) {
+    const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(
+      xMeters,
+      -80
+    )
+    assert.equal(
+      surface.surfaceKind,
+      'mud',
+      'expected mud at x=' + xMeters + ', got ' + surface.surfaceKind
+    )
+  }
+
+  const rockBand = selection.surfaceProfile.querySurfaceAtWorldPosition(-20, -80)
+  assert.equal(rockBand.surfaceKind, 'rock')
+  const grassBand = selection.surfaceProfile.querySurfaceAtWorldPosition(20, -80)
+  assert.equal(grassBand.surfaceKind, 'grass')
+})
+
+function readTerrainSamples(selection) {
+  return SAMPLE_POSITIONS.map(({ xMeters, zMeters }) => {
+    const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(xMeters, zMeters)
+    return {
+      heightMeters: surface.terrainHeightMeters,
+      surfaceKind: surface.surfaceKind,
+      normalWorld: {
+        x: surface.normalWorld.x,
+        y: surface.normalWorld.y,
+        z: surface.normalWorld.z,
+      },
+    }
+  })
+}
+
+function readObstacleGeometrySamples(selection) {
+  return selection.obstacleField.getObstacles().map((obstacle) => ({
+    id: obstacle.id,
+    shape: obstacle.shape,
+    xMeters: obstacle.initialCenterXMeters,
+    zMeters: obstacle.initialCenterZMeters,
+    radiusMeters: obstacle.radiusMeters,
+    heightMeters: obstacle.heightMeters,
+    halfExtentXMeters: obstacle.halfExtentXMeters,
+    halfExtentZMeters: obstacle.halfExtentZMeters,
+  }))
+}
+
+function readObstacleSamples(selection) {
+  return selection.obstacleField.getObstacles().map((obstacle) => ({
+    id: obstacle.id,
+    xMeters: obstacle.position.x,
+    zMeters: obstacle.position.z,
+  }))
+}
+
+function createSimulationForSearch(search, terrainSelectionConfig) {
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: { search },
+  })
+  try {
+    return createSimulation({
+      scene: new THREE.Scene(),
+      terrainSelectionConfig,
+    })
+  } finally {
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation)
+    } else {
+      delete globalThis.location
+    }
+  }
+}
+function selectTerrain(search, config = {}) {
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: { search },
+  })
+  try {
+    return createTerrainSelection(config)
+  } finally {
+    if (originalLocation) {
+      Object.defineProperty(globalThis, 'location', originalLocation)
+    } else {
+      delete globalThis.location
+    }
+  }
+}

@@ -72,10 +72,15 @@ export function createObstacleFieldVisuals(obstacleField, config = {}) {
 }
 
 function isContacted(obstacle, wheelContactPoints) {
+  // The obstacle field hands out runtime states that carry the live center
+  // position, not the static descriptor center, so the contact test has to
+  // read the position the obstacle mesh is actually drawn at.
+  const centerXMeters = obstacle.position.x
+  const centerZMeters = obstacle.position.z
   for (const point of wheelContactPoints) {
     if (!point) continue
-    const dx = point.x - obstacle.centerXMeters
-    const dz = point.z - obstacle.centerZMeters
+    const dx = point.x - centerXMeters
+    const dz = point.z - centerZMeters
     if (obstacle.shape === 'dome' || obstacle.shape === 'cylinder') {
       if (Math.hypot(dx, dz) <= obstacle.radiusMeters) return true
     } else {
