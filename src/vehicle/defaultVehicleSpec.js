@@ -44,8 +44,8 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Vertical chassis dynamics v1 (Phase 0): real 3-DOF sprung-mass heave/pitch/
   // roll solver. It replaces quasi-static load transfer (emergent load transfer
   // from body pitch/roll) and the visual-only chassis attitude with solved ODE
-  // state. Disabled by default to preserve the validated baseline and regression
-  // tests; enable to exercise the new vertical-dynamics seam.
+  // state. Enabled by default; set to false to fall back to the quasi-static
+  // load-transfer path.
   verticalDynamicsEnabled: true,
   verticalDynamicsSprungMassFraction01: 1,
   verticalDynamicsPitchInertiaKgMeterSquared: 0,
