@@ -306,7 +306,11 @@ test('rear differential select exposes valid option values', async () => {
   }
   const differentialSelect = findById(panel.element, 'rear-differential-select')
 
-  assert.ok(differentialSelect.children.some((option) => option.value === 'torsen'))
+  const visibleDifferentialValues = differentialSelect.children
+    .map((option) => option.value)
+    .filter(Boolean)
+  assert.deepEqual(visibleDifferentialValues, ['open', 'limited-slip', 'torsen', 'locked'])
+  assert.equal(visibleDifferentialValues.includes('welded'), false)
   differentialSelect.value = 'torsen'
   differentialSelect.dispatchEvent({ type: 'change', target: differentialSelect })
   assert.equal(selectedDifferential, 'torsen')
