@@ -15,7 +15,6 @@ import {
   hashTerrainSeed,
 } from './seededTerrainNoise.js'
 
-const DEFAULT_TERRAIN_SIZE_METERS = 320
 const ROCK_GARDEN_CELL_SIZE_METERS = 20
 const ROCK_GARDEN_BUMP_COUNT = 8
 const ROCK_GARDEN_CHANNEL_COUNT = 5
@@ -59,9 +58,6 @@ export const START_RAMP_FEATHER_METERS = 5
 // 400 m course that is a 1 m falloff instead of a vertical wall.
 const STEP_UP_JUMP_CREST_NZ = 2 / 3
 const STEP_UP_JUMP_TRAILING_EDGE_NZ = 5 / 6
-const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
-
-const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
 
 /**
  * Enhanced terrain surface profile that integrates the surface material catalog.
