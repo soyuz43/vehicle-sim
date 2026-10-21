@@ -345,14 +345,9 @@ export function createOffroadPlaygroundProfile(config = {}) {
       maxZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.55,
     },
-    {
-      kind: SURFACE_MATERIAL_KINDS.ROCK,
-      minXMeters: -halfSize + 10 * courseScale + courseOffsets.xMeters,
-      maxXMeters: -10 * courseScale + courseOffsets.xMeters,
-      minZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
-      maxZMeters: -halfSize + 200 * courseScale + courseOffsets.zMeters,
-      frictionCoefficient: 0.85,
-    },
+    // The first matching region wins, so the mud pit is listed before the
+    // rock and the grass band to keep the symmetric width it declares.
+    // The rock band overlaps it on the left, the grass band on the right.
     {
       kind: SURFACE_MATERIAL_KINDS.MUD,
       minXMeters: -15 * courseScale + courseOffsets.xMeters,
@@ -360,6 +355,14 @@ export function createOffroadPlaygroundProfile(config = {}) {
       minZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
       maxZMeters: -halfSize + 160 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.25,
+    },
+    {
+      kind: SURFACE_MATERIAL_KINDS.ROCK,
+      minXMeters: -halfSize + 10 * courseScale + courseOffsets.xMeters,
+      maxXMeters: -10 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
+      maxZMeters: -halfSize + 200 * courseScale + courseOffsets.zMeters,
+      frictionCoefficient: 0.85,
     },
     {
       kind: SURFACE_MATERIAL_KINDS.GRASS,
@@ -395,6 +398,12 @@ export function createOffroadPlaygroundProfile(config = {}) {
     ...config,
     sizeMeters,
     profileName: 'offroad-playground-v1',
+    // The regions below describe a route across the course, not a tiling of
+    // it, so the ground beside the route (the flanks of the gravel corridor,
+    // the verge along the course edge) belongs to no region. It resolves to
+    // dirt, the generic off-road ground, instead of the base profile
+    // default, which is the proving-ground tarmac.
+    surfaceKind: config.surfaceKind ?? SURFACE_MATERIAL_KINDS.DIRT,
     surfaceRegions,
     surfaceMaterialCatalog: config.surfaceMaterialCatalog ?? DEFAULT_SURFACE_MATERIAL_CATALOG,
     customHeightEvaluator: heightEvaluator,

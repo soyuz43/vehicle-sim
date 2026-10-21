@@ -557,6 +557,64 @@ test('water stays disabled by default for off-road terrain', () => {
   assert.equal(selection.waterSurface, null)
 })
 
+test('the off-road course has no tarmac outside the start strip', () => {
+  // The off-road region layout is a route across the course, not a tiling of
+  // it, so the ground beside the route belongs to no region. That ground must
+  // read as generic off-road ground, not as the proving-ground tarmac that
+  // the base profile defaults to.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  const startStripEndZMeters = -halfSizeMeters + 40 * courseScale
+  const tarmacSamples = []
+
+  for (let zMeters = -halfSizeMeters + 1; zMeters <= halfSizeMeters - 1; zMeters += 4) {
+    for (let xMeters = -halfSizeMeters + 1; xMeters <= halfSizeMeters - 1; xMeters += 4) {
+      if (zMeters <= startStripEndZMeters) continue
+      const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(
+        xMeters,
+        zMeters
+      )
+      if (surface.surfaceKind === 'asphalt') {
+        tarmacSamples.push({ xMeters, zMeters })
+      }
+    }
+  }
+
+  assert.deepEqual(
+    tarmacSamples,
+    [],
+    'tarmac outside the start strip at ' + JSON.stringify(tarmacSamples.slice(0, 5))
+  )
+  assert.equal(selection.baseProfile.surfaceKind, 'dirt')
+})
+
+test('the mud pit keeps the width it declares', () => {
+  // The mud pit spans the centre of the course and overlaps the rock band on
+  // its left and the grass band on its right. The first matching region
+  // wins, so the pit has to be listed before both bands to keep the
+  // symmetric width it declares.
+  const selection = selectTerrain('?terrain=offroad')
+
+  for (const xMeters of [-14, -12, -10, 0, 10, 12, 14]) {
+    const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(
+      xMeters,
+      -80
+    )
+    assert.equal(
+      surface.surfaceKind,
+      'mud',
+      'expected mud at x=' + xMeters + ', got ' + surface.surfaceKind
+    )
+  }
+
+  const rockBand = selection.surfaceProfile.querySurfaceAtWorldPosition(-20, -80)
+  assert.equal(rockBand.surfaceKind, 'rock')
+  const grassBand = selection.surfaceProfile.querySurfaceAtWorldPosition(20, -80)
+  assert.equal(grassBand.surfaceKind, 'grass')
+})
+
 function readTerrainSamples(selection) {
   return SAMPLE_POSITIONS.map(({ xMeters, zMeters }) => {
     const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(xMeters, zMeters)
