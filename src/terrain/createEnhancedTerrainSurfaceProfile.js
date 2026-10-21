@@ -15,7 +15,6 @@ import {
   hashTerrainSeed,
 } from './seededTerrainNoise.js'
 
-const DEFAULT_TERRAIN_SIZE_METERS = 320
 const ROCK_GARDEN_CELL_SIZE_METERS = 20
 const ROCK_GARDEN_BUMP_COUNT = 8
 const ROCK_GARDEN_CHANNEL_COUNT = 5
@@ -42,9 +41,16 @@ export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
 export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
-// The start ramp is a localized spawn incline at the south course edge. The
-// zone is the length of the ramp measured from the south course edge and the
+// The start ramp is a localized incline at the south course edge. The zone
+// is the length of the ramp measured from the south course edge and the
 // feather is the width of the smooth fade at each end of the zone.
+//
+// Placement, unresolved: on the 400 m course this ramp occupies
+// z = -200 m to z = -170 m, while the vehicle spawns at the world origin
+// (0, ~0, 0) and drives toward +Z. The ramp therefore sits 200 m behind
+// the spawn and is reachable only in reverse. Whether the ramp belongs at
+// the spawn, or the spawn belongs at the ramp, is a course-design decision
+// that has not been made, so the ramp is left where it is.
 export const START_RAMP_ZONE_METERS = 30
 export const START_RAMP_FEATHER_METERS = 5
 // The step-up jump reaches its crest two thirds of the way along its length
@@ -52,9 +58,6 @@ export const START_RAMP_FEATHER_METERS = 5
 // 400 m course that is a 1 m falloff instead of a vertical wall.
 const STEP_UP_JUMP_CREST_NZ = 2 / 3
 const STEP_UP_JUMP_TRAILING_EDGE_NZ = 5 / 6
-const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
-
-const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
 
 /**
  * Enhanced terrain surface profile that integrates the surface material catalog.
@@ -563,21 +566,30 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
 }
 
 // Render/physics resolution note:
+// The dominant source of render/physics divergence on the 400 m course is
+// the step-up jump, not the rock garden. Its trailing edge falls 0.8 m over
+// 1 m, a peak slope of 1.2 m/m, which is below what the 1.25 m render
+// spacing (DEFAULT_RENDER_SAMPLE_SPACING_METERS in createTerrain.js) can
+// resolve, so the rendered mesh interpolates linearly across the falloff.
+// Measured against the analytic profile, the maximum render error is
+// 0.4273 m at the step-up jump, 0.2435 m at the gap jump, 0.2065 m at the
+// tabletop jump, and 0.1430 m in the rock garden band.
+//
 // The bump field is defined analytically with radii of 1.5 m to 3.5 m, so
-// the smallest bump is 3 m across. The terrain render mesh samples the
-// heightfield at 1.25 m (DEFAULT_RENDER_SAMPLE_SPACING_METERS in
-// createTerrain.js), which covers a bump with two to six render samples,
-// so the rendered surface shows faceted chatter where the analytic field
-// has a rounded bump. The physics is unaffected: the contact query
-// evaluates the same analytic profile that the render mesh samples, so a
-// wheel follows the true profile and not the rendered one.
+// the smallest bump is 3 m across. The 1.25 m render spacing covers a bump
+// with two to six render samples, so the rendered surface shows faceted
+// chatter where the analytic field has a rounded bump.
+//
+// The physics is unaffected in every case: the contact query evaluates the
+// same analytic profile that the render mesh samples, so a wheel follows the
+// true profile and not the rendered one.
 //
 // This is the resolution budget of heightmap rendering, not a bug, and the
 // two surfaces are not expected to agree. Do not close the gap by raising
 // the render resolution alone: the grid is capped at 512 subdivisions and
-// the measured mesh generation cost is about 0.28 s at 400 m against
-// 0.77 s at that cap, so a finer grid buys startup time on every course
-// size instead of a feature that has to read crisply.
+// the measured mesh generation cost is 0.167 s at 400 m, 0.173 s at 500 m,
+// and 0.308 s at the 512 subdivision cap, so a finer grid buys startup time
+// on every course size instead of a feature that has to read crisply.
 //
 // The intended architecture is an analytic heightfield for the terrain and
 // discrete meshes (createObstacleFieldVisuals.js) for anything that must
