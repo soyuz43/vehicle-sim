@@ -94,7 +94,7 @@ A seeded configuration can be selected through the URL:
 ?terrain=offroad&seed=granite-run-04&terrainSizeMeters=500&featureScale=1.2&roughnessMeters=0.12&obstacleDensity=2&water=true
 ```
 
-- `seed`: optional string (1–128 trimmed characters) or safe integer; omitting it preserves the legacy course.
+- `seed`: optional string (1–128 trimmed characters) or safe integer; omitting it preserves the legacy course. The legacy obstacle layout is preserved and proportionally scaled when the terrain size changes, and the extra obstacles that `obstacleDensity` adds are placed by a deterministic rule rather than a random seed.
 - `terrainSizeMeters`: square terrain width and depth, centered at the world origin. Programmatic configuration may instead supply matching square `boundsMeters`.
 - `featureScale`: positive, unitless scale for the course features.
 - `roughnessMeters`: amplitude for the terrain variation, accepted in the range 0 – 2 m. Out-of-range URL values fall back to the 0.05 m default; out-of-range direct configuration throws a `RangeError`.

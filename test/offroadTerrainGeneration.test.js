@@ -213,6 +213,86 @@ test('roughness is bounded to the supported amplitude range', () => {
   )
 })
 
+test('unseeded offroad keeps the legacy obstacle layout', () => {
+  const selection = selectTerrain('?terrain=offroad')
+
+  assert.deepEqual(
+    readObstacleSamples(selection).map((obstacle) => [
+      obstacle.xMeters,
+      obstacle.zMeters,
+    ]),
+    [
+      [-18, 18],
+      [-10, 26],
+      [-22, 34],
+      [-6, 40],
+      [12, 30],
+      [16, 48],
+      [4, 60],
+      [-2, 70],
+    ]
+  )
+})
+
+test('unseeded offroad scales the legacy obstacle layout with the course size', () => {
+  const selection = selectTerrain('?terrain=offroad&terrainSizeMeters=500')
+  const [firstObstacle] = readObstacleSamples(selection)
+
+  assert.equal(firstObstacle.xMeters, -22.5)
+  assert.equal(firstObstacle.zMeters, 22.5)
+})
+
+test('unseeded offroad places extra obstacles on a deterministic layout', () => {
+  const selection = selectTerrain('?terrain=offroad&obstacleDensity=2')
+  const obstacles = readObstacleSamples(selection)
+
+  assert.equal(obstacles.length, 16)
+  assert.deepEqual(
+    obstacles.slice(0, 8).map((obstacle) => [obstacle.xMeters, obstacle.zMeters]),
+    [
+      [-18, 18],
+      [-10, 26],
+      [-22, 34],
+      [-6, 40],
+      [12, 30],
+      [16, 48],
+      [4, 60],
+      [-2, 70],
+    ]
+  )
+  assert.equal(obstacles[8].xMeters, -18)
+  assert.equal(obstacles[8].zMeters, 78)
+  const extraPositions = obstacles
+    .slice(8)
+    .map((obstacle) => obstacle.xMeters + ':' + obstacle.zMeters)
+  assert.equal(new Set(extraPositions).size, extraPositions.length)
+})
+
+test('repeated unseeded selections produce the same obstacle layout', () => {
+  const first = selectTerrain('?terrain=offroad&obstacleDensity=2')
+  const second = selectTerrain('?terrain=offroad&obstacleDensity=2')
+
+  assert.deepEqual(readObstacleSamples(first), readObstacleSamples(second))
+})
+
+test('a seeded selection jitters the legacy layout and stays deterministic', () => {
+  const seeded = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const seededAgain = selectTerrain('?terrain=offroad&seed=granite-run-04')
+  const unseeded = selectTerrain('?terrain=offroad')
+
+  assert.deepEqual(readObstacleSamples(seeded), readObstacleSamples(seededAgain))
+  assert.notDeepEqual(
+    readObstacleSamples(seeded).map((obstacle) => [
+      obstacle.xMeters,
+      obstacle.zMeters,
+    ]),
+    readObstacleSamples(unseeded).map((obstacle) => [
+      obstacle.xMeters,
+      obstacle.zMeters,
+    ])
+  )
+})
+
 test('offroad profile config can enable the water surface programmatically', () => {
   const selection = selectTerrain('?terrain=offroad', {
     offroadProfileConfig: { waterEnabled: true },

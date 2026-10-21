@@ -27,6 +27,16 @@ import { createSeededRandom } from '../seededTerrainNoise.js'
 
 const DEFAULT_EDGE_RAMP_METERS = 0.25
 
+// Deterministic layout for the extra obstacles that an obstacle density
+// above 1 adds beyond the eight legacy descriptors. The obstacles occupy
+// eight z-slots across the 78 m .. 162 m band of the 400 m reference course,
+// with two x-lanes per band row so no two extra obstacles share a position.
+const EXTRA_OBSTACLE_BAND_START_METERS = 78
+const EXTRA_OBSTACLE_BAND_END_METERS = 162
+const EXTRA_OBSTACLE_BAND_SLOT_COUNT = 8
+const EXTRA_OBSTACLE_X_LANES = Object.freeze([-18, 12, -34, 28, -50, 44])
+const EXTRA_OBSTACLE_SHAPES = Object.freeze(['dome', 'box', 'cylinder'])
+
 // Real material densities (kg/m^3) used to derive consistent mass and inertia
 // from obstacle geometry. No magic numbers: mass follows V * density.
 const MATERIAL_DENSITY_KG_PER_METER_CUBED = Object.freeze({
@@ -268,19 +278,34 @@ function defaultObstacles(config = {}) {
   const featureScale = Number.isFinite(config.featureScale) && config.featureScale > 0
     ? config.featureScale
     : 1
-  if (
-    config.seed == null &&
-    obstacleDensity === 1 &&
-    sizeMeters === 400 &&
-    featureScale === 1
-  ) {
-    return defaultDescriptors
-  }
-
   const count = Math.round(defaultDescriptors.length * obstacleDensity)
   if (count === 0) return []
   const courseScale = featureScale * (sizeMeters / 400)
-  const random = createSeededRandom(config.seed ?? 'offroad-obstacle-layout-v1')
+
+  // An unseeded course uses no random source at all: the legacy descriptors
+  // keep their proportional positions and every extra obstacle is placed by
+  // an explicit deterministic rule.
+  if (config.seed == null) {
+    const unseededDescriptors = []
+    for (let index = 0; index < count; index += 1) {
+      unseededDescriptors.push(
+        index < defaultDescriptors.length
+          ? scaleLegacyObstacleDescriptor(
+              defaultDescriptors[index],
+              courseScale,
+              featureScale
+            )
+          : createDeterministicExtraObstacle(index - defaultDescriptors.length, {
+              courseScale,
+              featureScale,
+              sizeMeters,
+            })
+      )
+    }
+    return unseededDescriptors
+  }
+
+  const random = createSeededRandom(config.seed)
   const generatedDescriptors = []
 
   for (let index = 0; index < count; index += 1) {
@@ -347,6 +372,94 @@ function defaultObstacles(config = {}) {
 
   return generatedDescriptors
 }
+
+// Legacy obstacle descriptors keep their relative layout and are scaled with
+// the course, so a resized course stays proportional to the 400 m reference.
+function scaleLegacyObstacleDescriptor(descriptor, courseScale, featureScale) {
+  const scaled = {
+    ...descriptor,
+    centerXMeters: descriptor.centerXMeters * courseScale,
+    centerZMeters: descriptor.centerZMeters * courseScale,
+  }
+  if (descriptor.radiusMeters) {
+    scaled.radiusMeters = descriptor.radiusMeters * featureScale
+  }
+  if (descriptor.heightMeters) {
+    scaled.heightMeters = descriptor.heightMeters * featureScale
+  }
+  if (descriptor.halfExtentXMeters) {
+    scaled.halfExtentXMeters = descriptor.halfExtentXMeters * featureScale
+  }
+  if (descriptor.halfExtentZMeters) {
+    scaled.halfExtentZMeters = descriptor.halfExtentZMeters * featureScale
+  }
+  return scaled
+}
+
+// Extra obstacles sit on a deterministic lattice: eight z-slots across the
+// 78 m .. 162 m band of the reference course, with two x-lanes per band row.
+// The band is compressed uniformly when the scaled band would run past the
+// course limit, so the extras stay spread out instead of stacking up at the
+// clamp boundary.
+function createDeterministicExtraObstacle(extraIndex, options) {
+  const { courseScale, featureScale, sizeMeters } = options
+  const bandSlot = extraIndex % EXTRA_OBSTACLE_BAND_SLOT_COUNT
+  const laneIndex =
+    Math.floor(extraIndex / EXTRA_OBSTACLE_BAND_SLOT_COUNT) * 2 + (extraIndex % 2)
+  const centerXMeters = EXTRA_OBSTACLE_X_LANES[laneIndex] * courseScale
+  const centerZMeters = extraObstacleBandPositionMeters(
+    bandSlot,
+    courseScale,
+    sizeMeters
+  )
+  const obstacleId = `procedural-obstacle-${extraIndex + 1}`
+  const shape = EXTRA_OBSTACLE_SHAPES[extraIndex % EXTRA_OBSTACLE_SHAPES.length]
+
+  if (shape === 'dome') {
+    return {
+      id: obstacleId,
+      shape,
+      centerXMeters,
+      centerZMeters,
+      radiusMeters: 0.8 * featureScale,
+      surfaceKind: SURFACE_MATERIAL_KINDS.ROCK,
+    }
+  }
+  if (shape === 'box') {
+    return {
+      id: obstacleId,
+      shape,
+      centerXMeters,
+      centerZMeters,
+      halfExtentXMeters: 0.6 * featureScale,
+      halfExtentZMeters: 0.6 * featureScale,
+      heightMeters: 0.5 * featureScale,
+      surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+    }
+  }
+  return {
+    id: obstacleId,
+    shape: 'cylinder',
+    centerXMeters,
+    centerZMeters,
+    radiusMeters: 0.5 * featureScale,
+    heightMeters: 0.6 * featureScale,
+    surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+  }
+}
+
+function extraObstacleBandPositionMeters(bandSlot, courseScale, sizeMeters) {
+  const bandStartMeters = EXTRA_OBSTACLE_BAND_START_METERS * courseScale
+  const bandEndMeters = EXTRA_OBSTACLE_BAND_END_METERS * courseScale
+  const maxAbsZMeters = Math.max(0, sizeMeters / 2 - 10 * courseScale)
+  const bandScale =
+    bandEndMeters > maxAbsZMeters ? maxAbsZMeters / bandEndMeters : 1
+  const bandFraction = bandSlot / (EXTRA_OBSTACLE_BAND_SLOT_COUNT - 1)
+  return (
+    bandStartMeters + (bandEndMeters - bandStartMeters) * bandFraction
+  ) * bandScale
+}
+
 function sanitizeNonNegativeNumber(value, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback
 }
