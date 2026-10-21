@@ -4,6 +4,5 @@ import { VehicleController } from './VehicleController.js'
 
 export function createVehicleController(config = {}) {
   const controller = new VehicleController(config)
-  controller.init()
   return controller
 }

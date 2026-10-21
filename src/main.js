@@ -395,20 +395,15 @@ function updateDriverHUD(vehicleSnapshot) {
 }
 
 function updateTelemetryPanel(vehicleSnapshot) {
-  // Build comprehensive snapshot for telemetry
   const snapshot = {
     vehicleSnapshot,
-    forces: vehicleController.getForcesSnapshot?.() ?? {},
-    powertrain: vehicleController.getPowertrainSnapshot?.() ?? {},
-    powertrainKinematics: vehicleController.getPowertrainKinematicsSnapshot?.() ?? {},
-    rearDifferentialState: vehicleController.getRearDifferentialSnapshot?.() ?? {},
-    wheelStates: vehicleSnapshot.wheelStates ?? [],
-    lateralSlipSummary: vehicleController.getLateralSlipSnapshot?.() ?? {},
-    lateralTireForceSummary: vehicleController.getLateralTireForceSnapshot?.() ?? {},
-    loadTransferSummary: vehicleController.getLoadTransferSnapshot?.() ?? {},
-    suspensionNormalForceSummary: vehicleController.getSuspensionNormalForceSnapshot?.() ?? {},
-    chassisAttitude: vehicleController.getChassisAttitudeSnapshot?.() ?? {},
-    slopeGravity: vehicleController.getSlopeGravitySnapshot?.() ?? {},
+    forces: vehicleSnapshot.forces,
+    powertrain: vehicleSnapshot.powertrain,
+    powertrainKinematics: vehicleSnapshot.powertrainKinematics,
+    rearDifferentialState: vehicleSnapshot.rearDifferentialState,
+    wheelStates: vehicleSnapshot.wheelStates,
+    loadTransferSummary: vehicleSnapshot.loadTransferSummary,
+    chassisAttitude: vehicleSnapshot.chassisAttitude,
   }
   telemetryPanel.update(snapshot)
 }
