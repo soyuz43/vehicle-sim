@@ -11,6 +11,8 @@ import {
   ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS,
   ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS,
   ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS,
+  START_RAMP_FEATHER_METERS,
+  START_RAMP_ZONE_METERS,
 } from '../src/terrain/createEnhancedTerrainSurfaceProfile.js'
 
 const SAMPLE_POSITIONS = [
@@ -325,21 +327,81 @@ test('the terrain render grid reports its sample spacing', () => {
 test('the 400 m rock garden reference heights match the bounded band', () => {
   // The garden is a bounded band now, and the band mask holds its full
   // strength across the band instead of ramping up from the south and
-  // west edges of it, so the two samples that carry a bump are higher
-  // than before. The three samples without a bump on them are unchanged.
+  // west edges of it. The start ramp is bounded to its own 30 m zone at
+  // the south course edge, so it no longer adds a sine wave to these
+  // samples either: the pinned heights are the base terrain plus the
+  // garden contribution only.
   const selection = selectTerrain('?terrain=offroad')
   const samples = [
-    { xMeters: -120, zMeters: -80, heightMeters: 0.22795991302162763 },
-    { xMeters: -50, zMeters: -60, heightMeters: 1.0956606773927164 },
-    { xMeters: 0, zMeters: -30, heightMeters: -0.17785176494742969 },
-    { xMeters: 5, zMeters: -95, heightMeters: 0.007689162349243821 },
-    { xMeters: -30, zMeters: -10, heightMeters: 0.6262568405548807 },
+    { xMeters: -120, zMeters: -80, heightMeters: -0.0037536279781548994 },
+    { xMeters: -50, zMeters: -60, heightMeters: 0.1003569995452813 },
+    { xMeters: 0, zMeters: -30, heightMeters: -0.19715301900765128 },
+    { xMeters: 5, zMeters: -95, heightMeters: -0.05246295766492116 },
+    { xMeters: -30, zMeters: -10, heightMeters: 0.051318235723404534 },
   ]
 
   for (const sample of samples) {
     assert.equal(
       selection.baseProfile.getHeightAtWorldXZ(sample.xMeters, sample.zMeters),
       sample.heightMeters
+    )
+  }
+})
+
+test('the start ramp stays inside its own zone and does not ripple across the course', () => {
+  // The start ramp is a spawn incline at the south course edge. The sine
+  // wave that shapes it must fade out at the end of the ramp zone; before
+  // the fix the zone mask stayed at full strength for every z north of the
+  // ramp, so the whole course carried the sine.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  const rampStartMeters = -halfSizeMeters
+  const rampEndMeters = -halfSizeMeters + START_RAMP_ZONE_METERS * courseScale
+  const rampFeatherMeters = START_RAMP_FEATHER_METERS * courseScale
+
+  assert.ok(rampFeatherMeters > 0, 'the start ramp has no fade at its edges')
+  assert.ok(
+    rampFeatherMeters * 2 < START_RAMP_ZONE_METERS * courseScale,
+    'the start ramp fades overlap each other'
+  )
+
+  // The start ramp and the three jumps are the only features that scale
+  // with jumpScale. The sampled x position is clear of the three jump
+  // footprints, so the difference between the two profiles is the start
+  // ramp contribution alone.
+  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
+  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const startRampContribution = (zMeters) =>
+    withJumps.getHeightAtWorldXZ(25, zMeters) - withoutJumps.getHeightAtWorldXZ(25, zMeters)
+
+  const midRampMeters = startRampContribution(rampStartMeters + 15 * courseScale)
+  assert.ok(
+    midRampMeters > 0.1,
+    'the start ramp does not raise the ground inside its zone, got ' + midRampMeters
+  )
+  assert.ok(
+    Math.abs(startRampContribution(rampStartMeters)) < 0.01,
+    'the start ramp does not fade in at the spawn edge, got ' +
+      startRampContribution(rampStartMeters)
+  )
+  assert.equal(
+    startRampContribution(0),
+    0,
+    'the start ramp still reaches past the ramp zone at z = 0'
+  )
+  assert.equal(
+    startRampContribution(100),
+    0,
+    'the start ramp still reaches the north half of the course at z = 100'
+  )
+
+  for (let zMeters = rampEndMeters; zMeters <= 150; zMeters += 1) {
+    assert.equal(
+      startRampContribution(zMeters),
+      0,
+      'the start ramp still reaches z = ' + zMeters
     )
   }
 })

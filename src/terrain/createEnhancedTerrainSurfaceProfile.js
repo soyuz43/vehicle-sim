@@ -31,6 +31,11 @@ export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
 export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
+// The start ramp is a localized spawn incline at the south course edge. The
+// zone is the length of the ramp measured from the south course edge and the
+// feather is the width of the smooth fade at each end of the zone.
+export const START_RAMP_ZONE_METERS = 30
+export const START_RAMP_FEATHER_METERS = 5
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
 
 const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
@@ -220,6 +225,9 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   const courseOffsets = createOffroadCourseOffsets(seed, courseScale)
   const rockNoiseSeed = seed === null ? 12345 : hashTerrainSeed(`${seed}:rocks`)
 
+  const startRampStartMeters = -halfSize
+  const startRampEndMeters = -halfSize + START_RAMP_ZONE_METERS * courseScale
+  const startRampFeatherMeters = START_RAMP_FEATHER_METERS * courseScale
   const rockGardenBandFeatherMeters = ROCK_GARDEN_BAND_FEATHER_METERS * courseScale
   const rockGardenBandWestEdgeMeters =
     -halfSize +
@@ -240,11 +248,22 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   return function offroadPlaygroundHeightEvaluator(worldXMeters, worldZMeters, baseHeightMeters) {
     let heightMeters = baseHeightMeters
 
-    const startRampZone = smoothStep(
-      worldZMeters,
-      -halfSize,
-      -halfSize + 30 * courseScale
-    )
+    // The start ramp is a localized spawn incline. The zone mask fades in
+    // at the south course edge and fades back out at the end of the ramp
+    // zone, so the sine wave stops at the end of the ramp instead of
+    // rippling across the rest of the course.
+    const startRampZone =
+      smoothStep(
+        worldZMeters,
+        startRampStartMeters,
+        startRampStartMeters + startRampFeatherMeters
+      ) *
+      (1 -
+        smoothStep(
+          worldZMeters,
+          startRampEndMeters - startRampFeatherMeters,
+          startRampEndMeters
+        ))
     heightMeters +=
       startRampZone *
       0.5 * courseScale *
