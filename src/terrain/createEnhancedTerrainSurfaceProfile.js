@@ -26,11 +26,32 @@ const ROCK_GARDEN_CHANNEL_COUNT = 5
 // surface region, and the east edge is measured from the centre line and
 // stops where the grass surface region starts. The feather is the width of
 // the smooth ramp at each band edge.
+//
+// The band and the rock surface region are different systems with different
+// extents. The band deliberately covers the route line through z = -100 m
+// to 0 m (PR #86), and it reaches 20 m east of the rock surface region so
+// that it also covers the mud corridor. The tabletop jump at z = -80 m and
+// the step-up jump at z = -20 m sit inside the band.
+// Measured on the 400 m course: the garden contributes 0.000 m to the
+// route line at the tabletop and up to 0.21 m off the route line, at
+// x = -3.25 m and z = -73.5 m. A driver who wants a fully deterministic
+// jump face should stay on the route line, because an off-line approach to
+// a jump face feels rockier by up to that 0.21 m.
 export const ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS = 100
 export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
 export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS = 10
 export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
+// The start ramp is a localized spawn incline at the south course edge. The
+// zone is the length of the ramp measured from the south course edge and the
+// feather is the width of the smooth fade at each end of the zone.
+export const START_RAMP_ZONE_METERS = 30
+export const START_RAMP_FEATHER_METERS = 5
+// The step-up jump reaches its crest two thirds of the way along its length
+// and falls back to the base height over the last sixth of it. On the
+// 400 m course that is a 1 m falloff instead of a vertical wall.
+const STEP_UP_JUMP_CREST_NZ = 2 / 3
+const STEP_UP_JUMP_TRAILING_EDGE_NZ = 5 / 6
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
 
 const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
@@ -220,6 +241,9 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   const courseOffsets = createOffroadCourseOffsets(seed, courseScale)
   const rockNoiseSeed = seed === null ? 12345 : hashTerrainSeed(`${seed}:rocks`)
 
+  const startRampStartMeters = -halfSize
+  const startRampEndMeters = -halfSize + START_RAMP_ZONE_METERS * courseScale
+  const startRampFeatherMeters = START_RAMP_FEATHER_METERS * courseScale
   const rockGardenBandFeatherMeters = ROCK_GARDEN_BAND_FEATHER_METERS * courseScale
   const rockGardenBandWestEdgeMeters =
     -halfSize +
@@ -240,11 +264,22 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   return function offroadPlaygroundHeightEvaluator(worldXMeters, worldZMeters, baseHeightMeters) {
     let heightMeters = baseHeightMeters
 
-    const startRampZone = smoothStep(
-      worldZMeters,
-      -halfSize,
-      -halfSize + 30 * courseScale
-    )
+    // The start ramp is a localized spawn incline. The zone mask fades in
+    // at the south course edge and fades back out at the end of the ramp
+    // zone, so the sine wave stops at the end of the ramp instead of
+    // rippling across the rest of the course.
+    const startRampZone =
+      smoothStep(
+        worldZMeters,
+        startRampStartMeters,
+        startRampStartMeters + startRampFeatherMeters
+      ) *
+      (1 -
+        smoothStep(
+          worldZMeters,
+          startRampEndMeters - startRampFeatherMeters,
+          startRampEndMeters
+        ))
     heightMeters +=
       startRampZone *
       0.5 * courseScale *
@@ -492,23 +527,39 @@ function tabletopJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) 
 function stepUpJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   const nx = (worldX - centerX) / Math.max(widthX, Number.EPSILON)
   const nz = (worldZ - centerZ) / Math.max(widthZ, Number.EPSILON)
-  // Ramp up in Z direction, flat in X
-  if (nz < -1 || nz > 1) return 0
+  // Ramp up in Z direction, flat in X. The trailing edge falls back to the
+  // base height over the last sixth of the jump instead of ending on a
+  // vertical wall, so the height field stays continuous and the contact
+  // query never sees a step it cannot resolve.
+  if (nz < -1 || nz > STEP_UP_JUMP_TRAILING_EDGE_NZ) return 0
   if (Math.abs(nx) > 1) return 0
-  const rampProfile = Math.max(0, (nz + 1) * 0.5) // 0 to 1 over Z
-  return height * rampProfile * (1 - Math.abs(nx) * 0.3)
+  // 0 to 1 over the rising part of the jump, then the falloff.
+  const rampProfile = Math.min(
+    1,
+    Math.max(0, (nz + 1) / (STEP_UP_JUMP_CREST_NZ + 1))
+  )
+  const trailingFalloff = 1 - smoothStep(
+    nz,
+    STEP_UP_JUMP_CREST_NZ,
+    STEP_UP_JUMP_TRAILING_EDGE_NZ
+  )
+  return height * rampProfile * trailingFalloff * (1 - Math.abs(nx) * 0.3)
 }
 
 function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   const nx = (worldX - centerX) / Math.max(widthX, Number.EPSILON)
   const nz = (worldZ - centerZ) / Math.max(widthZ, Number.EPSILON)
   if (Math.abs(nx) > 1 || nz < -1 || nz > 1) return 0
-  // Two ramps with a gap in the middle
-  const leftRamp = Math.max(0, (-nz + 1) * 0.5) // Left side ramp
-  const rightRamp = Math.max(0, (nz + 1) * 0.5) // Right side ramp
-  const gap = 1 - Math.abs(nz) * 2 // Gap in middle
-  if (gap > 0) return 0 // Gap - no height
-  return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
+  // Two ramps with a gap in the middle: a takeoff lip that rises from the
+  // base height, a dip back down to the base height, and a landing lip.
+  // The lips and the dip are smooth, so the jump has no wall in it.
+  const takeoffLip = smoothStep(nz, -1, -0.5) * (1 - smoothStep(nz, -0.5, 0))
+  const landingLip = smoothStep(nz, 0, 0.5) * (1 - smoothStep(nz, 0.5, 1))
+  // The cross profile fades the lips out at the edge of the jump, so the
+  // sides of the jump are a ramp as well.
+  const crossProfile =
+    (1 - Math.abs(nx) * 0.2) * (1 - smoothStep(Math.abs(nx), 0.7, 1))
+  return height * (takeoffLip + landingLip) * crossProfile
 }
 
 // Render/physics resolution note:

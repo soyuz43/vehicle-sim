@@ -96,6 +96,8 @@ The rock garden is a lattice of course-scaled cells, each holding eight seeded c
 
 The garden is a bounded band. On the 400 m course it covers z from -100 m to 0 m and x from -190 m to 10 m, which is the rock band of the course and the western half of the course at that band, and the band scales with the course the way the jumps and the whoops do, so the 800 m course has a band of 200 m in z and 400 m in x. The mask ramps up over a 10 m feather at each band edge and is zero outside the band, so the sand, dirt, and grass regions of the course carry no garden.
 
+The garden band and the rock surface region are different systems with different extents, and the band deliberately covers the route line through z from -100 m to 0 m (PR #86). The band reaches 20 m east of the rock surface region, so it also covers the mud corridor up to x = 10 m, which is 5 m short of the east wall of the mud pit. The tabletop jump at z = -80 m and the step-up jump at z = -20 m therefore sit inside the garden band. Measured on the 400 m course, the garden contributes 0.000 m to the route line at the tabletop, so the jump face is deterministic there, and up to 0.21 m off the route line, at x = -3.25 m and z = -73.5 m. A driver who wants a fully deterministic jump face should stay on the route line, because an off-line approach to a jump face feels rockier by up to that 0.21 m. The step-up jump shows the same pattern: 0.000 m on the route line and up to 0.14 m off it, at x = -8 m and z = -26 m.
+
 A seeded configuration can be selected through the URL:
 
 ```text

@@ -11,6 +11,8 @@ import {
   ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS,
   ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS,
   ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS,
+  START_RAMP_FEATHER_METERS,
+  START_RAMP_ZONE_METERS,
 } from '../src/terrain/createEnhancedTerrainSurfaceProfile.js'
 
 const SAMPLE_POSITIONS = [
@@ -325,15 +327,17 @@ test('the terrain render grid reports its sample spacing', () => {
 test('the 400 m rock garden reference heights match the bounded band', () => {
   // The garden is a bounded band now, and the band mask holds its full
   // strength across the band instead of ramping up from the south and
-  // west edges of it, so the two samples that carry a bump are higher
-  // than before. The three samples without a bump on them are unchanged.
+  // west edges of it. The start ramp is bounded to its own 30 m zone at
+  // the south course edge, so it no longer adds a sine wave to these
+  // samples either: the pinned heights are the base terrain plus the
+  // garden contribution only.
   const selection = selectTerrain('?terrain=offroad')
   const samples = [
-    { xMeters: -120, zMeters: -80, heightMeters: 0.22795991302162763 },
-    { xMeters: -50, zMeters: -60, heightMeters: 1.0956606773927164 },
-    { xMeters: 0, zMeters: -30, heightMeters: -0.17785176494742969 },
-    { xMeters: 5, zMeters: -95, heightMeters: 0.007689162349243821 },
-    { xMeters: -30, zMeters: -10, heightMeters: 0.6262568405548807 },
+    { xMeters: -120, zMeters: -80, heightMeters: -0.0037536279781548994 },
+    { xMeters: -50, zMeters: -60, heightMeters: 0.1003569995452813 },
+    { xMeters: 0, zMeters: -30, heightMeters: -0.19715301900765128 },
+    { xMeters: 5, zMeters: -95, heightMeters: -0.05246295766492116 },
+    { xMeters: -30, zMeters: -10, heightMeters: 0.051318235723404534 },
   ]
 
   for (const sample of samples) {
@@ -342,6 +346,257 @@ test('the 400 m rock garden reference heights match the bounded band', () => {
       sample.heightMeters
     )
   }
+})
+
+test('the start ramp stays inside its own zone and does not ripple across the course', () => {
+  // The start ramp is a spawn incline at the south course edge. The sine
+  // wave that shapes it must fade out at the end of the ramp zone; before
+  // the fix the zone mask stayed at full strength for every z north of the
+  // ramp, so the whole course carried the sine.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  const rampStartMeters = -halfSizeMeters
+  const rampEndMeters = -halfSizeMeters + START_RAMP_ZONE_METERS * courseScale
+  const rampFeatherMeters = START_RAMP_FEATHER_METERS * courseScale
+
+  assert.ok(rampFeatherMeters > 0, 'the start ramp has no fade at its edges')
+  assert.ok(
+    rampFeatherMeters * 2 < START_RAMP_ZONE_METERS * courseScale,
+    'the start ramp fades overlap each other'
+  )
+
+  // The start ramp and the three jumps are the only features that scale
+  // with jumpScale. The sampled x position is clear of the three jump
+  // footprints, so the difference between the two profiles is the start
+  // ramp contribution alone.
+  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
+  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const startRampContribution = (zMeters) =>
+    withJumps.getHeightAtWorldXZ(25, zMeters) - withoutJumps.getHeightAtWorldXZ(25, zMeters)
+
+  const midRampMeters = startRampContribution(rampStartMeters + 15 * courseScale)
+  assert.ok(
+    midRampMeters > 0.1,
+    'the start ramp does not raise the ground inside its zone, got ' + midRampMeters
+  )
+  assert.ok(
+    Math.abs(startRampContribution(rampStartMeters)) < 0.01,
+    'the start ramp does not fade in at the spawn edge, got ' +
+      startRampContribution(rampStartMeters)
+  )
+  assert.equal(
+    startRampContribution(0),
+    0,
+    'the start ramp still reaches past the ramp zone at z = 0'
+  )
+  assert.equal(
+    startRampContribution(100),
+    0,
+    'the start ramp still reaches the north half of the course at z = 100'
+  )
+
+  for (let zMeters = rampEndMeters; zMeters <= 150; zMeters += 1) {
+    assert.equal(
+      startRampContribution(zMeters),
+      0,
+      'the start ramp still reaches z = ' + zMeters
+    )
+  }
+})
+
+test('the step-up jump ends on a short steep ramp instead of a vertical wall', () => {
+  // The step-up jump used to stop with a hard cut at its trailing edge, so
+  // the course carried a 0.8 m vertical wall that the contact query could
+  // not resolve. The trailing edge now falls back to the base height over
+  // a 1 m span, and the leading edge is still a smooth ramp.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  // The step-up jump is centred 180 m north of the south course edge and is
+  // 12 m long, so it spans z = -26 m to z = -14 m on the 400 m course.
+  const jumpCenterZMeters = -halfSizeMeters + 180 * courseScale
+  const jumpHalfLengthMeters = 6 * courseScale
+  const leadingEdgeZMeters = jumpCenterZMeters - jumpHalfLengthMeters
+  const wallZMeters = jumpCenterZMeters + jumpHalfLengthMeters
+  const trailingEdgeZMeters = jumpCenterZMeters + jumpHalfLengthMeters * (5 / 6)
+
+  // The step-up jump and the start ramp are the only features that scale
+  // with jumpScale, and the start ramp is bounded to its own zone at the
+  // south edge, so the difference between the two profiles is the jump
+  // contribution.
+  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
+  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const stepUpHeight = (zMeters) =>
+    withJumps.getHeightAtWorldXZ(0, zMeters) - withoutJumps.getHeightAtWorldXZ(0, zMeters)
+
+  const trailingDeltaMeters = Math.abs(
+    stepUpHeight(trailingEdgeZMeters) - stepUpHeight(wallZMeters)
+  )
+  assert.ok(
+    trailingDeltaMeters < 0.1,
+    'the step-up jump still steps down at its trailing edge, got ' + trailingDeltaMeters
+  )
+
+  const wallDeltaMeters = Math.abs(
+    stepUpHeight(wallZMeters) - stepUpHeight(wallZMeters + 0.1)
+  )
+  assert.ok(
+    wallDeltaMeters < 0.1,
+    'the step-up jump still ends on a wall, got ' + wallDeltaMeters
+  )
+
+  const leadingDeltaMeters = Math.abs(
+    stepUpHeight(leadingEdgeZMeters) - stepUpHeight(leadingEdgeZMeters + 1)
+  )
+  assert.ok(
+    leadingDeltaMeters < 0.1,
+    'the step-up jump no longer ramps in at its leading edge, got ' + leadingDeltaMeters
+  )
+  assert.ok(
+    stepUpHeight(leadingEdgeZMeters + 1) > 0,
+    'the step-up jump does not rise out of the ground'
+  )
+
+  let maximumHeightMeters = 0
+  let maximumStepMeters = 0
+  let previousHeightMeters = stepUpHeight(leadingEdgeZMeters - 0.5)
+  for (let zMeters = leadingEdgeZMeters - 0.5; zMeters <= wallZMeters + 1; zMeters += 0.01) {
+    const heightMeters = stepUpHeight(zMeters)
+    maximumHeightMeters = Math.max(maximumHeightMeters, heightMeters)
+    maximumStepMeters = Math.max(
+      maximumStepMeters,
+      Math.abs(heightMeters - previousHeightMeters)
+    )
+    previousHeightMeters = heightMeters
+  }
+  assert.ok(
+    maximumHeightMeters > 0.79,
+    'the step-up jump lost its crest, got ' + maximumHeightMeters
+  )
+  assert.ok(
+    maximumStepMeters < 0.02,
+    'the step-up jump is not continuous, the largest step over 1 cm is ' + maximumStepMeters
+  )
+})
+
+test('the gap jump is two smooth ramps with a gap instead of a walled slot', () => {
+  // The gap jump used to be a plateau with a rectangular slot cut into it,
+  // which put a 1 m wall at each outer edge and a 0.75 m wall at each side
+  // of the slot, and a 0.6 m step at the sides of the jump. It is now the
+  // shape its comment describes: a takeoff lip, a dip back down to the
+  // base height, and a landing lip, with every edge a ramp.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  // The gap jump is centred 240 m north of the south course edge, is 10 m
+  // long, and is 20 m wide, so it spans z = 35 m to z = 45 m on the
+  // 400 m course.
+  const jumpCenterZMeters = -halfSizeMeters + 240 * courseScale
+  const jumpHalfLengthMeters = 5 * courseScale
+  const jumpHalfWidthMeters = 10 * courseScale
+  const lipZMeters = jumpCenterZMeters - jumpHalfLengthMeters * 0.5
+
+  // The gap jump and the start ramp are the only features that scale with
+  // jumpScale, and the start ramp is bounded to its own zone at the south
+  // edge, so the difference between the two profiles is the jump
+  // contribution.
+  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
+  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const gapJumpHeight = (xMeters, zMeters) =>
+    withJumps.getHeightAtWorldXZ(xMeters, zMeters) -
+    withoutJumps.getHeightAtWorldXZ(xMeters, zMeters)
+
+  // The height field the vehicle drives on stays continuous across the jump.
+  const coarseZMeters = [30, 35, 40, 45, 50]
+  for (let index = 1; index < coarseZMeters.length; index += 1) {
+    const deltaMeters = Math.abs(
+      withJumps.getHeightAtWorldXZ(0, coarseZMeters[index]) -
+        withJumps.getHeightAtWorldXZ(0, coarseZMeters[index - 1])
+    )
+    assert.ok(
+      deltaMeters <= 0.15,
+      'the gap jump steps by ' + deltaMeters + ' m between z = ' +
+        coarseZMeters[index - 1] + ' m and z = ' + coarseZMeters[index] + ' m'
+    )
+  }
+
+  const coarseXMeters = [-10, 0, 10]
+  for (let index = 1; index < coarseXMeters.length; index += 1) {
+    const deltaMeters = Math.abs(
+      withJumps.getHeightAtWorldXZ(coarseXMeters[index], 40) -
+        withJumps.getHeightAtWorldXZ(coarseXMeters[index - 1], 40)
+    )
+    assert.ok(
+      deltaMeters <= 0.15,
+      'the gap jump steps by ' + deltaMeters + ' m across x at z = 40 m'
+    )
+  }
+
+  // The jump itself is continuous at a 5 cm resolution, in both the driving
+  // direction and across the jump.
+  let maximumZStepMeters = 0
+  let previousHeightMeters = gapJumpHeight(0, 30)
+  for (let zMeters = 30; zMeters <= 50; zMeters += 0.05) {
+    const heightMeters = gapJumpHeight(0, zMeters)
+    maximumZStepMeters = Math.max(
+      maximumZStepMeters,
+      Math.abs(heightMeters - previousHeightMeters)
+    )
+    previousHeightMeters = heightMeters
+  }
+  assert.ok(
+    maximumZStepMeters < 0.05,
+    'the gap jump is not continuous along z, the largest step over 5 cm is ' +
+      maximumZStepMeters
+  )
+
+  let maximumXStepMeters = 0
+  previousHeightMeters = gapJumpHeight(-12, lipZMeters)
+  for (let xMeters = -12; xMeters <= 12; xMeters += 0.05) {
+    const heightMeters = gapJumpHeight(xMeters, lipZMeters)
+    maximumXStepMeters = Math.max(
+      maximumXStepMeters,
+      Math.abs(heightMeters - previousHeightMeters)
+    )
+    previousHeightMeters = heightMeters
+  }
+  assert.ok(
+    maximumXStepMeters < 0.05,
+    'the gap jump is not continuous across x, the largest step over 5 cm is ' +
+      maximumXStepMeters
+  )
+
+  // The jump is still a visible feature: a 1 m takeoff lip, a gap down to
+  // the base height, and a 1 m landing lip.
+  assert.ok(
+    gapJumpHeight(0, lipZMeters) > 0.9,
+    'the gap jump lost its takeoff lip, got ' + gapJumpHeight(0, lipZMeters)
+  )
+  assert.equal(
+    gapJumpHeight(0, jumpCenterZMeters),
+    0,
+    'the gap between the two lips is not at the base height'
+  )
+  assert.ok(
+    gapJumpHeight(0, jumpCenterZMeters + jumpHalfLengthMeters * 0.5) > 0.9,
+    'the gap jump lost its landing lip'
+  )
+  let maximumHeightMeters = 0
+  for (let zMeters = jumpCenterZMeters - jumpHalfLengthMeters; zMeters <= jumpCenterZMeters + jumpHalfLengthMeters; zMeters += 0.05) {
+    maximumHeightMeters = Math.max(maximumHeightMeters, gapJumpHeight(0, zMeters))
+  }
+  assert.ok(
+    maximumHeightMeters > 0.3,
+    'the gap jump does not raise the ground, got ' + maximumHeightMeters
+  )
+  assert.ok(
+    jumpHalfWidthMeters > 0 && jumpHalfLengthMeters > 0,
+    'the gap jump has no extent'
+  )
 })
 
 test('the rock garden contributes per-position height variation', () => {
