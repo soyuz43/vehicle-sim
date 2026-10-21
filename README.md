@@ -109,7 +109,7 @@ Embedded callers can provide these options through `createSimulation({ terrainSe
 
 The terrain render grid follows the terrain size. It targets a 1.25 m sample spacing and is clamped to 256–512 subdivisions, so the 320 m proving ground renders at 256 subdivisions, the 400 m off-road course at 320 (1.25 m), a 500 m course at 400 (1.25 m), and a course of 640 m or more at the 512 subdivision cap (1.56 m at 800 m, 1.95 m at 1000 m). The measured mesh generation cost is about 0.28 s at 400 m, 0.45 s at 500 m, and 0.77 s at the 512 subdivision cap.
 
-The off-road obstacles are rendered as discrete primitive meshes on the terrain. The ground mesh carries the terrain only, so the obstacle footprint is no longer duplicated in the ground grid, and the physics contact query keeps sampling the obstacle-aware profile, so wheel contact on an obstacle is unchanged.
+The off-road obstacles are rendered as discrete primitive meshes on the terrain. The ground mesh carries the terrain only, so the obstacle footprint is no longer duplicated in the ground grid, and the physics contact query keeps sampling the obstacle-aware profile, so wheel contact on an obstacle is unchanged. A wheel contact inside an obstacle footprint raises the emissive of that obstacle mesh, and the highlight follows the obstacle to its live position while it is pushed.
 
 The same seed and configuration reproduce the same terrain heights, normals, surface kinds, and obstacle descriptors. Invalid direct configuration throws `TypeError` or `RangeError`; malformed URL option values are ignored in favor of defaults. This is finite terrain generation at selection time, not infinite streaming or terrain that regenerates while driving.
 
