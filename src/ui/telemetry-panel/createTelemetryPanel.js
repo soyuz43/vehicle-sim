@@ -179,27 +179,22 @@ export function createTelemetryPanel(config = {}) {
     valueDisplays.set('speed', speedVD);
     grid.appendChild(speedVD.element);
 
-    // Velocity components
-    const velRow = createHStack({ gap: 'var(--ui-space-md)', justify: 'space-between' });
-    const vxVD = createValueDisplay({ label: 'Vx', value: 0, unit: 'm/s', precision: 2, size: 'sm' });
-    const vyVD = createValueDisplay({ label: 'Vy', value: 0, unit: 'm/s', precision: 2, size: 'sm' });
-    const vzVD = createValueDisplay({ label: 'Vz', value: 0, unit: 'm/s', precision: 2, size: 'sm' });
-    valueDisplays.set('vx', vxVD); valueDisplays.set('vy', vyVD); valueDisplays.set('vz', vzVD);
-    velRow.appendChild(vxVD.element); velRow.appendChild(vyVD.element); velRow.appendChild(vzVD.element);
-    grid.appendChild(velRow);
+    // Forward velocity
+    const forwardVelocityVD = createValueDisplay({ label: 'Forward Velocity', value: 0, unit: 'm/s', precision: 2, size: 'sm' });
+    valueDisplays.set('forwardVelocity', forwardVelocityVD);
+    grid.appendChild(forwardVelocityVD.element);
 
     // Yaw
     const yawVD = createValueDisplay({ label: 'Yaw Rate', value: 0, unit: '°/s', precision: 1, size: 'sm' });
     valueDisplays.set('yawRate', yawVD);
     grid.appendChild(yawVD.element);
 
-    // Forces
+    // World force axes
     const forceRow = createHStack({ gap: 'var(--ui-space-md)', justify: 'space-between' });
-    const fxVD = createValueDisplay({ label: 'Fx', value: 0, unit: 'N', precision: 0, size: 'sm' });
-    const fyVD = createValueDisplay({ label: 'Fy', value: 0, unit: 'N', precision: 0, size: 'sm' });
-    const fzVD = createValueDisplay({ label: 'Fz', value: 0, unit: 'N', precision: 0, size: 'sm' });
-    valueDisplays.set('fx', fxVD); valueDisplays.set('fy', fyVD); valueDisplays.set('fz', fzVD);
-    forceRow.appendChild(fxVD.element); forceRow.appendChild(fyVD.element); forceRow.appendChild(fzVD.element);
+    const fxVD = createValueDisplay({ label: 'Longitudinal (World X)', value: 0, unit: 'N', precision: 0, size: 'sm' });
+    const fzVD = createValueDisplay({ label: 'Lateral (World Z)', value: 0, unit: 'N', precision: 0, size: 'sm' });
+    valueDisplays.set('fx', fxVD); valueDisplays.set('fz', fzVD);
+    forceRow.appendChild(fxVD.element); forceRow.appendChild(fzVD.element);
     grid.appendChild(forceRow);
 
     // Yaw moment
@@ -311,7 +306,7 @@ export function createTelemetryPanel(config = {}) {
     grid.appendChild(forceRow);
 
     // Load transfer
-    const loadVD = createValueDisplay({ label: 'Load Transfer', value: 0, unit: '%', precision: 1, size: 'sm' });
+    const loadVD = createValueDisplay({ label: 'Load Transfer', value: 0, unit: 'N', precision: 1, size: 'sm' });
     valueDisplays.set('loadTransfer', loadVD);
     grid.appendChild(loadVD.element);
 
@@ -373,13 +368,9 @@ export function createTelemetryPanel(config = {}) {
     valueDisplays.set('drag', dragVD);
     grid.appendChild(dragVD.element);
 
-    const downforceVD = createValueDisplay({ label: 'Downforce', value: 0, unit: 'N', precision: 0, size: 'sm' });
-    valueDisplays.set('downforce', downforceVD);
-    grid.appendChild(downforceVD.element);
-
-    const liftVD = createValueDisplay({ label: 'Lift', value: 0, unit: 'N', precision: 0, size: 'sm' });
-    valueDisplays.set('lift', liftVD);
-    grid.appendChild(liftVD.element);
+    const verticalAeroLoadVD = createValueDisplay({ label: 'Vertical Aero Load', value: 0, unit: 'N', precision: 0, size: 'sm' });
+    valueDisplays.set('verticalAeroLoad', verticalAeroLoadVD);
+    grid.appendChild(verticalAeroLoadVD.element);
 
     container.appendChild(grid);
   }
@@ -463,95 +454,90 @@ export function createTelemetryPanel(config = {}) {
   }
 
   // Update function
-  function update(snapshot = {}) {
-    const vehicle = snapshot.vehicleSnapshot ?? snapshot;
-    const forces = snapshot.forces ?? {};
-    const powertrain = snapshot.powertrain ?? {};
-    const powertrainKin = snapshot.powertrainKinematics ?? {};
-    const rearDiff = snapshot.rearDifferentialState ?? {};
-    const wheelStates = snapshot.wheelStates ?? [];
-    const lateralSlip = snapshot.lateralSlipSummary ?? {};
-    const lateralForce = snapshot.lateralTireForceSummary ?? {};
-    const loadTransfer = snapshot.loadTransferSummary ?? {};
-    const suspNormal = snapshot.suspensionNormalForceSummary ?? {};
-    const chassisAttitude = snapshot.chassisAttitude ?? {};
-    const slopeGravity = snapshot.slopeGravity ?? {};
+  function update(snapshot) {
+    const vehicle = snapshot.vehicleSnapshot;
+    const forces = snapshot.forces;
+    const powertrainKin = snapshot.powertrainKinematics;
+    const rearDiff = snapshot.rearDifferentialState;
+    const wheelStates = snapshot.wheelStates;
+    const loadTransfer = snapshot.loadTransferSummary;
+    const chassisAttitude = snapshot.chassisAttitude;
 
     // Chassis
-    valueDisplays.get('speed')?.setValue(vehicle.speedMetersPerSecond ?? 0);
-    valueDisplays.get('vx')?.setValue(vehicle.localVelocityX ?? 0);
-    valueDisplays.get('vy')?.setValue(vehicle.localVelocityY ?? 0);
-    valueDisplays.get('vz')?.setValue(vehicle.localVelocityZ ?? 0);
-    valueDisplays.get('yawRate')?.setValue((vehicle.yawRateRadPerSec ?? 0) * 180 / Math.PI);
-    valueDisplays.get('fx')?.setValue(forces.totalForceX ?? 0);
-    valueDisplays.get('fy')?.setValue(forces.totalForceY ?? 0);
-    valueDisplays.get('fz')?.setValue(forces.totalForceZ ?? 0);
-    valueDisplays.get('yawMoment')?.setValue(forces.yawMoment ?? 0);
-    valueDisplays.get('mass')?.setValue(vehicle.massKg ?? 0);
+    valueDisplays.get('speed')?.setValue(vehicle.speedMetersPerSecond);
+    valueDisplays.get('forwardVelocity')?.setValue(vehicle.localForwardVelocityMetersPerSecond);
+    valueDisplays.get('yawRate')?.setValue(vehicle.yawRateRadiansPerSecond * 180 / Math.PI);
+    valueDisplays.get('fx')?.setValue(forces.netForceWorldXNewtons);
+    valueDisplays.get('fz')?.setValue(forces.netForceWorldZNewtons);
+    valueDisplays.get('yawMoment')?.setValue(forces.yawMomentNewtonMeters);
+    valueDisplays.get('mass')?.setValue(vehicle.chassisMassProperties.massKilograms);
 
     // Powertrain
-    const engineRpm = powertrainKin.engineRpm ?? powertrain.engineRpm ?? 0;
+    const engineRpm = powertrainKin.estimatedEngineRpm;
     valueDisplays.get('engineRpm')?.setValue(engineRpm);
     gauges.get('rpm')?.setValue(engineRpm);
-    valueDisplays.get('gear')?.setValue(vehicle.gear ?? 1);
-    valueDisplays.get('throttle')?.setValue(vehicle.throttle ?? 0);
-    valueDisplays.get('brake')?.setValue(vehicle.brake ?? 0);
-    valueDisplays.get('driveTorque')?.setValue(powertrain.driveTorqueNm ?? 0);
+    valueDisplays.get('gear')?.setValue(vehicle.gear);
+    valueDisplays.get('throttle')?.setValue(vehicle.throttleInput);
+    valueDisplays.get('brake')?.setValue(vehicle.brakeInput);
+    valueDisplays.get('driveTorque')?.setValue(vehicle.totalAxleDriveTorqueNewtonMeters);
     valueDisplays.get('diff')?.setValue(
-      `${rearDiff.rearDifferentialType ?? 'open'} L${Math.round((rearDiff.rearDifferentialLeftShare01 ?? 0.5) * 100)}% R${Math.round((1 - (rearDiff.rearDifferentialLeftShare01 ?? 0.5)) * 100)}%`
+      rearDiff.rearDifferentialType + ' L' + Math.round(rearDiff.rearDifferentialLeftShare01 * 100) + '% R' + Math.round((1 - rearDiff.rearDifferentialLeftShare01) * 100) + '%'
     );
 
     // Tires
     let maxLongSlip = 0, maxLatSlip = 0;
     for (const ws of wheelStates) {
       if (ws.longitudinalSlipRatioAbs > maxLongSlip) maxLongSlip = ws.longitudinalSlipRatioAbs;
-      if (ws.lateralSlipAngleDeg > maxLatSlip) maxLatSlip = ws.lateralSlipAngleDeg;
+      if (ws.lateralSlipAngleDegrees > maxLatSlip) maxLatSlip = ws.lateralSlipAngleDegrees;
     }
     valueDisplays.get('longSlip')?.setValue(maxLongSlip);
     valueDisplays.get('latSlip')?.setValue(maxLatSlip);
 
     for (const ws of wheelStates) {
-      valueDisplays.get(`slip-${ws.id}`)?.setValue(ws.longitudinalSlipRatioAbs ?? 0);
+      valueDisplays.get('slip-' + ws.id)?.setValue(ws.longitudinalSlipRatioAbs);
     }
 
     let totalFx = 0, totalFy = 0;
     for (const ws of wheelStates) {
-      totalFx += ws.tireForceX ?? 0;
-      totalFy += ws.tireForceY ?? 0;
+      totalFx += ws.appliedLongitudinalForceNewtons;
+      totalFy += ws.appliedLateralTireForceNewtons;
     }
     valueDisplays.get('tireFx')?.setValue(totalFx);
     valueDisplays.get('tireFy')?.setValue(totalFy);
 
-    valueDisplays.get('loadTransfer')?.setValue(loadTransfer.longitudinalTransferPercent ?? 0);
+    valueDisplays.get('loadTransfer')?.setValue(loadTransfer.totalLongitudinalTransferAbsNewtons);
 
     for (const ws of wheelStates) {
-      valueDisplays.get(`fz-${ws.id}`)?.setValue(ws.normalForceNewtons ?? 0);
+      valueDisplays.get('fz-' + ws.id)?.setValue(ws.normalForceNewtons);
     }
 
     // Brakes
-    valueDisplays.get('brakePressure')?.setValue(vehicle.brake ?? 0);
-    valueDisplays.get('brakeBias')?.setValue(`${Math.round((vehicle.brakeBiasFront ?? 0.65) * 100)}% / ${Math.round((1 - (vehicle.brakeBiasFront ?? 0.65)) * 100)}%`);
-    valueDisplays.get('absActive')?.setValue(vehicle.absActive === true);
+    valueDisplays.get('brakePressure')?.setValue(vehicle.brakeInput);
+    const frontBrakeBias01 = vehicle.spec.serviceBrakeFrontBias01;
+    valueDisplays.get('brakeBias')?.setValue(
+      Math.round(frontBrakeBias01 * 100) + '% / ' + Math.round((1 - frontBrakeBias01) * 100) + '%'
+    );
+    valueDisplays.get('absActive')?.setValue(vehicle.serviceBrakeAbsSummary.activeWheelCount > 0);
 
     for (const ws of wheelStates) {
-      valueDisplays.get(`bt-${ws.id}`)?.setValue(ws.appliedServiceBrakeTorqueNewtonMeters ?? 0);
+      valueDisplays.get('bt-' + ws.id)?.setValue(ws.appliedServiceBrakeTorqueNewtonMeters);
     }
 
     // Aero
-    valueDisplays.get('drag')?.setValue(forces.aeroDragForce ?? 0);
-    valueDisplays.get('downforce')?.setValue(forces.aeroDownforce ?? 0);
-    valueDisplays.get('lift')?.setValue(forces.aeroLift ?? 0);
+    valueDisplays.get('drag')?.setValue(forces.aerodynamicDragForceNewtons);
+    let totalVerticalAeroLoadNewtons = 0;
+    for (const ws of wheelStates) {
+      totalVerticalAeroLoadNewtons += ws.aeroVerticalForceNewtons;
+    }
+    valueDisplays.get('verticalAeroLoad')?.setValue(totalVerticalAeroLoadNewtons);
 
     // Suspension
-    valueDisplays.get('rideHeight')?.setValue(chassisAttitude.heaveMeters ?? 0);
+    valueDisplays.get('rideHeight')?.setValue(chassisAttitude.heaveOffsetMeters);
     for (const ws of wheelStates) {
-      valueDisplays.get(`travel-${ws.id}`)?.setValue(ws.suspensionTravelMeters ?? 0);
-      valueDisplays.get(`spring-${ws.id}`)?.setValue(ws.suspensionForceNewtons ?? 0);
+      valueDisplays.get('travel-' + ws.id)?.setValue(ws.suspensionTravelMeters);
+      valueDisplays.get('spring-' + ws.id)?.setValue(ws.springForceNewtons);
     }
   }
-
-  // Initial render
-  update({});
 
   // Mobile bottom sheet
   let mobileSheet = null;
