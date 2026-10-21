@@ -8,6 +8,12 @@ import {
   resolveSurfaceProperties,
   SURFACE_MATERIAL_KINDS,
 } from './createSurfaceMaterialCatalog.js'
+import { createOffroadTerrainGenerationConfig } from './createOffroadTerrainGenerationConfig.js'
+import {
+  createSeededRandom,
+  createSeededTerrainNoise,
+  hashTerrainSeed,
+} from './seededTerrainNoise.js'
 
 const DEFAULT_TERRAIN_SIZE_METERS = 320
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
@@ -183,156 +189,225 @@ function createEnhancedSurfaceResult() {
  * Adds jump ramps, rock garden bumps, and terrain variation.
  */
 export function createOffroadPlaygroundHeightEvaluator(config = {}) {
-  const sizeMeters = config.sizeMeters ?? 400
+  const generationConfig = config.generationConfig ?? createOffroadTerrainGenerationConfig({
+    ...config,
+    roughnessMeters: config.roughnessMeters ?? config.noiseAmplitude,
+  })
+  const { sizeMeters, featureScale, roughnessMeters, seed } = generationConfig
   const halfSize = sizeMeters * 0.5
+  const courseScale = featureScale * (sizeMeters / 400)
   const jumpScale = config.jumpScale ?? 1.0
   const rockGardenScale = config.rockGardenScale ?? 1.0
-  const noiseScale = config.noiseScale ?? 0.02
-  const noiseAmplitude = config.noiseAmplitude ?? 0.05
+  const noiseScale = config.noiseScale ?? 0.02 / featureScale
+  const seededNoise = seed === null
+    ? null
+    : createSeededTerrainNoise(`${seed}:height`, noiseScale)
+  const courseOffsets = createOffroadCourseOffsets(seed, courseScale)
+  const rockNoiseSeed = seed === null ? 12345 : hashTerrainSeed(`${seed}:rocks`)
 
   return function offroadPlaygroundHeightEvaluator(worldXMeters, worldZMeters, baseHeightMeters) {
     let heightMeters = baseHeightMeters
 
-    // 1. Starting ramp (gentle incline from spawn)
-    const startRampZone = smoothStep(worldZMeters, -halfSize, -halfSize + 30)
-    heightMeters += startRampZone * 0.5 * (1 + Math.sin((worldZMeters + halfSize) * 0.1)) * jumpScale
+    const startRampZone = smoothStep(
+      worldZMeters,
+      -halfSize,
+      -halfSize + 30 * courseScale
+    )
+    heightMeters +=
+      startRampZone *
+      0.5 * courseScale *
+      (1 + Math.sin(((worldZMeters + halfSize) * 0.1) / courseScale)) *
+      jumpScale
 
-    // 2. Jump ramp 1 - Tabletop jump at Z ≈ -120
-    heightMeters += tabletopJump(worldXMeters, worldZMeters, 0, -halfSize + 120, 15, 8, 1.2 * jumpScale)
+    heightMeters += tabletopJump(
+      worldXMeters,
+      worldZMeters,
+      courseOffsets.xMeters,
+      -halfSize + 120 * courseScale + courseOffsets.zMeters,
+      15 * courseScale,
+      8 * courseScale,
+      1.2 * jumpScale * courseScale
+    )
+    heightMeters += stepUpJump(
+      worldXMeters,
+      worldZMeters,
+      courseOffsets.xMeters,
+      -halfSize + 180 * courseScale + courseOffsets.zMeters,
+      12 * courseScale,
+      6 * courseScale,
+      0.8 * jumpScale * courseScale
+    )
+    heightMeters += gapJump(
+      worldXMeters,
+      worldZMeters,
+      courseOffsets.xMeters,
+      -halfSize + 240 * courseScale + courseOffsets.zMeters,
+      10 * courseScale,
+      5 * courseScale,
+      1.0 * jumpScale * courseScale
+    )
 
-    // 3. Jump ramp 2 - Step-up jump at Z ≈ -40
-    heightMeters += stepUpJump(worldXMeters, worldZMeters, 0, -halfSize + 180, 12, 6, 0.8 * jumpScale)
-
-    // 4. Jump ramp 3 - Gap jump at Z ≈ 60
-    heightMeters += gapJump(worldXMeters, worldZMeters, 0, -halfSize + 240, 10, 5, 1.0 * jumpScale)
-
-    // 5. Rock garden bumps (irregular, high-frequency variation)
-    const rockGardenZone = smoothStep(worldZMeters, -halfSize + 100, -halfSize + 200) *
-                           smoothStep(worldXMeters, -halfSize + 10, 10) // Left side rock garden
+    const rockGardenZone = smoothStep(
+      worldZMeters,
+      -halfSize + 100 * courseScale + courseOffsets.zMeters,
+      -halfSize + 200 * courseScale + courseOffsets.zMeters
+    ) * smoothStep(
+      worldXMeters,
+      -halfSize + 10 * courseScale + courseOffsets.xMeters,
+      10 * courseScale + courseOffsets.xMeters
+    )
     if (rockGardenZone > 0) {
-      heightMeters += rockGardenZone * rockGardenBumps(worldXMeters, worldZMeters) * rockGardenScale
+      heightMeters +=
+        rockGardenZone *
+        rockGardenBumps(worldXMeters, worldZMeters, rockNoiseSeed) *
+        rockGardenScale *
+        courseScale
     }
 
-    // 6. Mud pit depression (lowered area)
-    const mudPitZone = smoothStep(worldZMeters, -halfSize + 100, -halfSize + 160) *
-                       smoothStep(worldXMeters, -15, 15)
-    heightMeters -= mudPitZone * 0.3
+    const mudPitZone = smoothStep(
+      worldZMeters,
+      -halfSize + 100 * courseScale + courseOffsets.zMeters,
+      -halfSize + 160 * courseScale + courseOffsets.zMeters
+    ) * smoothStep(
+      worldXMeters,
+      -15 * courseScale + courseOffsets.xMeters,
+      15 * courseScale + courseOffsets.xMeters
+    )
+    heightMeters -= mudPitZone * 0.3 * courseScale
 
-    // 7. Sand trap depression
-    const sandTrapZone = smoothStep(worldZMeters, -halfSize + 200, -halfSize + 260) *
-                         smoothStep(worldXMeters, -halfSize + 10, halfSize - 10)
-    heightMeters -= sandTrapZone * 0.2
+    const sandTrapZone = smoothStep(
+      worldZMeters,
+      -halfSize + 200 * courseScale + courseOffsets.zMeters,
+      -halfSize + 260 * courseScale + courseOffsets.zMeters
+    ) * smoothStep(
+      worldXMeters,
+      -halfSize + 10 * courseScale + courseOffsets.xMeters,
+      halfSize - 10 * courseScale + courseOffsets.xMeters
+    )
+    heightMeters -= sandTrapZone * 0.2 * courseScale
 
-    // 8. Natural terrain noise (Perlin-like using multiple sine waves)
-    heightMeters += terrainNoise(worldXMeters, worldZMeters, noiseScale, noiseAmplitude)
+    const naturalNoise = seededNoise
+      ? seededNoise(worldXMeters, worldZMeters) * roughnessMeters
+      : terrainNoise(worldXMeters, worldZMeters, noiseScale, roughnessMeters)
+    heightMeters += naturalNoise
 
-    // 9. Whoops section (rhythmic bumps)
-    const whoopsZone = smoothStep(worldZMeters, -halfSize + 280, -halfSize + 340)
-    heightMeters += whoopsZone * whoopsPattern(worldZMeters, 3.0, 0.15)
+    const whoopsZone = smoothStep(
+      worldZMeters,
+      -halfSize + 280 * courseScale + courseOffsets.zMeters,
+      -halfSize + 340 * courseScale + courseOffsets.zMeters
+    )
+    heightMeters +=
+      whoopsZone *
+      whoopsPattern(
+        worldZMeters - courseOffsets.zMeters,
+        3.0 * courseScale,
+        0.15 * courseScale
+      )
 
-    // 10. Exit ramp
-    const exitRampZone = smoothStep(worldZMeters, halfSize - 40, halfSize)
-    heightMeters -= exitRampZone * 0.5
+    const exitRampZone = smoothStep(
+      worldZMeters,
+      halfSize - 40 * courseScale,
+      halfSize
+    )
+    heightMeters -= exitRampZone * 0.5 * courseScale
 
     return heightMeters
   }
 }
 
-/**
- * Create a terrain profile with procedurally generated surface regions
- * for a 4x4 playground with rock gardens, jumps, and varied surfaces.
- */
 export function createOffroadPlaygroundProfile(config = {}) {
-  const sizeMeters = config.sizeMeters ?? 400
+  const generationConfig = createOffroadTerrainGenerationConfig({
+    ...config,
+    roughnessMeters: config.roughnessMeters ?? config.noiseAmplitude,
+  })
+  const { sizeMeters, featureScale, seed } = generationConfig
   const halfSize = sizeMeters * 0.5
+  const courseScale = featureScale * (sizeMeters / 400)
+  const courseOffsets = createOffroadCourseOffsets(seed, courseScale)
 
-  // Define surface regions for the playground
   const surfaceRegions = [
-    // Starting area - asphalt
     {
       kind: SURFACE_MATERIAL_KINDS.ASPHALT,
       minXMeters: -halfSize,
       maxXMeters: halfSize,
       minZMeters: -halfSize,
-      maxZMeters: -halfSize + 40,
+      maxZMeters: -halfSize + 40 * courseScale,
       frictionCoefficient: 0.95,
     },
-    // Gravel section
     {
       kind: SURFACE_MATERIAL_KINDS.GRAVEL,
-      minXMeters: -30,
-      maxXMeters: 30,
-      minZMeters: -halfSize + 40,
-      maxZMeters: -halfSize + 100,
+      minXMeters: -30 * courseScale + courseOffsets.xMeters,
+      maxXMeters: 30 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 40 * courseScale + courseOffsets.zMeters,
+      maxZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.55,
     },
-    // Rock garden - left side
     {
       kind: SURFACE_MATERIAL_KINDS.ROCK,
-      minXMeters: -halfSize + 10,
-      maxXMeters: -10,
-      minZMeters: -halfSize + 100,
-      maxZMeters: -halfSize + 200,
+      minXMeters: -halfSize + 10 * courseScale + courseOffsets.xMeters,
+      maxXMeters: -10 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
+      maxZMeters: -halfSize + 200 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.85,
     },
-    // Mud pit - center
     {
       kind: SURFACE_MATERIAL_KINDS.MUD,
-      minXMeters: -15,
-      maxXMeters: 15,
-      minZMeters: -halfSize + 100,
-      maxZMeters: -halfSize + 160,
+      minXMeters: -15 * courseScale + courseOffsets.xMeters,
+      maxXMeters: 15 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
+      maxZMeters: -halfSize + 160 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.25,
     },
-    // Grass area - right side
     {
       kind: SURFACE_MATERIAL_KINDS.GRASS,
-      minXMeters: 10,
-      maxXMeters: halfSize - 10,
-      minZMeters: -halfSize + 100,
-      maxZMeters: -halfSize + 200,
+      minXMeters: 10 * courseScale + courseOffsets.xMeters,
+      maxXMeters: halfSize - 10 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 100 * courseScale + courseOffsets.zMeters,
+      maxZMeters: -halfSize + 200 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.55,
     },
-    // Sand trap
     {
       kind: SURFACE_MATERIAL_KINDS.SAND,
-      minXMeters: -halfSize + 10,
-      maxXMeters: halfSize - 10,
-      minZMeters: -halfSize + 200,
-      maxZMeters: -halfSize + 260,
+      minXMeters: -halfSize + 10 * courseScale + courseOffsets.xMeters,
+      maxXMeters: halfSize - 10 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 200 * courseScale + courseOffsets.zMeters,
+      maxZMeters: -halfSize + 260 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.4,
     },
-    // Dirt trail
     {
       kind: SURFACE_MATERIAL_KINDS.DIRT,
-      minXMeters: -halfSize + 10,
-      maxXMeters: halfSize - 10,
-      minZMeters: -halfSize + 260,
-      maxZMeters: halfSize - 10,
+      minXMeters: -halfSize + 10 * courseScale + courseOffsets.xMeters,
+      maxXMeters: halfSize - 10 * courseScale + courseOffsets.xMeters,
+      minZMeters: -halfSize + 260 * courseScale + courseOffsets.zMeters,
+      maxZMeters: halfSize - 10 * courseScale + courseOffsets.zMeters,
       frictionCoefficient: 0.55,
     },
   ]
 
   const heightEvaluator = createOffroadPlaygroundHeightEvaluator({
-    sizeMeters,
-    jumpScale: config.jumpScale ?? 1.0,
-    rockGardenScale: config.rockGardenScale ?? 1.0,
-    noiseScale: config.noiseScale ?? 0.02,
-    noiseAmplitude: config.noiseAmplitude ?? 0.05,
+    ...config,
+    generationConfig,
   })
-
-  const profileConfig = {
+  const profile = createEnhancedTerrainSurfaceProfile({
     ...config,
     sizeMeters,
     profileName: 'offroad-playground-v1',
     surfaceRegions,
     surfaceMaterialCatalog: config.surfaceMaterialCatalog ?? DEFAULT_SURFACE_MATERIAL_CATALOG,
     customHeightEvaluator: heightEvaluator,
-  }
-
-  return createEnhancedTerrainSurfaceProfile(profileConfig)
+  })
+  profile.generationConfig = generationConfig
+  return profile
 }
 
+function createOffroadCourseOffsets(seed, courseScale) {
+  if (seed === null) return { xMeters: 0, zMeters: 0 }
+  const random = createSeededRandom(`${seed}:layout`)
+  return {
+    xMeters: (random() - 0.5) * 16 * courseScale,
+    zMeters: (random() - 0.5) * 12 * courseScale,
+  }
+}
 // Helper functions for procedural terrain generation
 
 function smoothStep(value, edge0, edge1) {
@@ -375,10 +450,9 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
 }
 
-function rockGardenBumps(worldX, worldZ) {
+function rockGardenBumps(worldX, worldZ, seed = 12345) {
   // Multiple overlapping cosine bumps for irregular rock garden feel
   let height = 0
-  const seed = 12345
   // Use deterministic pseudo-random based on position
   const hash = (x, z) => {
     const h = Math.sin(x * 12.9898 + z * 78.233 + seed) * 43758.5453

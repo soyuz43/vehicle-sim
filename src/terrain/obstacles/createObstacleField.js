@@ -23,6 +23,7 @@ import {
   resolveSurfaceFrictionCoefficient,
   SURFACE_MATERIAL_KINDS,
 } from '../createSurfaceMaterialCatalog.js'
+import { createSeededRandom } from '../seededTerrainNoise.js'
 
 const DEFAULT_EDGE_RAMP_METERS = 0.25
 
@@ -54,7 +55,7 @@ export function createObstacleField(config = {}) {
     DEFAULT_EDGE_RAMP_METERS
   )
   const obstacleDescriptors = normalizeObstacles(
-    config.obstacles ?? defaultObstacles()
+    config.obstacles ?? defaultObstacles(config)
   )
 
   // Returns the highest obstacle top LOCAL height (above its base) at (x,z),
@@ -247,21 +248,105 @@ function accumulateMassInertiaBox(descriptor) {
     (1 / 12) * descriptor.massKg * (sx * sx + sz * sz)
 }
 
-function defaultObstacles() {
-  return [
-    // Boulder domes on the left rock-garden approach.
+function defaultObstacles(config = {}) {
+  const defaultDescriptors = [
     { id: 'rock-dome-1', shape: 'dome', centerXMeters: -18, centerZMeters: 18, radiusMeters: 0.9, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
     { id: 'rock-dome-2', shape: 'dome', centerXMeters: -10, centerZMeters: 26, radiusMeters: 0.6, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
     { id: 'rock-dome-3', shape: 'dome', centerXMeters: -22, centerZMeters: 34, radiusMeters: 1.1, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
     { id: 'rock-dome-4', shape: 'dome', centerXMeters: -6, centerZMeters: 40, radiusMeters: 0.5, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
-    // Concrete blocks on the open dirt trail.
     { id: 'block-1', shape: 'box', centerXMeters: 12, centerZMeters: 30, halfExtentXMeters: 0.6, halfExtentZMeters: 0.6, heightMeters: 0.5, surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE },
     { id: 'block-2', shape: 'box', centerXMeters: 16, centerZMeters: 48, halfExtentXMeters: 0.8, halfExtentZMeters: 0.5, heightMeters: 0.6, surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE },
     { id: 'block-3', shape: 'cylinder', centerXMeters: 4, centerZMeters: 60, radiusMeters: 0.5, heightMeters: 0.7, surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE },
     { id: 'rock-dome-5', shape: 'dome', centerXMeters: -2, centerZMeters: 70, radiusMeters: 0.8, surfaceKind: SURFACE_MATERIAL_KINDS.ROCK },
   ]
-}
+  const obstacleDensity = Number.isFinite(config.obstacleDensity)
+    ? Math.min(4, Math.max(0, config.obstacleDensity))
+    : 1
+  const sizeMeters = Number.isFinite(config.sizeMeters) && config.sizeMeters > 0
+    ? config.sizeMeters
+    : 400
+  const featureScale = Number.isFinite(config.featureScale) && config.featureScale > 0
+    ? config.featureScale
+    : 1
+  if (
+    config.seed == null &&
+    obstacleDensity === 1 &&
+    sizeMeters === 400 &&
+    featureScale === 1
+  ) {
+    return defaultDescriptors
+  }
 
+  const count = Math.round(defaultDescriptors.length * obstacleDensity)
+  if (count === 0) return []
+  const courseScale = featureScale * (sizeMeters / 400)
+  const random = createSeededRandom(config.seed ?? 'offroad-obstacle-layout-v1')
+  const generatedDescriptors = []
+
+  for (let index = 0; index < count; index += 1) {
+    if (index < defaultDescriptors.length) {
+      const descriptor = defaultDescriptors[index]
+      generatedDescriptors.push({
+        ...descriptor,
+        centerXMeters:
+          descriptor.centerXMeters * courseScale + (random() - 0.5) * 5 * courseScale,
+        centerZMeters:
+          descriptor.centerZMeters * courseScale + (random() - 0.5) * 4 * courseScale,
+        radiusMeters: descriptor.radiusMeters
+          ? descriptor.radiusMeters * featureScale
+          : undefined,
+        heightMeters: descriptor.heightMeters
+          ? descriptor.heightMeters * featureScale
+          : undefined,
+        halfExtentXMeters: descriptor.halfExtentXMeters
+          ? descriptor.halfExtentXMeters * featureScale
+          : undefined,
+        halfExtentZMeters: descriptor.halfExtentZMeters
+          ? descriptor.halfExtentZMeters * featureScale
+          : undefined,
+      })
+      continue
+    }
+
+    const shapeRoll = random()
+    const centerXMeters = (random() * 56 - 28) * courseScale
+    const centerZMeters = (18 + random() * 52) * courseScale
+    const obstacleId = `procedural-obstacle-${index + 1}`
+    if (shapeRoll < 0.65) {
+      generatedDescriptors.push({
+        id: obstacleId,
+        shape: 'dome',
+        centerXMeters,
+        centerZMeters,
+        radiusMeters: (0.4 + random() * 0.8) * featureScale,
+        surfaceKind: SURFACE_MATERIAL_KINDS.ROCK,
+      })
+    } else if (shapeRoll < 0.85) {
+      generatedDescriptors.push({
+        id: obstacleId,
+        shape: 'cylinder',
+        centerXMeters,
+        centerZMeters,
+        radiusMeters: (0.4 + random() * 0.5) * featureScale,
+        heightMeters: (0.4 + random() * 0.6) * featureScale,
+        surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+      })
+    } else {
+      generatedDescriptors.push({
+        id: obstacleId,
+        shape: 'box',
+        centerXMeters,
+        centerZMeters,
+        halfExtentXMeters: (0.4 + random() * 0.4) * featureScale,
+        halfExtentZMeters: (0.4 + random() * 0.4) * featureScale,
+        heightMeters: (0.4 + random() * 0.6) * featureScale,
+        surfaceKind: SURFACE_MATERIAL_KINDS.CONCRETE,
+      })
+    }
+  }
+
+  return generatedDescriptors
+}
 function sanitizeNonNegativeNumber(value, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback
 }

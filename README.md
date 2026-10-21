@@ -85,6 +85,26 @@
 - Slope-aware contact geometry maintaining consistent tire radius
 - Normal-force-weighted slope gravity component
 
+### Procedural Off-road Terrain
+The proving-ground profile is unchanged. Off-road mode with its default configuration and no seed retains the established course; adding a seed selects a repeatable variation of its height, surface-region placement, and generated obstacle layout. The generated heightfield remains a pure world-coordinate sample, so query order does not affect results. Deformation remains a separate runtime layer.
+
+A seeded configuration can be selected through the URL:
+
+```text
+?terrain=offroad&seed=granite-run-04&terrainSizeMeters=500&featureScale=1.2&roughnessMeters=0.12&obstacleDensity=2&water=true
+```
+
+- `seed`: optional string (1–128 trimmed characters) or safe integer; omitting it preserves the legacy course.
+- `terrainSizeMeters`: square terrain width and depth, centered at the world origin. Programmatic configuration may instead supply matching square `boundsMeters`.
+- `featureScale`: positive, unitless scale for the course features.
+- `roughnessMeters`: non-negative amplitude for the terrain variation.
+- `obstacleDensity`: multiplier from 0 to 4 relative to the default obstacle count; explicitly supplied obstacle descriptors take precedence.
+- `water=true` enables the water surface for off-road mode; `terrain=offroad-water` also enables it.
+
+Embedded callers can provide these options through `createSimulation({ terrainSelectionConfig: { offroadGenerationConfig: { ... } } })`. Programmatic bounds use `{ minXMeters, maxXMeters, minZMeters, maxZMeters }` and must describe a square centered at the origin.
+
+The same seed and configuration reproduce the same terrain heights, normals, surface kinds, and obstacle descriptors. Invalid direct configuration throws `TypeError` or `RangeError`; malformed URL option values are ignored in favor of defaults. This is finite terrain generation at selection time, not infinite streaming or terrain that regenerates while driving.
+
 ## Visualization
 - Toroidal tire geometry with pressure/load-responsive deformation
 - Independent wheel kinematics following suspension physics

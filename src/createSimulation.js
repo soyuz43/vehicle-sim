@@ -33,7 +33,10 @@ export function createSimulation(deps = {}) {
     createDefaultVehicleObstacleInteraction
 
   const terrainDeformation = createTerrainDeformation()
-  const terrainSelection = createTerrainSelection({ deformationField: terrainDeformation })
+  const terrainSelection = createTerrainSelection({
+    ...deps.terrainSelectionConfig,
+    deformationField: terrainDeformation,
+  })
   const terrainSurfaceProfile = terrainSelection.surfaceProfile
   const terrain = createTerrain({ surfaceProfile: terrainSurfaceProfile })
   scene.add(terrain)
@@ -59,7 +62,10 @@ export function createSimulation(deps = {}) {
 
   let waterVisuals = null
   if (terrainSelection.waterSurface) {
-    waterVisuals = createWaterVisuals(terrainSelection.waterSurface)
+    waterVisuals = createWaterVisuals(
+      terrainSelection.waterSurface,
+      terrainSelection.generationConfig?.sizeMeters
+    )
     scene.add(waterVisuals.mesh)
   }
 
@@ -140,8 +146,13 @@ export function createSimulation(deps = {}) {
   return simulation
 }
 
-function createWaterVisuals(waterSurface) {
-  const waterGeometry = new THREE.PlaneGeometry(200, 200, 1, 1)
+function createWaterVisuals(waterSurface, terrainSizeMeters = 200) {
+  const waterGeometry = new THREE.PlaneGeometry(
+    terrainSizeMeters,
+    terrainSizeMeters,
+    1,
+    1
+  )
   const waterMaterial = new THREE.MeshStandardMaterial({
     color: 0x0077be,
     transparent: true,
