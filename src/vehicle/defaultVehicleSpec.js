@@ -121,11 +121,11 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // This is not drivetrain inertia or a full rotating assembly model.
   wheelInertiaKgMeterSquared: 1.2,
 
-  // === Phase 4 powertrain-depth seam (all disabled by default) ================
+  // === Phase 4 powertrain-depth seam ==========================================
   // Automatic gear selection picks a forward gear from a speed/RPM band and
-  // applies that gear's ratio to torque multiplication. Disabled by default so
-  // the validated representative fixed-ratio behavior is preserved.
-  automaticTransmissionEnabled: false,
+  // applies that gear's ratio to torque multiplication. Enabled by default for
+  // the baseline automatic-6 transmission profile.
+  automaticTransmissionEnabled: true,
   automaticTransmissionDownshiftRpm: 1500,
   // Clutch engagement models a scalar coupling factor [0,1] between engine and
   // wheels (launch/shift slip). When disabled the clutch is treated as always

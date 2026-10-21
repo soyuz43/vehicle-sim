@@ -6,6 +6,10 @@ export const REAR_DIFFERENTIAL_TYPES = Object.freeze({
   LIMITED_SLIP: 'limited-slip',
   TORSEN: 'torsen',
   LOCKED: 'locked',
+  // Deprecated: `welded` was exposed to users as a distinct option but shared
+  // identical physics with `locked`. Removed from the UI control panel; kept
+  // here for backward compat with any persisted configs or snapshots that still
+  // reference it. New code should use `locked`.
   WELDED: 'welded',
 })
 

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { createCar } from '../src/car/createCar.js'
 import { createVehicleController } from '../src/vehicle/createVehicleController.js'
 import { createFlatTerrainContactQuery } from '../src/terrain/createFlatTerrainContactQuery.js'
+import { DEFAULT_VEHICLE_SPEC } from '../src/vehicle/defaultVehicleSpec.js'
 
 const DT = 1 / 60
 const FIRST_GEAR_RATIO = 4.17 * 3.2 // automatic-6 first gear * final drive
@@ -23,8 +24,12 @@ function rearDriveTorque(snapshot) {
     .reduce((sum, w) => sum + Math.abs(w.requestedDriveTorqueNewtonMeters), 0)
 }
 
-test('automatic transmission upshifts to a higher gear under acceleration', () => {
-  const controller = makeController({ automaticTransmissionEnabled: true })
+test('default vehicle spec enables automatic gear selection', () => {
+  assert.equal(DEFAULT_VEHICLE_SPEC.automaticTransmissionEnabled, true)
+})
+
+test('default automatic transmission upshifts to a higher gear under acceleration', () => {
+  const controller = makeController()
   for (let i = 0; i < 160; i += 1) controller.update(DT, { throttle: true })
   const snap = controller.getSnapshot()
   assert.ok(snap.speedMetersPerSecond > 1, `expected motion, got ${snap.speedMetersPerSecond}`)
@@ -39,7 +44,7 @@ test('automatic transmission upshifts to a higher gear under acceleration', () =
 })
 
 test('automatic transmission is inert when disabled (first gear representative)', () => {
-  const controller = makeController({})
+  const controller = makeController({ automaticTransmissionEnabled: false })
   for (let i = 0; i < 160; i += 1) controller.update(DT, { throttle: true })
   const snap = controller.getSnapshot()
   assert.equal(snap.selectedForwardGearIndex, 0)

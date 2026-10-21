@@ -302,8 +302,8 @@ const BRAKES_COMPONENTS = Object.freeze({
     id: 'brakes-big',
     label: 'Big Brake Kit',
     description:
-      '2000 Nm service brake torque and 20000 N budget; heaviest decel ' +
-      'authority, at the cost of added unsprung mass behavior via torque.',
+      'Bigger discs provide 2000 Nm service brake torque and a 20000 N budget, ' +
+      'with higher thermal capacity for sustained braking.',
     spec: {
       maxServiceBrakeTorqueNewtonMeters: 2000,
       maxBrakeForceNewtons: 20000,
@@ -322,7 +322,6 @@ const AERO_COMPONENTS = Object.freeze({
       dragCoefficient: 0.32,
       frontalAreaSquareMeters: 2.2,
       aeroDownforceEnabled: false,
-      aeroDownforceCoefficientNewtonsPerMeterSquared: 3.0,
       aeroLiftCoefficientNewtonsPerMeterSquared: 0,
     },
   },
@@ -330,13 +329,12 @@ const AERO_COMPONENTS = Object.freeze({
     id: 'aero-slippery',
     label: 'Slippery',
     description:
-      'Reduced drag coefficient and frontal area with mild downforce for ' +
+      'Reduced drag coefficient and frontal area, with downforce disabled for ' +
       'lower high-speed resistance.',
     spec: {
       dragCoefficient: 0.27,
       frontalAreaSquareMeters: 1.9,
       aeroDownforceEnabled: false,
-      aeroDownforceCoefficientNewtonsPerMeterSquared: 5.0,
       aeroLiftCoefficientNewtonsPerMeterSquared: 0,
     },
   },

@@ -104,12 +104,30 @@ test("wheel integrator consumes the requested torque directly and derives force 
 })
 
 test("redline taper limits the active torque during a sustained launch", () => {
-  const controller = createVehicleController({ vehicle: createCar() })
+  // Auto-shift is off in this spec so the redline taper can be tested in isolation; see 2b9c333 which flipped the default to true.
+  const controller = createVehicleController({
+    vehicle: createCar(),
+    spec: { automaticTransmissionEnabled: false },
+  })
   const { sawRedlineLimit, minRedlineMultiplier } = launch(controller, 180)
 
   assert.ok(sawRedlineLimit, "redline torque limiting engaged")
   assert.ok(minRedlineMultiplier < 1, "redline multiplier dropped below 1")
   assert.ok(minRedlineMultiplier >= 0)
+})
+
+test("auto-shift upshifts before the engine reaches the taper threshold under acceleration", () => {
+  const controller = createVehicleController({
+    vehicle: createCar(),
+    spec: { automaticTransmissionEnabled: true },
+  })
+  const initialGearIndex = controller.getSnapshot().selectedForwardGearIndex
+  const { snapshot } = launch(controller, 180)
+
+  assert.ok(
+    snapshot.selectedForwardGearIndex > initialGearIndex,
+    `expected gear index above ${initialGearIndex}, got ${snapshot.selectedForwardGearIndex}`
+  )
 })
 
 test("peak rear-wheel angular velocity stays materially below the old fixed-force launch", () => {

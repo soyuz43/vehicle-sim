@@ -26,7 +26,6 @@ const REAR_DIFF_OPTIONS = [
   { value: 'limited-slip', label: 'Limited-Slip' },
   { value: 'torsen', label: 'Torsen' },
   { value: 'locked', label: 'Locked' },
-  { value: 'welded', label: 'Welded' },
 ];
 
 const DEFAULT_CONFIG = {
