@@ -44,16 +44,7 @@ export function runRenderFrame(deps, deltaSeconds) {
     uiRefreshAccumulatorSeconds %= uiRefreshIntervalSeconds
     uiRefreshAccumulators.set(simulation, uiRefreshAccumulatorSeconds)
     panels.driverHUD.update(vehicleSnapshot)
-    panels.telemetryPanel.update({
-      vehicleSnapshot,
-      forces: vehicleSnapshot.forces,
-      powertrain: vehicleSnapshot.powertrain,
-      powertrainKinematics: vehicleSnapshot.powertrainKinematics,
-      rearDifferentialState: vehicleSnapshot.rearDifferentialState,
-      wheelStates: vehicleSnapshot.wheelStates,
-      loadTransferSummary: vehicleSnapshot.loadTransferSummary,
-      chassisAttitude: vehicleSnapshot.chassisAttitude,
-    })
+    panels.telemetryPanel.update(vehicleSnapshot)
     panels.controlPanel.update(vehicleSnapshot)
   }
 
