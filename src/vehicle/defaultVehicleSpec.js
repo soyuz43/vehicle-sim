@@ -44,15 +44,23 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Vertical chassis dynamics v1 (Phase 0): real 3-DOF sprung-mass heave/pitch/
   // roll solver. It replaces quasi-static load transfer (emergent load transfer
   // from body pitch/roll) and the visual-only chassis attitude with solved ODE
-  // state. Disabled by default to preserve the validated baseline and regression
-  // tests; enable to exercise the new vertical-dynamics seam.
+  // state. Enabled by default; set to false to fall back to the quasi-static
+  // load-transfer path.
   verticalDynamicsEnabled: true,
   verticalDynamicsSprungMassFraction01: 1,
   verticalDynamicsPitchInertiaKgMeterSquared: 0,
   verticalDynamicsRollInertiaKgMeterSquared: 0,
-  // Prior-step forward/lateral acceleration drives pitch/roll only. Direct
-  // heave forcing is a follow-up vertical-dynamics seam.
-  verticalDynamicsPlanarForceCouplingEnabled: true,
+  // Environment coupling for the vertical dynamics state. Prior-step
+  // forward/lateral acceleration drives pitch/roll, and the terrain-driven
+  // suspension spring force deviation drives body heave. Disabling it makes
+  // the vertical dynamics state inert again.
+  //
+  // This flag gates every vertical dynamics forcing term. It was named
+  // `verticalDynamicsPlanarForceCouplingEnabled` until the terrain heave
+  // forcing landed, which the old name no longer described. The flag has no
+  // persisted, URL-parameter, or panel-toggle surface, so it was renamed
+  // outright rather than kept as an alias.
+  verticalDynamicsForcingEnabled: true,
 
   // Chassis terrain following is a bounded quasi-static support-height
   // approximation. It deliberately does not create vertical velocity, heave,

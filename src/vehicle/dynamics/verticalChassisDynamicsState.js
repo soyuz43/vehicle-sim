@@ -20,10 +20,24 @@
 //   - No roll-center geometry: pitch/roll rotate about the CG at com height.
 //   - Couples to terrain only through the existing raycast suspension
 //     compression already produced by updateSuspensionNormalForceState.
-//   - Planar-force coupling v1 adds prior-step pitch/roll moments only. Heave
-//     remains a follow-up forcing seam.
+//   - Planar-force coupling v1 adds prior-step pitch/roll moments.
+//   - Terrain heave forcing (gated by the same coupling flag) adds the
+//     suspension spring force deviation from the authored static ride height,
+//     so body heave responds to terrain instead of staying inert.
+//   - The heave forcing uses the spring force only. The suspension damper
+//     term is a one-step finite difference of compression that spikes at
+//     contact transitions, and body damping is already applied through the
+//     -Chh * heaveRate term of the same ODE row.
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
+
+// Contact resolution noise floor for the terrain heave forcing. The heightfield
+// contact query resolves the suspension ray with a finite tolerance
+// (INTERSECTION_TOLERANCE_METERS = 1e-5 m), so two interchangeable flat
+// surfaces can report slightly different suspension compressions. Deviations
+// below this floor contribute no forcing, which keeps the flat contact adapter
+// and the flat heightfield contact query interchangeable.
+const HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS = 1e-4
 
 function sanitizePositiveNumber(value, fallback = 0) {
   const n = Number(value)
@@ -37,6 +51,56 @@ function sanitizeNumber(value, fallback = 0) {
 
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum)
+}
+
+// Soft-threshold the compression deviation so contact resolution noise does
+// not leak into the heave forcing.
+function applyCompressionNoiseFloor(deviationMeters) {
+  if (!Number.isFinite(deviationMeters)) return 0
+  const magnitude = Math.abs(deviationMeters)
+  if (magnitude <= HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS) return 0
+  return Math.sign(deviationMeters) *
+    (magnitude - HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS)
+}
+
+// The compression a wheel carries when it sits at its authored rest length on
+// flat ground. The authored suspension mount height and the effective rolling
+// radius fix that value, so referencing it keeps the terrain heave forcing
+// free of a standing offset when tire pressure moves the rolling radius.
+function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
+  const suspensionTravelMeters = sanitizePositiveNumber(
+    spec.suspensionTravelMeters,
+    0.22
+  )
+  const nominalStaticCompressionMeters =
+    suspensionTravelMeters *
+    clamp(sanitizeNumber(spec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
+
+  const restLengthMeters = sanitizePositiveNumber(
+    wheelState.suspensionRestLengthMeters,
+    sanitizePositiveNumber(spec.suspensionRestLengthMeters, 0.35)
+  )
+  const suspensionMountHeightMeters = wheelState.suspensionMountLocalPosition?.y
+  const effectiveRollingRadiusMeters = sanitizePositiveNumber(
+    wheelState.effectiveTireRollingRadiusMeters,
+    sanitizePositiveNumber(
+      wheelState.radius,
+      sanitizePositiveNumber(spec.baseTireRollingRadiusMeters, 0.48)
+    )
+  )
+
+  if (
+    !Number.isFinite(suspensionMountHeightMeters) ||
+    !Number.isFinite(restLengthMeters) ||
+    !Number.isFinite(effectiveRollingRadiusMeters)
+  ) {
+    return nominalStaticCompressionMeters
+  }
+
+  const geometricStaticCompressionMeters =
+    restLengthMeters - (suspensionMountHeightMeters - effectiveRollingRadiusMeters)
+
+  return clamp(geometricStaticCompressionMeters, 0, suspensionTravelMeters)
 }
 
 export function createVerticalChassisDynamicsState(spec = {}) {
@@ -57,6 +121,8 @@ export function createVerticalChassisDynamicsState(spec = {}) {
     planarForceCouplingActive: false,
     planarForcePitchMomentNewtonMeters: 0,
     planarForceRollMomentNewtonMeters: 0,
+    heaveForceCouplingActive: false,
+    heaveForcingForceNewtons: 0,
     integratedWheelCount: 0,
     isFinite: true,
   }
@@ -80,6 +146,8 @@ export function resetVerticalChassisDynamicsState(state, spec = {}) {
   state.planarForceCouplingActive = false
   state.planarForcePitchMomentNewtonMeters = 0
   state.planarForceRollMomentNewtonMeters = 0
+  state.heaveForceCouplingActive = false
+  state.heaveForcingForceNewtons = 0
   state.integratedWheelCount = 0
   state.isFinite = true
   return state
@@ -163,11 +231,27 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
       sprungMassKg * centerOfMassHeightMeters ** 2
   }
 
+  // The body cannot sink past suspension droop or float past bottom-out, so
+  // the heave displacement is bounded by the suspension travel measured from
+  // the static ride height.
+  const suspensionTravelMeters = sanitizePositiveNumber(
+    spec.suspensionTravelMeters,
+    0.22
+  )
+  const nominalStaticCompressionMeters =
+    suspensionTravelMeters *
+    clamp(sanitizeNumber(spec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
+
   return {
     sprungMassKg,
     pitchInertiaKgMeterSquared,
     rollInertiaKgMeterSquared,
     centerOfMassHeightMeters,
+    maximumHeaveDroopMeters: nominalStaticCompressionMeters,
+    maximumHeaveCompressionMeters: Math.max(
+      suspensionTravelMeters - nominalStaticCompressionMeters,
+      0
+    ),
   }
 }
 
@@ -197,9 +281,10 @@ export function updateVerticalChassisDynamics(
   const groundedWheelCount = safeWheelStates.filter(
     (wheelState) => wheelState.isGrounded === true
   ).length
+  const verticalForcingEnabled =
+    spec.verticalDynamicsForcingEnabled === true
   const planarForceCouplingActive =
-    spec.verticalDynamicsPlanarForceCouplingEnabled === true &&
-    groundedWheelCount > 0
+    verticalForcingEnabled && groundedWheelCount > 0
   const localForwardAccelerationMetersPerSecondSquared = sanitizeNumber(
     planarMotion?.planarAccelerationLocalForwardMetersPerSecondSquared
   )
@@ -217,6 +302,10 @@ export function updateVerticalChassisDynamics(
       localLateralAccelerationMetersPerSecondSquared *
       geometry.centerOfMassHeightMeters
     : 0
+  // Terrain heave forcing rides on the same coupling gate. Both terms answer
+  // the same question: does the vertical dynamics state react to the
+  // environment the vehicle is driving through?
+  state.heaveForceCouplingActive = planarForceCouplingActive
 
   // Assemble symmetric stiffness (K) and damping (C) sums over grounded wheels.
   let Khh = 0
@@ -226,6 +315,7 @@ export function updateVerticalChassisDynamics(
   let Krr = 0
   let Kpr = 0
   const cornerData = []
+  let heaveForcingForceNewtons = 0
   for (const wheelState of safeWheelStates) {
     if (!wheelState.isGrounded) {
       // An airborne wheel cannot push the body: zero its normal force and skip.
@@ -254,6 +344,21 @@ export function updateVerticalChassisDynamics(
       wheelState.baseNormalForceNewtons,
       wheelState.normalForceNewtons
     )
+
+    // Terrain heave forcing: the spring force this corner carries beyond the
+    // authored static ride height. The compression is produced by the existing
+    // raycast suspension path; nothing here re-derives the contact state.
+    const staticCompressionMeters = resolveStaticCompressionReferenceMeters(
+      wheelState,
+      spec
+    )
+    const terrainCompressionDeviationMeters =
+      applyCompressionNoiseFloor(
+        sanitizeNumber(wheelState.suspensionCompressionMeters) -
+          staticCompressionMeters
+      )
+    heaveForcingForceNewtons +=
+      springRateNewtonsPerMeter * terrainCompressionDeviationMeters
 
     Khh += springRateNewtonsPerMeter
     Khp += springRateNewtonsPerMeter * zMeters
@@ -297,9 +402,15 @@ export function updateVerticalChassisDynamics(
 
   // Net deviation force/moment on the body (spring + damper). Gravity is
   // already balanced by the static base support, so it does not appear here.
+  // The terrain forcing term is the vertical force the suspension applies
+  // beyond the static support, which is what drives body heave over terrain.
+  state.heaveForcingForceNewtons = planarForceCouplingActive
+    ? heaveForcingForceNewtons
+    : 0
   const forceHeave =
     -Khh * heave - Khp * pitch - Khr * roll -
-    Chh * heaveRate - Chp * pitchRate - Chr * rollRate
+    Chh * heaveRate - Chp * pitchRate - Chr * rollRate +
+    state.heaveForcingForceNewtons
   const momentPitch =
     -Khp * heave - Kpp * pitch - Kpr * roll -
     Chp * heaveRate - Cpp * pitchRate - Cpr * rollRate +
@@ -330,12 +441,45 @@ export function updateVerticalChassisDynamics(
     const nextHeaveRate = heaveRate + heaveAccel * dt
     const nextPitchRate = pitchRate + pitchAccel * dt
     const nextRollRate = rollRate + rollAccel * dt
-    state.heaveVelocityMetersPerSecond = nextHeaveRate
+    // Without ground support the suspension cannot act on the body: the
+    // stiffness and damping sums are empty, so the heave row has no restoring
+    // force and no damping and would drift with a stale velocity. This model
+    // has no ballistic-flight or landing-impulse support, so an unsupported
+    // heave holds its last value instead. The hold only applies while the
+    // terrain coupling is active; with the coupling off the heave stays inert
+    // exactly as before.
+    state.heaveVelocityMetersPerSecond =
+      verticalForcingEnabled && groundedWheelCount === 0
+        ? 0
+        : nextHeaveRate
     state.pitchRateRadiansPerSecond = nextPitchRate
     state.rollRateRadiansPerSecond = nextRollRate
-    state.heaveMeters = heave + nextHeaveRate * dt
+    const unconstrainedHeaveMeters = heave + nextHeaveRate * dt
+    const clampedHeaveMeters = clamp(
+      unconstrainedHeaveMeters,
+      -geometry.maximumHeaveDroopMeters,
+      geometry.maximumHeaveCompressionMeters
+    )
+    state.heaveMeters = clampedHeaveMeters
     state.pitchRadians = pitch + nextPitchRate * dt
     state.rollRadians = roll + nextRollRate * dt
+    if (clampedHeaveMeters !== unconstrainedHeaveMeters) {
+      // The body hit a suspension travel bound. Remove only the velocity
+      // component that would push it further past the bound, so the body does
+      // not stick to the limit.
+      if (
+        clampedHeaveMeters >= geometry.maximumHeaveCompressionMeters &&
+        state.heaveVelocityMetersPerSecond > 0
+      ) {
+        state.heaveVelocityMetersPerSecond = 0
+      }
+      if (
+        clampedHeaveMeters <= -geometry.maximumHeaveDroopMeters &&
+        state.heaveVelocityMetersPerSecond < 0
+      ) {
+        state.heaveVelocityMetersPerSecond = 0
+      }
+    }
   }
 
   // Apply the solved body attitude to each grounded corner to recover the

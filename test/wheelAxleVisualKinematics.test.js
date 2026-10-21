@@ -172,7 +172,7 @@ test('steering and wheel spin preserve centers and do not rotate segment ownersh
   const car = createCar()
   const controller = createVehicleController({
     vehicle: car,
-    spec: { verticalDynamicsPlanarForceCouplingEnabled: false },
+    spec: { verticalDynamicsForcingEnabled: false },
   })
   const segmentBaseline = captureArticulatedSegmentTransforms(car)
 

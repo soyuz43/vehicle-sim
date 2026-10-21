@@ -59,7 +59,7 @@
 ### Vertical Dynamics
 - 3-DOF heave/pitch/roll solver replacing quasi-static load transfer
 - Enabled via `verticalDynamicsEnabled` flag (enabled by default)
-- Prior-step acceleration drives pitch/roll through `verticalDynamicsPlanarForceCouplingEnabled`; direct heave forcing is not implemented yet
+- Prior-step acceleration drives pitch/roll and terrain suspension spring force drives heave through `verticalDynamicsForcingEnabled`
 
 ### Combined-Slip Modeling  
 - Brush/Fiala tire model replacing the simple linear approach and friction-circle combined cap
