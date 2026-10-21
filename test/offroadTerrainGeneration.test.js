@@ -482,6 +482,123 @@ test('the step-up jump ends on a short steep ramp instead of a vertical wall', (
   )
 })
 
+test('the gap jump is two smooth ramps with a gap instead of a walled slot', () => {
+  // The gap jump used to be a plateau with a rectangular slot cut into it,
+  // which put a 1 m wall at each outer edge and a 0.75 m wall at each side
+  // of the slot, and a 0.6 m step at the sides of the jump. It is now the
+  // shape its comment describes: a takeoff lip, a dip back down to the
+  // base height, and a landing lip, with every edge a ramp.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  // The gap jump is centred 240 m north of the south course edge, is 10 m
+  // long, and is 20 m wide, so it spans z = 35 m to z = 45 m on the
+  // 400 m course.
+  const jumpCenterZMeters = -halfSizeMeters + 240 * courseScale
+  const jumpHalfLengthMeters = 5 * courseScale
+  const jumpHalfWidthMeters = 10 * courseScale
+  const lipZMeters = jumpCenterZMeters - jumpHalfLengthMeters * 0.5
+
+  // The gap jump and the start ramp are the only features that scale with
+  // jumpScale, and the start ramp is bounded to its own zone at the south
+  // edge, so the difference between the two profiles is the jump
+  // contribution.
+  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
+  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const gapJumpHeight = (xMeters, zMeters) =>
+    withJumps.getHeightAtWorldXZ(xMeters, zMeters) -
+    withoutJumps.getHeightAtWorldXZ(xMeters, zMeters)
+
+  // The height field the vehicle drives on stays continuous across the jump.
+  const coarseZMeters = [30, 35, 40, 45, 50]
+  for (let index = 1; index < coarseZMeters.length; index += 1) {
+    const deltaMeters = Math.abs(
+      withJumps.getHeightAtWorldXZ(0, coarseZMeters[index]) -
+        withJumps.getHeightAtWorldXZ(0, coarseZMeters[index - 1])
+    )
+    assert.ok(
+      deltaMeters <= 0.15,
+      'the gap jump steps by ' + deltaMeters + ' m between z = ' +
+        coarseZMeters[index - 1] + ' m and z = ' + coarseZMeters[index] + ' m'
+    )
+  }
+
+  const coarseXMeters = [-10, 0, 10]
+  for (let index = 1; index < coarseXMeters.length; index += 1) {
+    const deltaMeters = Math.abs(
+      withJumps.getHeightAtWorldXZ(coarseXMeters[index], 40) -
+        withJumps.getHeightAtWorldXZ(coarseXMeters[index - 1], 40)
+    )
+    assert.ok(
+      deltaMeters <= 0.15,
+      'the gap jump steps by ' + deltaMeters + ' m across x at z = 40 m'
+    )
+  }
+
+  // The jump itself is continuous at a 5 cm resolution, in both the driving
+  // direction and across the jump.
+  let maximumZStepMeters = 0
+  let previousHeightMeters = gapJumpHeight(0, 30)
+  for (let zMeters = 30; zMeters <= 50; zMeters += 0.05) {
+    const heightMeters = gapJumpHeight(0, zMeters)
+    maximumZStepMeters = Math.max(
+      maximumZStepMeters,
+      Math.abs(heightMeters - previousHeightMeters)
+    )
+    previousHeightMeters = heightMeters
+  }
+  assert.ok(
+    maximumZStepMeters < 0.05,
+    'the gap jump is not continuous along z, the largest step over 5 cm is ' +
+      maximumZStepMeters
+  )
+
+  let maximumXStepMeters = 0
+  previousHeightMeters = gapJumpHeight(-12, lipZMeters)
+  for (let xMeters = -12; xMeters <= 12; xMeters += 0.05) {
+    const heightMeters = gapJumpHeight(xMeters, lipZMeters)
+    maximumXStepMeters = Math.max(
+      maximumXStepMeters,
+      Math.abs(heightMeters - previousHeightMeters)
+    )
+    previousHeightMeters = heightMeters
+  }
+  assert.ok(
+    maximumXStepMeters < 0.05,
+    'the gap jump is not continuous across x, the largest step over 5 cm is ' +
+      maximumXStepMeters
+  )
+
+  // The jump is still a visible feature: a 1 m takeoff lip, a gap down to
+  // the base height, and a 1 m landing lip.
+  assert.ok(
+    gapJumpHeight(0, lipZMeters) > 0.9,
+    'the gap jump lost its takeoff lip, got ' + gapJumpHeight(0, lipZMeters)
+  )
+  assert.equal(
+    gapJumpHeight(0, jumpCenterZMeters),
+    0,
+    'the gap between the two lips is not at the base height'
+  )
+  assert.ok(
+    gapJumpHeight(0, jumpCenterZMeters + jumpHalfLengthMeters * 0.5) > 0.9,
+    'the gap jump lost its landing lip'
+  )
+  let maximumHeightMeters = 0
+  for (let zMeters = jumpCenterZMeters - jumpHalfLengthMeters; zMeters <= jumpCenterZMeters + jumpHalfLengthMeters; zMeters += 0.05) {
+    maximumHeightMeters = Math.max(maximumHeightMeters, gapJumpHeight(0, zMeters))
+  }
+  assert.ok(
+    maximumHeightMeters > 0.3,
+    'the gap jump does not raise the ground, got ' + maximumHeightMeters
+  )
+  assert.ok(
+    jumpHalfWidthMeters > 0 && jumpHalfLengthMeters > 0,
+    'the gap jump has no extent'
+  )
+})
+
 test('the rock garden contributes per-position height variation', () => {
   // The difference between the garden and the same course with the rock
   // garden scaled out is exactly the rock garden contribution.

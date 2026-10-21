@@ -539,12 +539,16 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   const nx = (worldX - centerX) / Math.max(widthX, Number.EPSILON)
   const nz = (worldZ - centerZ) / Math.max(widthZ, Number.EPSILON)
   if (Math.abs(nx) > 1 || nz < -1 || nz > 1) return 0
-  // Two ramps with a gap in the middle
-  const leftRamp = Math.max(0, (-nz + 1) * 0.5) // Left side ramp
-  const rightRamp = Math.max(0, (nz + 1) * 0.5) // Right side ramp
-  const gap = 1 - Math.abs(nz) * 2 // Gap in middle
-  if (gap > 0) return 0 // Gap - no height
-  return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
+  // Two ramps with a gap in the middle: a takeoff lip that rises from the
+  // base height, a dip back down to the base height, and a landing lip.
+  // The lips and the dip are smooth, so the jump has no wall in it.
+  const takeoffLip = smoothStep(nz, -1, -0.5) * (1 - smoothStep(nz, -0.5, 0))
+  const landingLip = smoothStep(nz, 0, 0.5) * (1 - smoothStep(nz, 0.5, 1))
+  // The cross profile fades the lips out at the edge of the jump, so the
+  // sides of the jump are a ramp as well.
+  const crossProfile =
+    (1 - Math.abs(nx) * 0.2) * (1 - smoothStep(Math.abs(nx), 0.7, 1))
+  return height * (takeoffLip + landingLip) * crossProfile
 }
 
 // Render/physics resolution note:
