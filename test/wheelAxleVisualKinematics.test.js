@@ -170,7 +170,10 @@ test('symmetric and asymmetric suspension travel keep segments attached independ
 
 test('steering and wheel spin preserve centers and do not rotate segment ownership', () => {
   const car = createCar()
-  const controller = createVehicleController({ vehicle: car })
+  const controller = createVehicleController({
+    vehicle: car,
+    spec: { verticalDynamicsPlanarForceCouplingEnabled: false },
+  })
   const segmentBaseline = captureArticulatedSegmentTransforms(car)
 
   for (const steeringInput of [{ left: true }, {}, { right: true }]) {

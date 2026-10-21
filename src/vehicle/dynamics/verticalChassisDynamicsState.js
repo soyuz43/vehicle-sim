@@ -20,6 +20,8 @@
 //   - No roll-center geometry: pitch/roll rotate about the CG at com height.
 //   - Couples to terrain only through the existing raycast suspension
 //     compression already produced by updateSuspensionNormalForceState.
+//   - Planar-force coupling v1 adds prior-step pitch/roll moments only. Heave
+//     remains a follow-up forcing seam.
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
 
@@ -52,6 +54,9 @@ export function createVerticalChassisDynamicsState(spec = {}) {
     sprungMassKg: 0,
     pitchInertiaKgMeterSquared: 0,
     rollInertiaKgMeterSquared: 0,
+    planarForceCouplingActive: false,
+    planarForcePitchMomentNewtonMeters: 0,
+    planarForceRollMomentNewtonMeters: 0,
     integratedWheelCount: 0,
     isFinite: true,
   }
@@ -72,6 +77,9 @@ export function resetVerticalChassisDynamicsState(state, spec = {}) {
   state.sprungMassKg = 0
   state.pitchInertiaKgMeterSquared = 0
   state.rollInertiaKgMeterSquared = 0
+  state.planarForceCouplingActive = false
+  state.planarForcePitchMomentNewtonMeters = 0
+  state.planarForceRollMomentNewtonMeters = 0
   state.integratedWheelCount = 0
   state.isFinite = true
   return state
@@ -159,6 +167,7 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
     sprungMassKg,
     pitchInertiaKgMeterSquared,
     rollInertiaKgMeterSquared,
+    centerOfMassHeightMeters,
   }
 }
 
@@ -166,7 +175,8 @@ export function updateVerticalChassisDynamics(
   state,
   wheelStates,
   spec = {},
-  dtSeconds = 0
+  dtSeconds = 0,
+  planarMotion = null
 ) {
   if (!state) return state
   if (spec.verticalDynamicsEnabled !== true) {
@@ -183,6 +193,30 @@ export function updateVerticalChassisDynamics(
   state.sprungMassKg = geometry.sprungMassKg
   state.pitchInertiaKgMeterSquared = geometry.pitchInertiaKgMeterSquared
   state.rollInertiaKgMeterSquared = geometry.rollInertiaKgMeterSquared
+
+  const groundedWheelCount = safeWheelStates.filter(
+    (wheelState) => wheelState.isGrounded === true
+  ).length
+  const planarForceCouplingActive =
+    spec.verticalDynamicsPlanarForceCouplingEnabled === true &&
+    groundedWheelCount > 0
+  const localForwardAccelerationMetersPerSecondSquared = sanitizeNumber(
+    planarMotion?.planarAccelerationLocalForwardMetersPerSecondSquared
+  )
+  const localLateralAccelerationMetersPerSecondSquared = sanitizeNumber(
+    planarMotion?.planarAccelerationLocalLateralMetersPerSecondSquared
+  )
+  state.planarForceCouplingActive = planarForceCouplingActive
+  state.planarForcePitchMomentNewtonMeters = planarForceCouplingActive
+    ? geometry.sprungMassKg *
+      localForwardAccelerationMetersPerSecondSquared *
+      geometry.centerOfMassHeightMeters
+    : 0
+  state.planarForceRollMomentNewtonMeters = planarForceCouplingActive
+    ? geometry.sprungMassKg *
+      localLateralAccelerationMetersPerSecondSquared *
+      geometry.centerOfMassHeightMeters
+    : 0
 
   // Assemble symmetric stiffness (K) and damping (C) sums over grounded wheels.
   let Khh = 0
@@ -268,10 +302,12 @@ export function updateVerticalChassisDynamics(
     Chh * heaveRate - Chp * pitchRate - Chr * rollRate
   const momentPitch =
     -Khp * heave - Kpp * pitch - Kpr * roll -
-    Chp * heaveRate - Cpp * pitchRate - Cpr * rollRate
+    Chp * heaveRate - Cpp * pitchRate - Cpr * rollRate +
+    state.planarForcePitchMomentNewtonMeters
   const momentRoll =
     -Khr * heave - Kpr * pitch - Krr * roll -
-    Chr * heaveRate - Cpr * pitchRate - Crr * rollRate
+    Chr * heaveRate - Cpr * pitchRate - Crr * rollRate +
+    state.planarForceRollMomentNewtonMeters
 
   const heaveAccel =
     geometry.sprungMassKg > 0 ? forceHeave / geometry.sprungMassKg : 0

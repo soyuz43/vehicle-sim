@@ -742,6 +742,7 @@ export class VehicleController {
                 ),
             },
             loadTransferSummary: state.loadTransferSummary,
+            verticalDynamics: state.verticalChassisDynamicsState,
             tirePressureHandlingSummary: state.tirePressureHandlingSummary,
             vehicleDynamicsStepTrace: state.vehicleDynamicsStepTrace,
             engineProfile: state.engineProfile,
@@ -1353,6 +1354,7 @@ export class VehicleController {
             att.rollRateRadiansPerSecond = vd.rollRateRadiansPerSecond
             att.groundedSupportCount = vd.integratedWheelCount
             att.supportPlaneModeLabel = 'vertical-dynamics'
+            att.planarForceCouplingActive = vd.planarForceCouplingActive
             chassisAttitudeSpecOverride.chassisAttitudeMaximumRollRadians =
                 state.dynamicsTuning.chassisAttitudeMaximumRollRadians
             chassisAttitudeSpecOverride.chassisAttitudeResponseSeconds =
@@ -1836,7 +1838,8 @@ export class VehicleController {
                 state.verticalChassisDynamicsState,
                 state.wheelStates,
                 spec,
-                dtSeconds
+                dtSeconds,
+                state.planarMotion
             )
             return
         }
