@@ -36,6 +36,11 @@ export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
 // feather is the width of the smooth fade at each end of the zone.
 export const START_RAMP_ZONE_METERS = 30
 export const START_RAMP_FEATHER_METERS = 5
+// The step-up jump reaches its crest two thirds of the way along its length
+// and falls back to the base height over the last sixth of it. On the
+// 400 m course that is a 1 m falloff instead of a vertical wall.
+const STEP_UP_JUMP_CREST_NZ = 2 / 3
+const STEP_UP_JUMP_TRAILING_EDGE_NZ = 5 / 6
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
 
 const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
@@ -511,11 +516,23 @@ function tabletopJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) 
 function stepUpJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   const nx = (worldX - centerX) / Math.max(widthX, Number.EPSILON)
   const nz = (worldZ - centerZ) / Math.max(widthZ, Number.EPSILON)
-  // Ramp up in Z direction, flat in X
-  if (nz < -1 || nz > 1) return 0
+  // Ramp up in Z direction, flat in X. The trailing edge falls back to the
+  // base height over the last sixth of the jump instead of ending on a
+  // vertical wall, so the height field stays continuous and the contact
+  // query never sees a step it cannot resolve.
+  if (nz < -1 || nz > STEP_UP_JUMP_TRAILING_EDGE_NZ) return 0
   if (Math.abs(nx) > 1) return 0
-  const rampProfile = Math.max(0, (nz + 1) * 0.5) // 0 to 1 over Z
-  return height * rampProfile * (1 - Math.abs(nx) * 0.3)
+  // 0 to 1 over the rising part of the jump, then the falloff.
+  const rampProfile = Math.min(
+    1,
+    Math.max(0, (nz + 1) / (STEP_UP_JUMP_CREST_NZ + 1))
+  )
+  const trailingFalloff = 1 - smoothStep(
+    nz,
+    STEP_UP_JUMP_CREST_NZ,
+    STEP_UP_JUMP_TRAILING_EDGE_NZ
+  )
+  return height * rampProfile * trailingFalloff * (1 - Math.abs(nx) * 0.3)
 }
 
 function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {

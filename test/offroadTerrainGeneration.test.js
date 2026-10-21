@@ -406,6 +406,82 @@ test('the start ramp stays inside its own zone and does not ripple across the co
   }
 })
 
+test('the step-up jump ends on a short steep ramp instead of a vertical wall', () => {
+  // The step-up jump used to stop with a hard cut at its trailing edge, so
+  // the course carried a 0.8 m vertical wall that the contact query could
+  // not resolve. The trailing edge now falls back to the base height over
+  // a 1 m span, and the leading edge is still a smooth ramp.
+  const selection = selectTerrain('?terrain=offroad')
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  // The step-up jump is centred 180 m north of the south course edge and is
+  // 12 m long, so it spans z = -26 m to z = -14 m on the 400 m course.
+  const jumpCenterZMeters = -halfSizeMeters + 180 * courseScale
+  const jumpHalfLengthMeters = 6 * courseScale
+  const leadingEdgeZMeters = jumpCenterZMeters - jumpHalfLengthMeters
+  const wallZMeters = jumpCenterZMeters + jumpHalfLengthMeters
+  const trailingEdgeZMeters = jumpCenterZMeters + jumpHalfLengthMeters * (5 / 6)
+
+  // The step-up jump and the start ramp are the only features that scale
+  // with jumpScale, and the start ramp is bounded to its own zone at the
+  // south edge, so the difference between the two profiles is the jump
+  // contribution.
+  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
+  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const stepUpHeight = (zMeters) =>
+    withJumps.getHeightAtWorldXZ(0, zMeters) - withoutJumps.getHeightAtWorldXZ(0, zMeters)
+
+  const trailingDeltaMeters = Math.abs(
+    stepUpHeight(trailingEdgeZMeters) - stepUpHeight(wallZMeters)
+  )
+  assert.ok(
+    trailingDeltaMeters < 0.1,
+    'the step-up jump still steps down at its trailing edge, got ' + trailingDeltaMeters
+  )
+
+  const wallDeltaMeters = Math.abs(
+    stepUpHeight(wallZMeters) - stepUpHeight(wallZMeters + 0.1)
+  )
+  assert.ok(
+    wallDeltaMeters < 0.1,
+    'the step-up jump still ends on a wall, got ' + wallDeltaMeters
+  )
+
+  const leadingDeltaMeters = Math.abs(
+    stepUpHeight(leadingEdgeZMeters) - stepUpHeight(leadingEdgeZMeters + 1)
+  )
+  assert.ok(
+    leadingDeltaMeters < 0.1,
+    'the step-up jump no longer ramps in at its leading edge, got ' + leadingDeltaMeters
+  )
+  assert.ok(
+    stepUpHeight(leadingEdgeZMeters + 1) > 0,
+    'the step-up jump does not rise out of the ground'
+  )
+
+  let maximumHeightMeters = 0
+  let maximumStepMeters = 0
+  let previousHeightMeters = stepUpHeight(leadingEdgeZMeters - 0.5)
+  for (let zMeters = leadingEdgeZMeters - 0.5; zMeters <= wallZMeters + 1; zMeters += 0.01) {
+    const heightMeters = stepUpHeight(zMeters)
+    maximumHeightMeters = Math.max(maximumHeightMeters, heightMeters)
+    maximumStepMeters = Math.max(
+      maximumStepMeters,
+      Math.abs(heightMeters - previousHeightMeters)
+    )
+    previousHeightMeters = heightMeters
+  }
+  assert.ok(
+    maximumHeightMeters > 0.79,
+    'the step-up jump lost its crest, got ' + maximumHeightMeters
+  )
+  assert.ok(
+    maximumStepMeters < 0.02,
+    'the step-up jump is not continuous, the largest step over 1 cm is ' + maximumStepMeters
+  )
+})
+
 test('the rock garden contributes per-position height variation', () => {
   // The difference between the garden and the same course with the rock
   // garden scaled out is exactly the rock garden contribution.
