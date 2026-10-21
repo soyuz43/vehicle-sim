@@ -26,6 +26,17 @@ const ROCK_GARDEN_CHANNEL_COUNT = 5
 // surface region, and the east edge is measured from the centre line and
 // stops where the grass surface region starts. The feather is the width of
 // the smooth ramp at each band edge.
+//
+// The band and the rock surface region are different systems with different
+// extents. The band deliberately covers the route line through z = -100 m
+// to 0 m (PR #86), and it reaches 20 m east of the rock surface region so
+// that it also covers the mud corridor. The tabletop jump at z = -80 m and
+// the step-up jump at z = -20 m sit inside the band.
+// Measured on the 400 m course: the garden contributes 0.000 m to the
+// route line at the tabletop and up to 0.21 m off the route line, at
+// x = -3.25 m and z = -73.5 m. A driver who wants a fully deterministic
+// jump face should stay on the route line, because an off-line approach to
+// a jump face feels rockier by up to that 0.21 m.
 export const ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS = 100
 export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
 export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
