@@ -511,6 +511,28 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
 }
 
+// Render/physics resolution note:
+// The bump field is defined analytically with radii of 1.5 m to 3.5 m, so
+// the smallest bump is 3 m across. The terrain render mesh samples the
+// heightfield at 1.25 m (DEFAULT_RENDER_SAMPLE_SPACING_METERS in
+// createTerrain.js), which covers a bump with two to six render samples,
+// so the rendered surface shows faceted chatter where the analytic field
+// has a rounded bump. The physics is unaffected: the contact query
+// evaluates the same analytic profile that the render mesh samples, so a
+// wheel follows the true profile and not the rendered one.
+//
+// This is the resolution budget of heightmap rendering, not a bug, and the
+// two surfaces are not expected to agree. Do not close the gap by raising
+// the render resolution alone: the grid is capped at 512 subdivisions and
+// the measured mesh generation cost is about 0.28 s at 400 m against
+// 0.77 s at that cap, so a finer grid buys startup time on every course
+// size instead of a feature that has to read crisply.
+//
+// The intended architecture is an analytic heightfield for the terrain and
+// discrete meshes (createObstacleFieldVisuals.js) for anything that must
+// render crisply. A feature below the render sample spacing is felt
+// through the physics and may not read as an individual bump.
+//
 // Rock garden bumps: a field of overlapping cosine bumps anchored to
 // world positions. The garden is a lattice of 20 m cells and every cell
 // holds eight bumps whose centres, radii, and amplitudes are derived from
