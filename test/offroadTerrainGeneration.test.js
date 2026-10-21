@@ -190,6 +190,43 @@ test('generation config validates seed, bounds, and physical configuration input
   }), RangeError)
 })
 
+test('offroad profile config can enable the water surface programmatically', () => {
+  const selection = selectTerrain('?terrain=offroad', {
+    offroadProfileConfig: { waterEnabled: true },
+  })
+
+  assert.equal(selection.generationConfig.waterEnabled, true)
+  assert.notEqual(selection.waterSurface, null)
+  assert.equal(selection.surfaceProfile.waterSurface, selection.waterSurface)
+})
+
+test('offroad generation config overrides the profile water setting', () => {
+  const selection = selectTerrain('?terrain=offroad', {
+    offroadProfileConfig: { waterEnabled: true },
+    offroadGenerationConfig: { waterEnabled: false },
+  })
+
+  assert.equal(selection.generationConfig.waterEnabled, false)
+  assert.equal(selection.waterSurface, null)
+})
+
+test('offroad-water forces the water surface on over a disabled profile setting', () => {
+  const selection = selectTerrain('?terrain=offroad-water', {
+    offroadProfileConfig: { waterEnabled: false },
+  })
+
+  assert.equal(selection.generationConfig.waterEnabled, true)
+  assert.notEqual(selection.waterSurface, null)
+  assert.equal(selection.surfaceProfile.waterSurface, selection.waterSurface)
+})
+
+test('water stays disabled by default for off-road terrain', () => {
+  const selection = selectTerrain('?terrain=offroad')
+
+  assert.equal(selection.generationConfig.waterEnabled, false)
+  assert.equal(selection.waterSurface, null)
+})
+
 function readTerrainSamples(selection) {
   return SAMPLE_POSITIONS.map(({ xMeters, zMeters }) => {
     const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(xMeters, zMeters)

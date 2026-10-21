@@ -101,7 +101,7 @@ A seeded configuration can be selected through the URL:
 - `obstacleDensity`: multiplier from 0 to 4 relative to the default obstacle count; explicitly supplied obstacle descriptors take precedence.
 - `water=true` enables the water surface for off-road mode; `terrain=offroad-water` also enables it.
 
-Embedded callers can provide these options through `createSimulation({ terrainSelectionConfig: { offroadGenerationConfig: { ... } } })`. Programmatic bounds use `{ minXMeters, maxXMeters, minZMeters, maxZMeters }` and must describe a square centered at the origin.
+Embedded callers can provide these options through `createSimulation({ terrainSelectionConfig: { offroadGenerationConfig: { ... } } })`. Programmatic bounds use `{ minXMeters, maxXMeters, minZMeters, maxZMeters }` and must describe a square centered at the origin. `waterEnabled` is also available as a programmatic boolean on either `offroadProfileConfig` or `offroadGenerationConfig`; `offroadGenerationConfig` takes precedence over `offroadProfileConfig`, and `terrain=offroad-water` always forces the water surface on.
 
 The same seed and configuration reproduce the same terrain heights, normals, surface kinds, and obstacle descriptors. Invalid direct configuration throws `TypeError` or `RangeError`; malformed URL option values are ignored in favor of defaults. This is finite terrain generation at selection time, not infinite streaming or terrain that regenerates while driving.
 

@@ -103,7 +103,10 @@ function resolveGenerationConfig(name, config) {
       : readTerrainSeedParam()
   const waterEnabled = name === 'offroad-water'
     ? true
-    : generationOverrides.waterEnabled ?? readBooleanParam('water') ?? false
+    : generationOverrides.waterEnabled ??
+      profileOverrides.waterEnabled ??
+      readBooleanParam('water') ??
+      false
 
   return createOffroadTerrainGenerationConfig({
     ...profileOverrides,
