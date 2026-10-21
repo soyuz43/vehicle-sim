@@ -50,8 +50,10 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   verticalDynamicsSprungMassFraction01: 1,
   verticalDynamicsPitchInertiaKgMeterSquared: 0,
   verticalDynamicsRollInertiaKgMeterSquared: 0,
-  // Prior-step forward/lateral acceleration drives pitch/roll only. Direct
-  // heave forcing is a follow-up vertical-dynamics seam.
+  // Environment coupling for the vertical dynamics state. Prior-step
+  // forward/lateral acceleration drives pitch/roll, and the terrain-driven
+  // suspension spring force deviation drives body heave. Disabling it makes
+  // the vertical dynamics state inert again.
   verticalDynamicsPlanarForceCouplingEnabled: true,
 
   // Chassis terrain following is a bounded quasi-static support-height
