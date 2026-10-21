@@ -4,7 +4,14 @@ import * as THREE from 'three'
 import { createSimulation } from '../src/createSimulation.js'
 import { createOffroadTerrainGenerationConfig } from '../src/terrain/createOffroadTerrainGenerationConfig.js'
 import { createTerrainSelection } from '../src/terrain/createTerrainSelection.js'
-import { createOffroadPlaygroundProfile } from '../src/terrain/createEnhancedTerrainSurfaceProfile.js'
+import {
+  createOffroadPlaygroundProfile,
+  ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS,
+  ROCK_GARDEN_BAND_FEATHER_METERS,
+  ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS,
+  ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS,
+  ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS,
+} from '../src/terrain/createEnhancedTerrainSurfaceProfile.js'
 
 const SAMPLE_POSITIONS = [
   { xMeters: 0, zMeters: -175 },
@@ -315,14 +322,18 @@ test('the terrain render grid reports its sample spacing', () => {
   assert.equal(terrain.renderSampleSpacingMeters, 1.25)
 })
 
-test('the 400 m rock garden keeps its established heights', () => {
+test('the 400 m rock garden reference heights match the bounded band', () => {
+  // The garden is a bounded band now, and the band mask holds its full
+  // strength across the band instead of ramping up from the south and
+  // west edges of it, so the two samples that carry a bump are higher
+  // than before. The three samples without a bump on them are unchanged.
   const selection = selectTerrain('?terrain=offroad')
   const samples = [
     { xMeters: -120, zMeters: -80, heightMeters: 0.22795991302162763 },
-    { xMeters: -50, zMeters: -60, heightMeters: 1.00356511443987 },
+    { xMeters: -50, zMeters: -60, heightMeters: 1.0956606773927164 },
     { xMeters: 0, zMeters: -30, heightMeters: -0.17785176494742969 },
     { xMeters: 5, zMeters: -95, heightMeters: 0.007689162349243821 },
-    { xMeters: -30, zMeters: -10, heightMeters: 0.6119842395622259 },
+    { xMeters: -30, zMeters: -10, heightMeters: 0.6262568405548807 },
   ]
 
   for (const sample of samples) {
@@ -365,6 +376,227 @@ test('the rock garden contributes per-position height variation', () => {
     minimumContributionMeters >= 0,
     'the rock garden lowers the ground, got ' + minimumContributionMeters
   )
+})
+
+test('the rock garden is bounded to a discrete band', () => {
+  // The garden mask used to fade in from the south and west and never fade
+  // out again, so the garden covered the sand, dirt, and grass regions of
+  // the course at full strength. The garden is now a bounded band: full
+  // strength inside it and nothing outside it.
+  const selection = selectTerrain('?terrain=offroad')
+  const band = readRockGardenBand(selection)
+  const contribution = createRockGardenContributionReader()
+
+  const bandMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    band.westEdgeMeters + band.featherMeters,
+    band.eastEdgeMeters - band.featherMeters,
+    band.southEdgeMeters + band.featherMeters,
+    band.northEdgeMeters - band.featherMeters
+  ).maximumMeters
+  assert.ok(
+    bandMaximumMeters > 0.15,
+    'the bounded band does not raise the ground, got ' + bandMaximumMeters
+  )
+
+  // Just outside each of the four band edges the garden contributes nothing.
+  const outsideStrips = [
+    {
+      name: 'south',
+      minXMeters: band.westEdgeMeters,
+      maxXMeters: band.eastEdgeMeters,
+      minZMeters: band.southEdgeMeters - 10,
+      maxZMeters: band.southEdgeMeters - 1,
+    },
+    {
+      name: 'north',
+      minXMeters: band.westEdgeMeters,
+      maxXMeters: band.eastEdgeMeters,
+      minZMeters: band.northEdgeMeters + 1,
+      maxZMeters: band.northEdgeMeters + 10,
+    },
+    {
+      name: 'west',
+      minXMeters: band.westEdgeMeters - 10,
+      maxXMeters: band.westEdgeMeters - 1,
+      minZMeters: band.southEdgeMeters,
+      maxZMeters: band.northEdgeMeters,
+    },
+    {
+      name: 'east',
+      minXMeters: band.eastEdgeMeters + 1,
+      maxXMeters: band.eastEdgeMeters + 10,
+      minZMeters: band.southEdgeMeters,
+      maxZMeters: band.northEdgeMeters,
+    },
+  ]
+
+  for (const strip of outsideStrips) {
+    const stripMaximumMeters = readMaximumRockGardenContribution(
+      contribution,
+      strip.minXMeters,
+      strip.maxXMeters,
+      strip.minZMeters,
+      strip.maxZMeters
+    ).maximumMeters
+    assert.ok(
+      stripMaximumMeters <= 0.05 * bandMaximumMeters,
+      'the garden still reaches the ' + strip.name + ' of the band, got ' +
+        stripMaximumMeters
+    )
+  }
+
+  // Far outside the band the garden contributes exactly nothing.
+  for (const position of [
+    { xMeters: -90, zMeters: 150 },
+    { xMeters: 150, zMeters: -50 },
+    { xMeters: 150, zMeters: 150 },
+  ]) {
+    assert.equal(
+      contribution(position.xMeters, position.zMeters),
+      0,
+      'the garden reaches ' + JSON.stringify(position)
+    )
+  }
+})
+
+test('the rock garden holds full strength across the band', () => {
+  // The unbounded mask ramped up over the whole band from the south and
+  // west edges, so the garden sat at a few percent of its strength in the
+  // western and southern parts of the band. The bounded mask holds its
+  // full strength across the band and ramps over the feather at the edges
+  // only.
+  const selection = selectTerrain('?terrain=offroad')
+  const band = readRockGardenBand(selection)
+  const contribution = createRockGardenContributionReader()
+  const bandMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    band.westEdgeMeters + band.featherMeters,
+    band.eastEdgeMeters - band.featherMeters,
+    band.southEdgeMeters + band.featherMeters,
+    band.northEdgeMeters - band.featherMeters
+  ).maximumMeters
+  const westernStripMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    band.westEdgeMeters + band.featherMeters,
+    band.westEdgeMeters + band.featherMeters + 30,
+    band.southEdgeMeters + band.featherMeters,
+    band.northEdgeMeters - band.featherMeters
+  ).maximumMeters
+  const southernStripMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    band.westEdgeMeters + band.featherMeters,
+    band.eastEdgeMeters - band.featherMeters,
+    band.southEdgeMeters + band.featherMeters,
+    band.southEdgeMeters + band.featherMeters + 20
+  ).maximumMeters
+  const centreWindowMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    (band.westEdgeMeters + band.eastEdgeMeters) / 2 - 5,
+    (band.westEdgeMeters + band.eastEdgeMeters) / 2 + 5,
+    (band.southEdgeMeters + band.northEdgeMeters) / 2 - 5,
+    (band.southEdgeMeters + band.northEdgeMeters) / 2 + 5
+  ).maximumMeters
+
+  assert.ok(
+    westernStripMaximumMeters >= 0.75 * bandMaximumMeters,
+    'the garden fades out towards the west of the band, got ' +
+      westernStripMaximumMeters
+  )
+  assert.ok(
+    southernStripMaximumMeters >= 0.75 * bandMaximumMeters,
+    'the garden fades out towards the south of the band, got ' +
+      southernStripMaximumMeters
+  )
+  assert.ok(
+    centreWindowMaximumMeters >= 0.25 * bandMaximumMeters,
+    'the band centre does not carry a bump field, got ' +
+      centreWindowMaximumMeters
+  )
+
+  // The strongest bump of the whole course lies inside the band.
+  const courseMaximum = readMaximumRockGardenContribution(
+    contribution,
+    -200,
+    200,
+    -200,
+    200,
+    2
+  )
+  assert.ok(
+    courseMaximum.maximumPosition.xMeters >= band.westEdgeMeters &&
+      courseMaximum.maximumPosition.xMeters <= band.eastEdgeMeters &&
+      courseMaximum.maximumPosition.zMeters >= band.southEdgeMeters &&
+      courseMaximum.maximumPosition.zMeters <= band.northEdgeMeters,
+    'the strongest bump is outside the band at ' +
+      JSON.stringify(courseMaximum.maximumPosition)
+  )
+})
+
+test('the rock garden band stays inside a bounded course footprint', () => {
+  // The band is the rock band of the course: the z extent of the rock
+  // surface region and the western half of the course at that band.
+  // These rails keep a later change from widening the garden back into a
+  // course wide feature.
+  const selection = selectTerrain('?terrain=offroad')
+  const band = readRockGardenBand(selection)
+  const zExtentMeters = band.northEdgeMeters - band.southEdgeMeters
+  const xExtentMeters = band.eastEdgeMeters - band.westEdgeMeters
+
+  assert.ok(
+    zExtentMeters <= 150,
+    'the rock garden band is longer than 150 m in z, got ' + zExtentMeters
+  )
+  assert.ok(
+    xExtentMeters <= 200,
+    'the rock garden band is wider than 200 m in x, got ' + xExtentMeters
+  )
+  assert.ok(
+    zExtentMeters >= 60,
+    'the rock garden band is shorter than 60 m in z, got ' + zExtentMeters
+  )
+  assert.ok(
+    xExtentMeters >= 80,
+    'the rock garden band is narrower than 80 m in x, got ' + xExtentMeters
+  )
+})
+
+test('the rock garden band scales with the course', () => {
+  // The band is expressed in course-scaled metres, so a resized course has
+  // a proportionally larger band instead of the 400 m band with empty
+  // space around it.
+  const selection = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
+  const band = readRockGardenBand(selection)
+
+  assert.equal(band.westEdgeMeters, -380)
+  assert.equal(band.eastEdgeMeters, 20)
+  assert.equal(band.southEdgeMeters, -200)
+  assert.equal(band.northEdgeMeters, 0)
+  assert.equal(band.featherMeters, 20)
+
+  // The 800 m course has a garden where the 400 m course has none,
+  // because the band grew with the course.
+  const contribution = createRockGardenContributionReader({ sizeMeters: 800 })
+  const scaledWesternStripMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    -370,
+    -350,
+    -100,
+    -60
+  ).maximumMeters
+  assert.ok(
+    scaledWesternStripMaximumMeters > 0.1,
+    'the 800 m course has no rock garden in the scaled band, got ' +
+      scaledWesternStripMaximumMeters
+  )
+  const outsideStripMaximumMeters = readMaximumRockGardenContribution(
+    contribution,
+    -390,
+    -381,
+    -100,
+    -60
+  ).maximumMeters
+  assert.equal(outsideStripMaximumMeters, 0)
 })
 
 test('the 800 m course scales the rock garden heights proportionally', () => {
@@ -614,6 +846,58 @@ test('the mud pit keeps the width it declares', () => {
   const grassBand = selection.surfaceProfile.querySurfaceAtWorldPosition(20, -80)
   assert.equal(grassBand.surfaceKind, 'grass')
 })
+
+function readRockGardenBand(selection) {
+  const { sizeMeters, featureScale } = selection.generationConfig
+  const courseScale = featureScale * (sizeMeters / 400)
+  const halfSizeMeters = sizeMeters * 0.5
+  return {
+    westEdgeMeters:
+      -halfSizeMeters +
+      ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS * courseScale,
+    eastEdgeMeters:
+      ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS * courseScale,
+    southEdgeMeters:
+      -halfSizeMeters +
+      ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS * courseScale,
+    northEdgeMeters:
+      -halfSizeMeters +
+      ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS * courseScale,
+    featherMeters: ROCK_GARDEN_BAND_FEATHER_METERS * courseScale,
+  }
+}
+
+function createRockGardenContributionReader(config = {}) {
+  // The difference between the garden and the same course with the rock
+  // garden scaled out is exactly the rock garden contribution.
+  const withGarden = createOffroadPlaygroundProfile({ ...config, rockGardenScale: 1 })
+  const withoutGarden = createOffroadPlaygroundProfile({ ...config, rockGardenScale: 0 })
+  return (xMeters, zMeters) =>
+    withGarden.getHeightAtWorldXZ(xMeters, zMeters) -
+    withoutGarden.getHeightAtWorldXZ(xMeters, zMeters)
+}
+
+function readMaximumRockGardenContribution(
+  contribution,
+  minXMeters,
+  maxXMeters,
+  minZMeters,
+  maxZMeters,
+  stepMeters = 1
+) {
+  let maximumMeters = -Infinity
+  let maximumPosition = { xMeters: minXMeters, zMeters: minZMeters }
+  for (let zMeters = minZMeters; zMeters <= maxZMeters; zMeters += stepMeters) {
+    for (let xMeters = minXMeters; xMeters <= maxXMeters; xMeters += stepMeters) {
+      const contributionMeters = contribution(xMeters, zMeters)
+      if (contributionMeters > maximumMeters) {
+        maximumMeters = contributionMeters
+        maximumPosition = { xMeters, zMeters }
+      }
+    }
+  }
+  return { maximumMeters, maximumPosition }
+}
 
 function readTerrainSamples(selection) {
   return SAMPLE_POSITIONS.map(({ xMeters, zMeters }) => {

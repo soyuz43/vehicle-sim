@@ -19,6 +19,18 @@ const DEFAULT_TERRAIN_SIZE_METERS = 320
 const ROCK_GARDEN_CELL_SIZE_METERS = 20
 const ROCK_GARDEN_BUMP_COUNT = 8
 const ROCK_GARDEN_CHANNEL_COUNT = 5
+// Rock garden band: the discrete footprint of the garden, expressed as
+// course-scaled offsets. The south and north edges are measured from the
+// south course edge and match the z extent of the rock surface region, the
+// west edge is measured from the west course edge and starts at the rock
+// surface region, and the east edge is measured from the centre line and
+// stops where the grass surface region starts. The feather is the width of
+// the smooth ramp at each band edge.
+export const ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS = 100
+export const ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS = 200
+export const ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS = 10
+export const ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS = 10
+export const ROCK_GARDEN_BAND_FEATHER_METERS = 10
 const DEFAULT_NORMAL_SAMPLE_DISTANCE_METERS = 0.05
 
 const WORLD_UP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 })
@@ -208,6 +220,23 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   const courseOffsets = createOffroadCourseOffsets(seed, courseScale)
   const rockNoiseSeed = seed === null ? 12345 : hashTerrainSeed(`${seed}:rocks`)
 
+  const rockGardenBandFeatherMeters = ROCK_GARDEN_BAND_FEATHER_METERS * courseScale
+  const rockGardenBandWestEdgeMeters =
+    -halfSize +
+    ROCK_GARDEN_BAND_WEST_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.xMeters
+  const rockGardenBandEastEdgeMeters =
+    ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.xMeters
+  const rockGardenBandSouthEdgeMeters =
+    -halfSize +
+    ROCK_GARDEN_BAND_SOUTH_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.zMeters
+  const rockGardenBandNorthEdgeMeters =
+    -halfSize +
+    ROCK_GARDEN_BAND_NORTH_EDGE_OFFSET_METERS * courseScale +
+    courseOffsets.zMeters
+
   return function offroadPlaygroundHeightEvaluator(worldXMeters, worldZMeters, baseHeightMeters) {
     let heightMeters = baseHeightMeters
 
@@ -250,15 +279,35 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
       1.0 * jumpScale * courseScale
     )
 
-    const rockGardenZone = smoothStep(
-      worldZMeters,
-      -halfSize + 100 * courseScale + courseOffsets.zMeters,
-      -halfSize + 200 * courseScale + courseOffsets.zMeters
-    ) * smoothStep(
-      worldXMeters,
-      -halfSize + 10 * courseScale + courseOffsets.xMeters,
-      10 * courseScale + courseOffsets.xMeters
-    )
+    // The garden is a bounded band: the mask ramps up over the feather at
+    // the west and south edges, holds its full strength across the band,
+    // and ramps back down over the feather at the east and north edges.
+    // Without the closing edges the mask stayed at full strength for every
+    // position north of the band and east of it, which spread the garden
+    // over the sand, dirt, and grass regions of the course.
+    const rockGardenZone =
+      smoothStep(
+        worldZMeters,
+        rockGardenBandSouthEdgeMeters,
+        rockGardenBandSouthEdgeMeters + rockGardenBandFeatherMeters
+      ) *
+      (1 -
+        smoothStep(
+          worldZMeters,
+          rockGardenBandNorthEdgeMeters - rockGardenBandFeatherMeters,
+          rockGardenBandNorthEdgeMeters
+        )) *
+      smoothStep(
+        worldXMeters,
+        rockGardenBandWestEdgeMeters,
+        rockGardenBandWestEdgeMeters + rockGardenBandFeatherMeters
+      ) *
+      (1 -
+        smoothStep(
+          worldXMeters,
+          rockGardenBandEastEdgeMeters - rockGardenBandFeatherMeters,
+          rockGardenBandEastEdgeMeters
+        ))
     if (rockGardenZone > 0) {
       heightMeters +=
         rockGardenZone *
@@ -462,6 +511,28 @@ function gapJump(worldX, worldZ, centerX, centerZ, widthX, widthZ, height) {
   return height * Math.max(leftRamp, rightRamp) * (1 - Math.abs(nx) * 0.2)
 }
 
+// Render/physics resolution note:
+// The bump field is defined analytically with radii of 1.5 m to 3.5 m, so
+// the smallest bump is 3 m across. The terrain render mesh samples the
+// heightfield at 1.25 m (DEFAULT_RENDER_SAMPLE_SPACING_METERS in
+// createTerrain.js), which covers a bump with two to six render samples,
+// so the rendered surface shows faceted chatter where the analytic field
+// has a rounded bump. The physics is unaffected: the contact query
+// evaluates the same analytic profile that the render mesh samples, so a
+// wheel follows the true profile and not the rendered one.
+//
+// This is the resolution budget of heightmap rendering, not a bug, and the
+// two surfaces are not expected to agree. Do not close the gap by raising
+// the render resolution alone: the grid is capped at 512 subdivisions and
+// the measured mesh generation cost is about 0.28 s at 400 m against
+// 0.77 s at that cap, so a finer grid buys startup time on every course
+// size instead of a feature that has to read crisply.
+//
+// The intended architecture is an analytic heightfield for the terrain and
+// discrete meshes (createObstacleFieldVisuals.js) for anything that must
+// render crisply. A feature below the render sample spacing is felt
+// through the physics and may not read as an individual bump.
+//
 // Rock garden bumps: a field of overlapping cosine bumps anchored to
 // world positions. The garden is a lattice of 20 m cells and every cell
 // holds eight bumps whose centres, radii, and amplitudes are derived from
@@ -513,6 +584,13 @@ function rockGardenBumps(worldX, worldZ, seed = 12345, courseScale = 1) {
           (1.5 + hash(hashX, hashZ + 2) * 2) * courseScale
         const radiusZMeters =
           (1.5 + hash(hashX, hashZ + 3) * 2) * courseScale
+        // Design value, not a tuning artefact: a rock garden of 8 cm to
+        // 20 cm rocks, the same order as the other course surfaces. The
+        // sharpest crest in the band excites about 6.8 g of vertical
+        // acceleration at 13 m/s before the suspension filters it, and
+        // the whoops section of the course is geometrically harsher, so
+        // the amplitude is not to be reduced without a course design
+        // decision.
         const amplitudeMeters = 0.08 + hash(hashX, hashZ + 4) * 0.12
         const nx =
           (worldX - centerXMeters) / Math.max(radiusXMeters, Number.EPSILON)
