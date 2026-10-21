@@ -484,6 +484,18 @@ export function updateVerticalChassisDynamics(
 
   // Apply the solved body attitude to each grounded corner to recover the
   // dynamic normal force (base support plus the spring/damper deviation).
+  //
+  // The two terms are complementary, not a duplicate of the same physics:
+  //   - `baseNormalForceNewtons` is the raycast suspension support. It sees
+  //     the terrain and the unsprung wheel position, but not the solved body
+  //     attitude: the heave/pitch/roll state is never applied to the physics
+  //     transform, only to the visual chassis root.
+  //   - the deviation below is the sprung-body reaction to the same body
+  //     displacement: the part of the suspension force that the body itself
+  //     absorbs while it heaves, pitches, and rolls.
+  // The sum therefore reproduces the classic steady-state load transfer
+  // m * a * h_cg / track (lateral) and m * a * h_cg / wheelbase
+  // (longitudinal); see test/verticalDynamicsLoadTransferTargets.test.js.
   const finalHeave = state.heaveMeters
   const finalPitch = state.pitchRadians
   const finalRoll = state.rollRadians
