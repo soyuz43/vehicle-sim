@@ -574,29 +574,6 @@ export class VehicleController {
         return getSnapshot()
     }
 
-    function shiftGearDown() {
-        return shiftGearBy(-1)
-    }
-
-    function shiftGearUp() {
-        return shiftGearBy(1)
-    }
-
-    function shiftGearBy(offset) {
-        const currentIndex = GEAR_SEQUENCE.indexOf(state.gear)
-        const safeCurrentIndex =
-            currentIndex >= 0 ? currentIndex : GEAR_SEQUENCE.indexOf(GEARS.DRIVE)
-
-        const rawNextIndex = safeCurrentIndex + offset
-        const nextIndex =
-            ((rawNextIndex % GEAR_SEQUENCE.length) + GEAR_SEQUENCE.length) %
-            GEAR_SEQUENCE.length
-
-        state.gear = GEAR_SEQUENCE[nextIndex]
-
-        return getSnapshot()
-    }
-
     function setGear(nextGear) {
         state.gear = normalizeGear(nextGear)
 
@@ -3129,8 +3106,6 @@ export class VehicleController {
     this.update = update
     this.applyExternalPlanarImpulseNewtonsSecond = applyExternalPlanarImpulseNewtonsSecond
     this.reset = reset
-    this.shiftGearDown = shiftGearDown
-    this.shiftGearUp = shiftGearUp
     this.setGear = setGear
     this.setDynamicsTuning = setDynamicsTuning
     this.resetDynamicsTuning = resetDynamicsTuning
