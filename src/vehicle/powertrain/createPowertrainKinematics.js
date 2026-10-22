@@ -5,8 +5,13 @@
 // drive-torque source.
 //
 // This module derives an ESTIMATED (clamped) engine RPM and driveline connection
-// state purely from static profile data and current wheel/selector state. The
-// estimated engine RPM is TELEMETRY ONLY and is never fed back into drive force,
+// state from static profile data, current wheel state, and the forward gear the
+// driveline is actually engaged in. The engaged gear index is resolved by the
+// caller - the same resolved index the active drive-torque source uses - and is
+// threaded in, so the reported gear, drive ratio, and engine RPM can never
+// describe a gear the vehicle is not in.
+//
+// The estimated engine RPM is TELEMETRY ONLY and is never fed back into drive force,
 // wheel torque, braking, tire behavior, or vehicle motion.
 //
 // The representative-ratio helpers (selectRepresentativeForwardRatio,
@@ -50,8 +55,10 @@ function finiteOrZero(value) {
 }
 
 // For CVT, use a fixed representative midpoint ratio for telemetry only.
-// For fixed-ratio transmissions, use the first forward gear ratio for telemetry
-// only. No automatic shifting or speed-based gear selection is performed.
+// For fixed-ratio transmissions this is the shared fallback helper used by the
+// active drive-torque source. The estimated-RPM telemetry does NOT use it for a
+// fixed-ratio box: that telemetry reports the engaged gear, which the caller
+// resolves and threads in.
 export function selectRepresentativeForwardRatio(transmissionProfile) {
   if (transmissionProfile.transmissionKind === 'cvt') {
     const minRatio = transmissionProfile.cvtMinRatio
@@ -107,25 +114,82 @@ export function computeEffectiveDriveRatio(
   return transmissionRatio * finalDriveRatio
 }
 
-function selectForwardGearIndex(transmissionProfile) {
-  if (transmissionProfile.transmissionKind === 'cvt') return DEFAULT_GEAR_INDEX
-  return 0
+// Resolve the engaged forward gear index for telemetry.
+//
+// The engaged index is the gear the driveline is actually in. It is resolved by
+// the caller - a manual selection wins over the automatic selector - and is
+// threaded in here, so the displayed gear, the displayed drive ratio, and the
+// applied drive torque always describe the same gear.
+//
+// Returns null when the profile has no discrete forward gears (a CVT) or when
+// no engaged index was supplied. There is deliberately NO fallback to first
+// gear: silently reporting first gear is exactly what left the engine-RPM
+// telemetry stale after a manual shift.
+function resolveEngagedForwardGearIndex(
+  transmissionProfile,
+  engagedForwardGearIndex
+) {
+  const ratios = transmissionProfile?.forwardGearRatios
+
+  if (!Array.isArray(ratios) || ratios.length === 0) return null
+
+  if (
+    engagedForwardGearIndex === null ||
+    engagedForwardGearIndex === undefined
+  ) {
+    return null
+  }
+
+  const index = Math.trunc(Number(engagedForwardGearIndex))
+
+  if (!Number.isFinite(index)) return null
+  if (index < 0 || index >= ratios.length) return null
+
+  return index
 }
 
-function selectForwardGearLabel(transmissionProfile) {
-  if (transmissionProfile.transmissionKind === 'cvt') return 'CVT'
-  return '1'
+// Shared shape for a powertrain that is not transmitting drive torque: the R/N/D
+// selector is in neutral, or the engaged forward gear is not known.
+function createDisconnectedKinematics({
+  finalDriveRatio,
+  wheelAngularVelocityRadiansPerSecond,
+  idleRpm,
+  redlineRpm,
+  engineRpmClampReason,
+}) {
+  return {
+    powertrainConnectionState: CONNECTION_STATES.DISCONNECTED,
+    selectedRatioKind: RATIO_KINDS.NONE,
+    selectedForwardGearIndex: DEFAULT_GEAR_INDEX,
+    selectedForwardGearLabel: DEFAULT_GEAR_LABEL,
+    transmissionRatio: null,
+    finalDriveRatio,
+    effectiveDriveRatio: 0,
+    averageDrivenWheelAngularVelocityRadiansPerSecond:
+      wheelAngularVelocityRadiansPerSecond,
+    estimatedEngineRpm: idleRpm,
+    idleRpm,
+    redlineRpm,
+    engineRpmState: RPM_STATES.IDLE,
+    engineRpmClampReason,
+  }
 }
 
 // Derive inert powertrain kinematics/RPM telemetry.
 // Inputs must already be sanitized by the caller (engineProfile and
 // transmissionProfile come from the safe powertrain selection helpers, and
 // gearDirection is -1 / 0 / 1 from the existing R/N/D selector).
+//
+// selectedForwardGearIndex is the ENGAGED forward gear index resolved by the
+// caller. It is the same index the active drive-torque source uses, so the
+// telemetry can never describe a different gear than the one applying torque.
+// A null/undefined index means "no engaged forward gear is known".
 export function computePowertrainKinematics({
   engineProfile,
   transmissionProfile,
   gearDirection,
   averageDrivenWheelAngularVelocityRadiansPerSecond,
+  selectedForwardGearIndex = null,
 }) {
   const idleRpm = finiteOrZero(engineProfile?.idleRpm)
   const redlineRpm = finiteOrZero(engineProfile?.redlineRpm)
@@ -139,45 +203,69 @@ export function computePowertrainKinematics({
   // Neutral (gearDirection === 0, or missing): powertrain is disconnected and
   // the estimated engine RPM is simply idle RPM.
   if (!gearDirection || gearDirection === 0) {
-    return {
-      powertrainConnectionState: CONNECTION_STATES.DISCONNECTED,
-      selectedRatioKind: RATIO_KINDS.NONE,
-      selectedForwardGearIndex: DEFAULT_GEAR_INDEX,
-      selectedForwardGearLabel: DEFAULT_GEAR_LABEL,
-      transmissionRatio: null,
+    return createDisconnectedKinematics({
       finalDriveRatio,
-      effectiveDriveRatio: 0,
-      averageDrivenWheelAngularVelocityRadiansPerSecond:
-        wheelAngularVelocityRadiansPerSecond,
-      estimatedEngineRpm: idleRpm,
+      wheelAngularVelocityRadiansPerSecond,
       idleRpm,
       redlineRpm,
-      engineRpmState: RPM_STATES.IDLE,
       engineRpmClampReason: 'neutral-disconnected',
-    }
+    })
   }
 
   const isReverse = gearDirection < 0
 
   let transmissionRatio
   let selectedRatioKind
-  let selectedForwardGearIndex
-  let selectedForwardGearLabel
+  let reportedForwardGearIndex
+  let reportedForwardGearLabel
 
   if (isReverse) {
     transmissionRatio = selectReverseDriveRatio(transmissionProfile)
     selectedRatioKind = RATIO_KINDS.REVERSE
-    selectedForwardGearIndex = DEFAULT_GEAR_INDEX
-    selectedForwardGearLabel = 'R'
+    reportedForwardGearIndex = DEFAULT_GEAR_INDEX
+    reportedForwardGearLabel = 'R'
   } else {
-    transmissionRatio = finiteOrZero(selectRepresentativeForwardRatio(transmissionProfile))
     const isCvt = transmissionProfile?.transmissionKind === 'cvt'
     selectedRatioKind = isCvt ? RATIO_KINDS.CVT : RATIO_KINDS.FORWARD
-    selectedForwardGearIndex = selectForwardGearIndex(transmissionProfile)
-    selectedForwardGearLabel = selectForwardGearLabel(transmissionProfile)
+    const engagedGearIndex = resolveEngagedForwardGearIndex(
+      transmissionProfile,
+      selectedForwardGearIndex
+    )
+
+    if (isCvt) {
+      // A CVT has no discrete forward gears: the representative midpoint ratio
+      // is the telemetry ratio and there is no gear number to report.
+      transmissionRatio = finiteOrZero(
+        selectRepresentativeForwardRatio(transmissionProfile)
+      )
+      reportedForwardGearIndex = DEFAULT_GEAR_INDEX
+      reportedForwardGearLabel = 'CVT'
+    } else if (engagedGearIndex !== null) {
+      // The engaged gear: its ratio and its 1-based label are the ones the
+      // driveline is actually using.
+      transmissionRatio = finiteOrZero(
+        transmissionProfile.forwardGearRatios[engagedGearIndex]
+      )
+      reportedForwardGearIndex = engagedGearIndex
+      reportedForwardGearLabel = String(engagedGearIndex + 1)
+    } else {
+      // A fixed-ratio box with no known engaged gear. Report the powertrain as
+      // disconnected instead of claiming first gear.
+      return createDisconnectedKinematics({
+        finalDriveRatio,
+        wheelAngularVelocityRadiansPerSecond,
+        idleRpm,
+        redlineRpm,
+        engineRpmClampReason: 'no-engaged-gear',
+      })
+    }
   }
 
-  const effectiveDriveRatio = computeEffectiveDriveRatio(transmissionProfile, isReverse)
+  const effectiveDriveRatio = computeEffectiveDriveRatio(
+    transmissionProfile,
+    isReverse,
+    reportedForwardGearIndex
+  )
 
   // Raw estimated engine RPM from driven wheel speed and the effective drive
   // ratio. Absolute value keeps direction-agnostic wheel speed finite/positive.
@@ -205,8 +293,8 @@ export function computePowertrainKinematics({
       ? CONNECTION_STATES.REVERSE_CONNECTED
       : CONNECTION_STATES.FORWARD_CONNECTED,
     selectedRatioKind,
-    selectedForwardGearIndex,
-    selectedForwardGearLabel,
+    selectedForwardGearIndex: reportedForwardGearIndex,
+    selectedForwardGearLabel: reportedForwardGearLabel,
     transmissionRatio,
     finalDriveRatio,
     effectiveDriveRatio,
