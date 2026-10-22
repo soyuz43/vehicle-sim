@@ -35,6 +35,7 @@ const CATALOG_SUSPENSION_COMPONENT_IDS = [
   'susp-lowered',
   'susp-lifted',
   'susp-stiff',
+  'susp-solid-axle-rear',
 ]
 
 function createController({ spec = {}, engineId, transmissionId } = {}) {

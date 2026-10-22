@@ -24,6 +24,24 @@ export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
   'aero',
 ])
 
+// The spec fields a suspension component owns.
+//
+// Selecting a suspension component REPLACES these fields on the vehicle spec.
+// A component therefore has to declare every field it owns, including the
+// axle coupling modes, so swapping back to a component that does not use a
+// coupling mode clears a coupling mode a previously selected component set.
+export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
+  'suspensionRestLengthMeters',
+  'suspensionMaximumLengthMeters',
+  'suspensionMinimumLengthMeters',
+  'suspensionTravelMeters',
+  'suspensionTargetStaticCompressionRatio01',
+  'suspensionDampingRatio',
+  'chassisTerrainSupportBaselineOffsetMeters',
+  'frontAxleCoupling',
+  'rearAxleCoupling',
+])
+
 const CHASSIS_COMPONENTS = Object.freeze({
   'chassis-hatchback': {
     id: 'chassis-hatchback',
@@ -103,6 +121,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.4,
       suspensionDampingRatio: 0.35,
       chassisTerrainSupportBaselineOffsetMeters: 0,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
     },
   },
   'susp-lowered': {
@@ -120,6 +140,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.45,
       suspensionDampingRatio: 0.5,
       chassisTerrainSupportBaselineOffsetMeters: -0.06,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
     },
   },
   'susp-lifted': {
@@ -137,6 +159,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.32,
       suspensionDampingRatio: 0.3,
       chassisTerrainSupportBaselineOffsetMeters: 0.07,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
     },
   },
   'susp-stiff': {
@@ -154,6 +178,30 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.25,
       suspensionDampingRatio: 0.8,
       chassisTerrainSupportBaselineOffsetMeters: 0,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
+    },
+  },
+  'susp-solid-axle-rear': {
+    id: 'susp-solid-axle-rear',
+    label: 'Rear Solid Axle (shared leaf)',
+    description:
+      'The rear axle is a rigid beam carried on one shared leaf: both rear ' +
+      'wheels report the same suspension length, so a one-sided bump lifts ' +
+      'one rear wheel and holds the other up instead of letting it droop. ' +
+      'The front axle stays independent. The shared leaf uses the stock ' +
+      'linear spring rate; there is no progressive leaf model, no anti-roll ' +
+      'bar, no unsprung-mass model, and no per-corner spring rates.',
+    spec: {
+      suspensionRestLengthMeters: 0.35,
+      suspensionMaximumLengthMeters: 0.35,
+      suspensionMinimumLengthMeters: 0.13,
+      suspensionTravelMeters: 0.22,
+      suspensionTargetStaticCompressionRatio01: 0.4,
+      suspensionDampingRatio: 0.35,
+      chassisTerrainSupportBaselineOffsetMeters: 0,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'rigidAxle',
     },
   },
 })
