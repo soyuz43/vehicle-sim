@@ -12,10 +12,19 @@ import {
     syncAxleCouplingModesToSpec,
 } from './dynamics/axleCouplingState.js'
 import {
+    AERO_OWNED_SPEC_FIELDS,
+    BRAKES_OWNED_SPEC_FIELDS,
+    CHASSIS_OWNED_SPEC_FIELDS,
+    DRIVETRAIN_OWNED_SPEC_FIELDS,
     SUSPENSION_OWNED_SPEC_FIELDS,
     VEHICLE_COMPONENT_CATALOG,
+    WHEELS_OWNED_SPEC_FIELDS,
     getComponent,
 } from './config/componentCatalog.js'
+import {
+    cloneVehicleConfiguration,
+    validateVehicleConfiguration,
+} from './config/createVehicleConfiguration.js'
 import {
     createAerodynamicDragState,
     updateAerodynamicDragState,
@@ -773,6 +782,222 @@ export class VehicleController {
         return component
     }
 
+    // Apply a complete vehicle configuration to the running controller.
+    //
+    // A configuration selects one catalog component per slot (see
+    // componentCatalog.js). Each slot owns a set of spec fields, and the
+    // selected component REPLACES those fields. A field the component does
+    // not declare falls back to DEFAULT_VEHICLE_SPEC, so switching back to a
+    // component that does not use a value clears the previous component's
+    // value instead of keeping it.
+    //
+    // The vehicle is NOT reset. Position, velocity, yaw, the R/N/D drive
+    // selector, and the tire pressures are preserved: this is a setup change,
+    // not a teleport. The controller object itself never changes, so every
+    // holder of a controller reference (camera, panels, obstacle interaction,
+    // the console hook) keeps working.
+    //
+    // The one deliberate discontinuity is the chassis slot. A new chassis
+    // mass and center of mass make the stored vertical dynamics state stale
+    // (the heave/pitch/roll rates belong to a body with a different sprung
+    // mass and inertia), so that state is dropped instead of carrying
+    // momentum the new body does not have.
+    function setVehicleConfiguration(vehicleConfiguration) {
+        const validation = validateVehicleConfiguration(vehicleConfiguration)
+
+        if (!validation.valid) {
+            throw new Error(
+                'invalid vehicle configuration: ' + validation.errors.join('; ')
+            )
+        }
+
+        const components = {}
+
+        // --- Suspension slot ---------------------------------------------
+        // The suspension slot owns the archetype: the owned spec fields, the
+        // axle coupling modes, and the damper samples.
+        const suspensionComponent = requireSlotComponent(
+            'suspension',
+            vehicleConfiguration.slots.suspension
+        )
+        setSuspension(suspensionComponent.id)
+        components.suspension = suspensionComponent
+
+        // --- Drivetrain slot ---------------------------------------------
+        // The engine and the transmission are controller-level profiles
+        // rather than spec fields, so they go through their own profile APIs.
+        const drivetrainComponent = requireSlotComponent(
+            'drivetrain',
+            vehicleConfiguration.slots.drivetrain
+        )
+        setTransmission(drivetrainComponent.transmissionId)
+        setEngineProfile(drivetrainComponent.engineId)
+        applyOwnedSpecFields(
+            DRIVETRAIN_OWNED_SPEC_FIELDS,
+            drivetrainComponent.spec
+        )
+        // spec.rearDifferentialType is SHADOWED by the differential state:
+        // the state wins for the physics, so the spec field is only kept in
+        // sync for the snapshot. setRearDifferentialType() is what actually
+        // changes the running differential.
+        setRearDifferentialType(spec.rearDifferentialType)
+        components.drivetrain = drivetrainComponent
+
+        // --- Brakes slot -------------------------------------------------
+        const brakesComponent = requireSlotComponent(
+            'brakes',
+            vehicleConfiguration.slots.brakes
+        )
+        applyOwnedSpecFields(BRAKES_OWNED_SPEC_FIELDS, brakesComponent.spec)
+        components.brakes = brakesComponent
+
+        // --- Aero slot ---------------------------------------------------
+        const aeroComponent = requireSlotComponent(
+            'aero',
+            vehicleConfiguration.slots.aero
+        )
+        applyOwnedSpecFields(AERO_OWNED_SPEC_FIELDS, aeroComponent.spec)
+        components.aero = aeroComponent
+
+        // --- Chassis slot ------------------------------------------------
+        const chassisComponent = requireSlotComponent(
+            'chassis',
+            vehicleConfiguration.slots.chassis
+        )
+        const chassisChanged = applyOwnedSpecFields(
+            CHASSIS_OWNED_SPEC_FIELDS,
+            chassisComponent.spec
+        )
+        // The chassis mass properties are derived once, when the controller
+        // is built. They have to be re-derived here or the controller keeps
+        // reporting (and impulse-correcting with) the previous mass and
+        // inertia.
+        updateChassisMassPropertiesState(
+            state.chassisMassPropertiesState,
+            spec,
+            state.wheelStates
+        )
+        if (chassisChanged) {
+            zeroVerticalChassisDynamicsState()
+        }
+        components.chassis = chassisComponent
+
+        // --- Wheels slot -------------------------------------------------
+        const wheelsComponent = requireSlotComponent(
+            'wheels',
+            vehicleConfiguration.slots.wheels
+        )
+        applyOwnedSpecFields(WHEELS_OWNED_SPEC_FIELDS, wheelsComponent.spec)
+        applyWheelInertiaToWheelStates()
+        components.wheels = wheelsComponent
+
+        // The powertrain kinematics are rebuilt on every step, so they are
+        // refreshed here to keep the snapshot between steps honest.
+        updatePowertrainKinematics()
+
+        return {
+            configuration: cloneVehicleConfiguration(vehicleConfiguration),
+            components,
+            engineProfile: state.engineProfile,
+            transmissionProfile: state.transmissionProfile,
+        }
+    }
+
+    // Strict catalog lookup used by the runtime configuration apply. The
+    // configuration validation already rejects an unknown id, so this is the
+    // defensive second check.
+    function requireSlotComponent(slot, componentId) {
+        const component = getComponent(slot, componentId)
+
+        if (!component) {
+            throw new Error(
+                'Unknown ' + slot + ' id "' + String(componentId) + '".'
+            )
+        }
+
+        return component
+    }
+
+    // Swap the engine profile at runtime.
+    //
+    // The engine profile is a controller-level object rather than a spec
+    // field: it is read from state.engineProfile on every step, so replacing
+    // it is enough. An unknown id is an error rather than a silent fallback
+    // to the default engine.
+    function setEngineProfile(engineId) {
+        const profile = selectEngineProfile(engineId)
+
+        if (profile.engineId !== engineId) {
+            throw new Error('Unknown engine id "' + String(engineId) + '".')
+        }
+
+        state.engineProfile = profile
+
+        return profile
+    }
+
+    // A slot component owns its spec fields outright, so a field the
+    // component does not declare falls back to the default spec instead of
+    // keeping the previous component's value. Returns true when at least one
+    // owned field changed.
+    function applyOwnedSpecFields(ownedFields, componentSpec) {
+        let changed = false
+
+        for (const field of ownedFields) {
+            const value = componentSpec?.[field]
+            const nextValue =
+                value === undefined || value === null
+                    ? DEFAULT_VEHICLE_SPEC[field]
+                    : value
+
+            if (spec[field] !== nextValue) {
+                changed = true
+            }
+
+            spec[field] = nextValue
+        }
+
+        return changed
+    }
+
+    // Drop the stored vertical dynamics state.
+    //
+    // The heave, pitch, and roll positions and rates belong to a body with
+    // the previous chassis mass, center of mass, and inertia. Keeping them
+    // would carry momentum the new body does not have, so they are zeroed.
+    // The accelerations are outputs of the last step and are recomputed by
+    // the next one, so they are left alone.
+    function zeroVerticalChassisDynamicsState() {
+        const verticalState = state.verticalChassisDynamicsState
+        if (!verticalState) return
+
+        verticalState.heaveMeters = 0
+        verticalState.heaveVelocityMetersPerSecond = 0
+        verticalState.pitchRadians = 0
+        verticalState.pitchRateRadiansPerSecond = 0
+        verticalState.rollRadians = 0
+        verticalState.rollRateRadiansPerSecond = 0
+    }
+
+    // The wheel inertia is copied into the per-wheel runtime states when the
+    // wheel state is built, so it has to be re-synced on a swap. The wheel
+    // angular velocity is preserved: a different inertia changes how fast
+    // the wheel accelerates, not how fast it is spinning right now.
+    function applyWheelInertiaToWheelStates() {
+        const wheelInertiaKgMeterSquared = spec.wheelInertiaKgMeterSquared
+
+        if (
+            !Number.isFinite(wheelInertiaKgMeterSquared) ||
+            wheelInertiaKgMeterSquared <= 0
+        ) {
+            return
+        }
+
+        for (const wheelState of state.wheelStates) {
+            wheelState.wheelInertiaKgMeterSquared = wheelInertiaKgMeterSquared
+        }
+    }
+
     // Strict catalog lookup used by runtime suspension swapping. An unknown
     // id is an error rather than a silent fallback: a swap request that
     // quietly kept the previous suspension would misrepresent what the
@@ -796,13 +1021,7 @@ export class VehicleController {
     // component does not declare falls back to the default spec instead of
     // keeping the previous component's value.
     function applySuspensionSpec(componentSpec) {
-        for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
-            const value = componentSpec?.[field]
-            spec[field] =
-                value === undefined || value === null
-                    ? DEFAULT_VEHICLE_SPEC[field]
-                    : value
-        }
+        applyOwnedSpecFields(SUSPENSION_OWNED_SPEC_FIELDS, componentSpec)
     }
 
     function dropSuspensionDamperSamples() {
@@ -3446,6 +3665,7 @@ export class VehicleController {
     this.requestShiftDown = requestShiftDown
     this.setTransmission = setTransmission
     this.setSuspension = setSuspension
+    this.setVehicleConfiguration = setVehicleConfiguration
     this.setGear = setGear
     this.setDynamicsTuning = setDynamicsTuning
     this.resetDynamicsTuning = resetDynamicsTuning
