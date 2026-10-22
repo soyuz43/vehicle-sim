@@ -16,18 +16,19 @@
 //   camberRadians = camberStaticRadians
 //                 + camberGainRadiansPerMeterCompression * effectiveTravelMeters
 //
-// effectiveTravelMeters is the suspension travel relative to the design
-// (static) ride position, plus the travel the body roll induces at that
+// effectiveTravelMeters is the suspension travel relative to the actual
+// static ride position, plus the travel the body roll induces at that
 // corner:
-//   effectiveTravel = (suspensionCompressionMeters - designCompressionMeters)
+//   effectiveTravel = (suspensionCompressionMeters - staticCompressionReferenceMeters)
 //                   + rollInducedTravelMeters
 //   rollInducedTravelMeters = -wheelLocalX * bodyRollRadians
 //
-// The design compression reference is the spec-derived design ride position
-// (suspensionTravelMeters * suspensionTargetStaticCompressionRatio01), so a
-// suspension archetype that gains no camber reports no camber at its design
-// position and the static camber field stays the single owner of static
-// camber.
+// The static compression reference is captured from the wheel's settled
+// compression, so changing the target static compression ratio does not move
+// the camber zero point. Wheels that have not been captured fall back to the
+// spec-derived design ride position; this keeps direct camber-state calls
+// behavior-compatible and lets the controller opt into the measured
+// reference.
 //
 // Bridge approximation (documented seam): the roll-induced travel is
 // reconstructed from the body roll angle with the roll axis at ground level
@@ -64,8 +65,55 @@ export function resetWheelCamberState(wheelState) {
   wheelState.camberEffectiveTravelMeters = 0
   wheelState.camberRollInducedTravelMeters = 0
   wheelState.camberThrustForceNewtons = 0
+  wheelState.camberStaticCompressionReferenceMeters = null
 
   return wheelState
+}
+
+// Capture one static ride reference per wheel. A wheel is left pending when
+// it is not grounded or the controller is not at static conditions, so a
+// mid-drive suspension change re-derives from the settled position rather
+// than from a transient compression sample.
+export function captureWheelCamberStaticCompressionReference(
+  wheelStates = [],
+  canCapture = true
+) {
+  if (!Array.isArray(wheelStates)) return false
+
+  let allReferencesCaptured = true
+
+  for (const wheelState of wheelStates) {
+    const existingReferenceMeters =
+      wheelState.camberStaticCompressionReferenceMeters
+    if (
+      Number.isFinite(existingReferenceMeters) &&
+      existingReferenceMeters >= 0
+    ) {
+      continue
+    }
+
+    const compressionMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionCompressionMeters
+    )
+    if (
+      !canCapture ||
+      wheelState.isGrounded !== true ||
+      !Number.isFinite(compressionMeters)
+    ) {
+      allReferencesCaptured = false
+      continue
+    }
+
+    // The ray-derived length can differ from the design value by floating
+    // point only. Twelve decimal places is nanometre precision and keeps the
+    // stock spec's captured reference numerically identical to its design
+    // reference.
+    wheelState.camberStaticCompressionReferenceMeters = Number(
+      compressionMeters.toFixed(12)
+    )
+  }
+
+  return allReferencesCaptured
 }
 
 export function updateWheelCamberState(
@@ -92,9 +140,14 @@ export function updateWheelCamberState(
     // extends and its compression drops.
     const rollInducedTravelMeters =
       -wheelLocalXMeters * safeBodyRollRadians
+    const staticCompressionReferenceMeters =
+      resolveStaticCompressionReferenceMeters(
+        wheelState,
+        designCompressionMeters
+      )
     const effectiveTravelMeters =
       sanitizeNumber(wheelState.suspensionCompressionMeters) -
-      designCompressionMeters +
+      staticCompressionReferenceMeters +
       rollInducedTravelMeters
     const camberRadians =
       camberStaticRadians +
@@ -107,6 +160,17 @@ export function updateWheelCamberState(
   }
 
   return wheelStates
+}
+
+function resolveStaticCompressionReferenceMeters(
+  wheelState,
+  fallbackDesignCompressionMeters
+) {
+  const referenceMeters = wheelState.camberStaticCompressionReferenceMeters
+
+  return Number.isFinite(referenceMeters) && referenceMeters >= 0
+    ? referenceMeters
+    : fallbackDesignCompressionMeters
 }
 
 // The camber thrust this wheel produces, signed in the applied lateral tire
