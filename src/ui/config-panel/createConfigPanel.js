@@ -59,8 +59,17 @@ export function createConfigPanel(config = {}) {
   let currentVehicleConfig = cfg.initialVehicleConfig
     ? cloneVehicleConfiguration(cfg.initialVehicleConfig)
     : createDefaultVehicleConfiguration();
-  let defaultVehicleConfig = createDefaultVehicleConfiguration();
+  // The stock catalog configuration. It is the fixed baseline the Reset All
+  // control restores, and it is never overwritten by an apply: an applied
+  // configuration is not the baseline, it is the current setup.
+  const stockVehicleConfig = createDefaultVehicleConfiguration();
   let isDirty = false;
+  // The outcome of the last apply attempt: null (no attempt), 'applied', or
+  // 'error'. The host reports the outcome through markApplied() and
+  // setApplyError(); a host that reports nothing is treated as a successful
+  // apply so the panel does not stay stuck in the dirty state.
+  let applyOutcome = null;
+  let applyStatus = null;
 
   // Create main panel
   const panel = createPanel({
@@ -151,7 +160,10 @@ export function createConfigPanel(config = {}) {
   modeNotice.style.background = 'var(--ui-color-bg-input)';
   modeNotice.style.borderRadius = 'var(--ui-radius-sm)';
   modeNotice.style.border = '1px solid var(--ui-color-border-subtle)';
-  modeNotice.textContent = 'Selections update this preview only. Apply does not change the running controller or rendered vehicle.';
+  modeNotice.textContent =
+    'Selections are staged here. Apply changes the running vehicle ' +
+    'immediately: the pose, velocity, gear, and tire pressures are ' +
+    'preserved, and the terrain selection reloads the page.';
   vehicleContent.appendChild(modeNotice);
 
   // Slot selectors
@@ -203,12 +215,35 @@ export function createConfigPanel(config = {}) {
   vehicleContent.appendChild(vehicleSetupPreview);
   updateVehicleSetupPreview();
 
+  // The status line reports one of three states: the staged setup (the
+  // panel holds changes that are not applied yet), the applied setup (with
+  // the time it was applied), or the failure of the last apply attempt.
   function updateVehicleSetupPreview() {
     const selectedComponents = VEHICLE_COMPONENT_SLOTS.map((slot) => {
       const component = VEHICLE_COMPONENT_CATALOG[slot]?.components[currentVehicleConfig.slots[slot]];
       return component ? `${SLOT_LABELS[slot] ?? slot}: ${component.label}` : null;
     }).filter(Boolean);
-    vehicleSetupPreview.textContent = `Selected setup preview only — ${selectedComponents.join(' · ')}`;
+    const setupText = selectedComponents.join(' · ');
+
+    if (applyStatus?.kind === 'error') {
+      vehicleSetupPreview.textContent = `Apply failed: ${applyStatus.message}`;
+      vehicleSetupPreview.style.color = 'var(--ui-color-semantic-danger)';
+      return;
+    }
+
+    vehicleSetupPreview.style.color = 'var(--ui-color-text-secondary)';
+
+    if (isDirty) {
+      vehicleSetupPreview.textContent = `Staged setup — ${setupText}`;
+      return;
+    }
+
+    if (applyStatus?.kind === 'applied') {
+      vehicleSetupPreview.textContent = `Applied at ${applyStatus.time} — ${setupText}`;
+      return;
+    }
+
+    vehicleSetupPreview.textContent = setupText;
   }
 
   // === ACTION BAR ===
@@ -252,6 +287,8 @@ export function createConfigPanel(config = {}) {
     // Update panel title to show dirty state
     panel.titleEl.textContent = 'Session Config ●';
     panel.titleEl.style.color = 'var(--ui-color-semantic-warning)';
+    // The status line reports the staged setup while the panel is dirty.
+    updateVehicleSetupPreview();
   }
 
   function clearDirty() {
@@ -263,9 +300,13 @@ export function createConfigPanel(config = {}) {
     panel.titleEl.style.color = '';
   }
 
+  // Reset All restores the stock catalog configuration and applies it live.
+  // The vehicle's pose is NOT reset here: the R key owns that. The terrain
+  // selection is reset the way it always was, independently of the vehicle
+  // setup.
   function resetToDefaults() {
     currentTerrain = 'proving-ground';
-    currentVehicleConfig = cloneVehicleConfiguration(defaultVehicleConfig);
+    currentVehicleConfig = cloneVehicleConfiguration(stockVehicleConfig);
     terrainSelect.setValue(currentTerrain);
     for (const slot of VEHICLE_COMPONENT_SLOTS) {
       if (slotSelects[slot]) {
@@ -276,18 +317,75 @@ export function createConfigPanel(config = {}) {
     updateVehicleSetupPreview();
     cfg.onVehicleChange?.(cloneVehicleConfiguration(currentVehicleConfig));
     clearDirty();
-    cfg.onReset?.();
+
+    applyOutcome = null;
+    applyStatus = null;
+
+    try {
+      cfg.onReset?.();
+    } catch (error) {
+      setApplyError(error);
+      return;
+    }
+
+    if (applyOutcome === null) {
+      markApplied();
+    }
   }
 
   function applyChanges() {
     if (!isDirty) return;
-    cfg.onApply?.({
-      terrain: currentTerrain,
-      vehicleConfig: cloneVehicleConfiguration(currentVehicleConfig),
-    });
-    // Update defaults to current for future resets
-    defaultVehicleConfig = cloneVehicleConfiguration(currentVehicleConfig);
+
+    applyOutcome = null;
+    applyStatus = null;
+
+    try {
+      cfg.onApply?.({
+        terrain: currentTerrain,
+        vehicleConfig: cloneVehicleConfiguration(currentVehicleConfig),
+      });
+    } catch (error) {
+      setApplyError(error);
+      return;
+    }
+
+    // The host reports the outcome through markApplied() and
+    // setApplyError(). A host that reports nothing is treated as a
+    // successful apply, so the panel still leaves the dirty state.
+    if (applyOutcome === null) {
+      markApplied();
+    }
+  }
+
+  // Report a successful apply. The panel leaves the dirty state and shows
+  // the time the configuration was applied.
+  function markApplied() {
+    applyOutcome = 'applied';
+    applyStatus = {
+      kind: 'applied',
+      time: formatAppliedTime(new Date()),
+    };
     clearDirty();
+    updateVehicleSetupPreview();
+  }
+
+  // Report a failed apply. The panel stays dirty and the Apply button stays
+  // enabled so the driver can correct the selection and try again.
+  function setApplyError(error) {
+    applyOutcome = 'error';
+    applyStatus = {
+      kind: 'error',
+      message: error?.message ?? String(error ?? 'unknown error'),
+    };
+    updateVehicleSetupPreview();
+  }
+
+  function formatAppliedTime(date) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+
+    return `${hours}:${minutes}:${seconds}`;
   }
 
   // Public API for external sync
@@ -331,6 +429,8 @@ export function createConfigPanel(config = {}) {
     getTerrain: () => currentTerrain,
     getVehicleConfig: () => cloneVehicleConfiguration(currentVehicleConfig),
     isDirty: () => isDirty,
+    markApplied,
+    setApplyError,
     collapse: () => panel.collapse(true),
     expand: () => panel.collapse(false),
     toggle: panel.toggle,
