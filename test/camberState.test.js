@@ -7,6 +7,7 @@ import { createCar } from '../src/car/createCar.js'
 import { DEFAULT_VEHICLE_SPEC } from '../src/vehicle/defaultVehicleSpec.js'
 import { createVehicleController } from '../src/vehicle/createVehicleController.js'
 import {
+  captureWheelCamberStaticCompressionReference,
   computeCamberThrustForceNewtons,
   resetWheelCamberState,
   updateWheelCamberState,
@@ -33,6 +34,7 @@ function makeWheel(overrides = {}) {
     camberEffectiveTravelMeters: 0,
     camberRollInducedTravelMeters: 0,
     camberThrustForceNewtons: 0,
+    camberStaticCompressionReferenceMeters: null,
     lateralSlipAngleRadians: 0,
     hasLateralSlipAngleSample: true,
     longitudinalSlipRatio: 0,
@@ -85,6 +87,62 @@ test('the camber is measured from the design position, not from the raw compress
   assert.ok(Math.abs(wheel.camberRadians + 0.262 * 0.05) < 1e-12)
 })
 
+test('the captured static compression overrides the spec ratio at rest', () => {
+  const wheel = makeWheel({ suspensionCompressionMeters: 0.088 })
+  assert.equal(
+    captureWheelCamberStaticCompressionReference([wheel]),
+    true
+  )
+
+  updateWheelCamberState(
+    [wheel],
+    { ...CAMBER_SPEC, suspensionTargetStaticCompressionRatio01: 0.65 },
+    0
+  )
+
+  assert.equal(wheel.camberStaticCompressionReferenceMeters, 0.088)
+  assert.equal(wheel.camberEffectiveTravelMeters, 0)
+  assert.equal(wheel.camberRadians, 0)
+})
+
+test('the captured static compression is not recaptured while the wheel travels', () => {
+  const wheel = makeWheel({ suspensionCompressionMeters: 0.088 })
+  captureWheelCamberStaticCompressionReference([wheel])
+
+  wheel.suspensionCompressionMeters = 0.12
+  assert.equal(
+    captureWheelCamberStaticCompressionReference([wheel]),
+    true
+  )
+  updateWheelCamberState([wheel], CAMBER_SPEC, 0)
+
+  assert.equal(wheel.camberStaticCompressionReferenceMeters, 0.088)
+  assert.equal(wheel.camberEffectiveTravelMeters, 0.032)
+})
+
+test('capture waits until every grounded wheel has a reference', () => {
+  const grounded = makeWheel({ id: 'grounded', suspensionCompressionMeters: 0.088 })
+  const airborne = makeWheel({
+    id: 'airborne',
+    isGrounded: false,
+    suspensionCompressionMeters: 0,
+  })
+
+  assert.equal(
+    captureWheelCamberStaticCompressionReference([grounded, airborne], true),
+    false
+  )
+  assert.equal(grounded.camberStaticCompressionReferenceMeters, 0.088)
+  assert.equal(airborne.camberStaticCompressionReferenceMeters, null)
+
+  airborne.isGrounded = true
+  assert.equal(
+    captureWheelCamberStaticCompressionReference([grounded, airborne], true),
+    true
+  )
+  assert.equal(airborne.camberStaticCompressionReferenceMeters, 0)
+})
+
 test('the roll-induced travel tilts the compressed wheel negative', () => {
   const bodyRollRadians = 0.01
   const right = makeWheel({ side: 'right', localPosition: { x: -1.25, y: 0.3, z: 1.45 } })
@@ -115,6 +173,7 @@ test('the camber state resets to zero', () => {
   assert.equal(wheel.camberRadians, 0)
   assert.equal(wheel.camberThrustForceNewtons, 0)
   assert.equal(wheel.camberEffectiveTravelMeters, 0)
+  assert.equal(wheel.camberStaticCompressionReferenceMeters, null)
 })
 
 // ---------------------------------------------------------------------------
@@ -349,4 +408,63 @@ test('the default spec keeps the camber gain at zero', () => {
   assert.equal(DEFAULT_VEHICLE_SPEC.camberStaticRadians, 0)
   assert.equal(DEFAULT_VEHICLE_SPEC.camberGainRadiansPerMeterCompression, 0)
   assert.equal(DEFAULT_VEHICLE_SPEC.camberStiffnessNewtonsPerRadianPerNewton, 0.35)
+})
+
+test('a softened static target still reports zero camber at spawn', () => {
+  const controller = createVehicleController({
+    vehicle: createCar(),
+    spec: {
+      suspensionTargetStaticCompressionRatio01: 0.65,
+      camberGainRadiansPerMeterCompression: -0.262,
+    },
+  })
+  const snapshot = controller.update(DT_SECONDS, {})
+
+  for (const wheelState of snapshot.wheelStates) {
+    assert.ok(
+      Math.abs(wheelState.camberEffectiveTravelMeters) < 1e-15,
+      'spawn effective travel must be numerical zero'
+    )
+    assert.ok(
+      Math.abs(wheelState.camberRadians) < 1e-15,
+      'spawn camber must be numerical zero'
+    )
+  }
+})
+
+test('a suspension change re-captures the static reference after the vehicle settles', () => {
+  const controller = createVehicleController({
+    vehicle: createCar(),
+    spec: {
+      suspensionTargetStaticCompressionRatio01: 0.65,
+      camberGainRadiansPerMeterCompression: -0.262,
+    },
+  })
+  let snapshot = controller.update(DT_SECONDS, {})
+
+  for (let step = 0; step < 300; step += 1) {
+    snapshot = controller.update(DT_SECONDS, { throttle: true })
+  }
+  snapshot = controller.setSuspension('susp-double-wishbone')
+
+  for (let step = 0; step < 1800; step += 1) {
+    snapshot = controller.update(DT_SECONDS, { brake: true })
+    if (Math.abs(snapshot.speedMetersPerSecond) < 1e-4) break
+  }
+
+  for (let step = 0; step < 900; step += 1) {
+    snapshot = controller.update(DT_SECONDS, {})
+  }
+
+  assert.equal(snapshot.speedMetersPerSecond, 0)
+  for (const wheelState of snapshot.wheelStates) {
+    assert.ok(
+      Math.abs(wheelState.camberRadians) < 1e-12,
+      'settled camber must return to zero'
+    )
+    assert.ok(
+      Math.abs(wheelState.camberEffectiveTravelMeters) < 1e-12,
+      'settled effective travel must return to zero'
+    )
+  }
 })

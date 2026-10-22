@@ -90,6 +90,7 @@ import {
     updateLoadTransferState,
 } from './dynamics/loadTransferState.js'
 import {
+    captureWheelCamberStaticCompressionReference,
     resetWheelCamberState,
     updateWheelCamberState,
 } from './dynamics/camberState.js'
@@ -381,6 +382,7 @@ export class VehicleController {
         chassisMassPropertiesState,
         chassisAttitudeState,
         wheelStates,
+        isCamberStaticCompressionReferencePending: true,
         tirePressureState,
         dynamicsTuning,
         lateralSlipSummary,
@@ -577,6 +579,7 @@ export class VehicleController {
     }
 
     function reset() {
+        state.isCamberStaticCompressionReferencePending = true
         state.gear = initialGear
         state.manualForwardGearIndex = null
         state.manualShiftCooldownRemainingSeconds = 0
@@ -1105,7 +1108,14 @@ export class VehicleController {
     // component does not declare falls back to the default spec instead of
     // keeping the previous component's value.
     function applySuspensionSpec(componentSpec) {
-        applyOwnedSpecFields(SUSPENSION_OWNED_SPEC_FIELDS, componentSpec)
+        const suspensionSpecChanged = applyOwnedSpecFields(
+            SUSPENSION_OWNED_SPEC_FIELDS,
+            componentSpec
+        )
+
+        if (suspensionSpecChanged) {
+            state.isCamberStaticCompressionReferencePending = true
+        }
     }
 
     function dropSuspensionDamperSamples() {
@@ -1948,6 +1958,19 @@ export class VehicleController {
         }
     }
 
+    function isVehicleAtStaticCamberReferenceConditions() {
+        const verticalState = state.verticalChassisDynamicsState
+
+        return (
+            state.speedScalar === 0 &&
+            state.throttleInput === 0 &&
+            state.brakeInput === 0 &&
+            state.steeringInput === 0 &&
+            Math.abs(verticalState?.rollRateRadiansPerSecond ?? 0) < 0.0001 &&
+            Math.abs(verticalState?.pitchRateRadiansPerSecond ?? 0) < 0.0001
+        )
+    }
+
     function syncAggregateTirePressureStateFromWheels() {
         let totalTirePressureKpa = 0
         let sampledWheelCount = 0
@@ -2007,6 +2030,13 @@ export class VehicleController {
             dtSeconds,
             state.suspensionNormalForceSummary
         )
+        if (state.isCamberStaticCompressionReferencePending) {
+            state.isCamberStaticCompressionReferencePending =
+                !captureWheelCamberStaticCompressionReference(
+                    state.wheelStates,
+                    isVehicleAtStaticCamberReferenceConditions()
+                )
+        }
         updateWheelSuspensionContactLimitStatuses()
         updateWheelLoadTransferState(dtSeconds)
         // Camber is derived after the suspension travel and the body roll are
@@ -4163,6 +4193,7 @@ function createWheelRuntimeStates(vehicle, spec) {
             camberEffectiveTravelMeters: 0,
             camberRollInducedTravelMeters: 0,
             camberThrustForceNewtons: 0,
+            camberStaticCompressionReferenceMeters: null,
             uncappedLateralTireForceNewtons: 0,
             linearLateralTireForceNewtons: 0,
             appliedLateralTireForceNewtons: 0,
