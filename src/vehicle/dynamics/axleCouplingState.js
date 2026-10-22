@@ -31,16 +31,9 @@
 //      sum(x_i * F_i) terms cancel exactly, which is the physically correct
 //      result for a central leaf on a rigid beam.
 //
-// Known seam, deliberately not fixed here:
-//   The vertical dynamics ODE still assembles the body-attitude stiffness and
-//   the per-corner load deviation as if every corner owned an independent
-//   spring (Krr += k * x^2 per corner, plus a per-corner -k * roll * x load
-//   deviation). A coupled axle with one shared leaf should use the axle
-//   centre for those terms instead. Fixing that means changing the ODE's
-//   stiffness and damping assembly, which is a larger blast radius than this
-//   session allows, so it is deferred to a follow-up session. Until then a
-//   coupled axle reports equal base normal forces on both corners while the
-//   body-roll term still differentiates the reported normal forces.
+// Fixed in A3.5: the vertical dynamics ODE now reads this coupling mode and
+//   treats a coupled axle as ONE spring at the axle centre - see the roll arm
+//   in src/vehicle/dynamics/verticalChassisDynamicsState.js.
 
 export const AXLE_COUPLING_MODES = Object.freeze({
     INDEPENDENT: 'independent',
