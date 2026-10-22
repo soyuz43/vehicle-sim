@@ -325,6 +325,12 @@ function findAxlePartnerWheel(wheelStates, index, axle) {
     return null
 }
 
+// This lateral arm still uses mesh mount positions. When vertical dynamics
+// became spec-authoritative (E2.5), axle coupling was deliberately deferred —
+// see vertical-dynamics-spec-arms-e2-5. For a rigid-axle chassis with non-default
+// track, the beam solve and the vertical assembly use different lateral arms.
+// Fixing requires aligning this arm with resolveChassisGeometry AND reconciling
+// it with the contact query's mesh-based ray origins — a separate design gate.
 function resolveMountLateralOffsetMeters(wheelState) {
     const mountLocalPosition = wheelState?.suspensionMountLocalPosition
     return Number.isFinite(mountLocalPosition?.x) ? mountLocalPosition.x : 0
