@@ -60,6 +60,7 @@
 - 3-DOF heave/pitch/roll solver replacing quasi-static load transfer
 - Enabled via `verticalDynamicsEnabled` flag (enabled by default)
 - Prior-step acceleration drives pitch/roll and terrain suspension spring force drives heave through `verticalDynamicsForcingEnabled`
+- The same per-corner terrain spring force deviation also drives roll and pitch through each corner's moment arm, so uneven terrain rolls and pitches the body
 
 ### Combined-Slip Modeling  
 - Brush/Fiala tire model replacing the simple linear approach and friction-circle combined cap
