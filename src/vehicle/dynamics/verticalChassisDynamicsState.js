@@ -24,6 +24,9 @@
 //   - Terrain heave forcing (gated by the same coupling flag) adds the
 //     suspension spring force deviation from the authored static ride height,
 //     so body heave responds to terrain instead of staying inert.
+//   - Terrain roll and pitch forcing (same gate) apply that same per-corner
+//     terrain force at the corner's moment arm, so the body rolls and pitches
+//     over uneven terrain instead of staying inert in those two axes.
 //   - The heave forcing uses the spring force only. The suspension damper
 //     term is a one-step finite difference of compression that spikes at
 //     contact transitions, and body damping is already applied through the
@@ -145,6 +148,8 @@ export function createVerticalChassisDynamicsState(spec = {}) {
     planarForceRollMomentNewtonMeters: 0,
     heaveForceCouplingActive: false,
     heaveForcingForceNewtons: 0,
+    terrainRollMomentNewtonMeters: 0,
+    terrainPitchMomentNewtonMeters: 0,
     integratedWheelCount: 0,
     isFinite: true,
   }
@@ -170,6 +175,8 @@ export function resetVerticalChassisDynamicsState(state, spec = {}) {
   state.planarForceRollMomentNewtonMeters = 0
   state.heaveForceCouplingActive = false
   state.heaveForcingForceNewtons = 0
+  state.terrainRollMomentNewtonMeters = 0
+  state.terrainPitchMomentNewtonMeters = 0
   state.integratedWheelCount = 0
   state.isFinite = true
   return state
@@ -338,6 +345,8 @@ export function updateVerticalChassisDynamics(
   let Kpr = 0
   const cornerData = []
   let heaveForcingForceNewtons = 0
+  let terrainRollMomentNewtonMeters = 0
+  let terrainPitchMomentNewtonMeters = 0
   for (const wheelState of safeWheelStates) {
     if (!wheelState.isGrounded) {
       // An airborne wheel cannot push the body: zero its normal force and skip.
@@ -379,8 +388,24 @@ export function updateVerticalChassisDynamics(
         sanitizeNumber(wheelState.suspensionCompressionMeters) -
           staticCompressionMeters
       )
-    heaveForcingForceNewtons +=
+    // The terrain force this corner applies to the body beyond the
+    // authored static ride height. It is the same per-corner term the heave
+    // forcing uses, and it also acts at the corner's moment arm about the
+    // roll and pitch axes.
+    const terrainForcingForceNewtons =
       springRateNewtonsPerMeter * terrainCompressionDeviationMeters
+    heaveForcingForceNewtons += terrainForcingForceNewtons
+
+    // The moment rows use the generalized force convention
+    // momentRoll = sum(x_i * F_i) and momentPitch = sum(z_i * F_i), where
+    // F_i is the upward force the terrain applies to the body through that
+    // corner. That matches the stiffness and damping terms of the same rows
+    // (for example -Krr * roll = sum(x_i * (-k_i * roll * x_i))).
+    // +X is the car's left side and +Z is forward, so a terrain rise under
+    // the left corners lifts the left side of the body, and a terrain rise
+    // under the front corners lifts the nose.
+    terrainRollMomentNewtonMeters += xMeters * terrainForcingForceNewtons
+    terrainPitchMomentNewtonMeters += zMeters * terrainForcingForceNewtons
 
     Khh += springRateNewtonsPerMeter
     Khp += springRateNewtonsPerMeter * zMeters
@@ -429,6 +454,12 @@ export function updateVerticalChassisDynamics(
   state.heaveForcingForceNewtons = planarForceCouplingActive
     ? heaveForcingForceNewtons
     : 0
+  state.terrainRollMomentNewtonMeters = planarForceCouplingActive
+    ? terrainRollMomentNewtonMeters
+    : 0
+  state.terrainPitchMomentNewtonMeters = planarForceCouplingActive
+    ? terrainPitchMomentNewtonMeters
+    : 0
   const forceHeave =
     -Khh * heave - Khp * pitch - Khr * roll -
     Chh * heaveRate - Chp * pitchRate - Chr * rollRate +
@@ -436,11 +467,13 @@ export function updateVerticalChassisDynamics(
   const momentPitch =
     -Khp * heave - Kpp * pitch - Kpr * roll -
     Chp * heaveRate - Cpp * pitchRate - Cpr * rollRate +
-    state.planarForcePitchMomentNewtonMeters
+    state.planarForcePitchMomentNewtonMeters +
+    state.terrainPitchMomentNewtonMeters
   const momentRoll =
     -Khr * heave - Kpr * pitch - Krr * roll -
     Chr * heaveRate - Cpr * pitchRate - Crr * rollRate +
-    state.planarForceRollMomentNewtonMeters
+    state.planarForceRollMomentNewtonMeters +
+    state.terrainRollMomentNewtonMeters
 
   const heaveAccel =
     geometry.sprungMassKg > 0 ? forceHeave / geometry.sprungMassKg : 0
