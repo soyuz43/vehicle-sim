@@ -152,6 +152,20 @@ test('ConfigPanel builds terrain selector and vehicle slot selects', async () =>
     }
     return null
   }
+  const findButtonByLabel = (element, label) => {
+    if (element.tagName === 'button') {
+      const labelSpan = findElement(
+        element,
+        (candidate) => candidate.tagName === 'span' && candidate.textContent === label
+      )
+      if (labelSpan) return element
+    }
+    for (const child of element.children ?? []) {
+      const match = findButtonByLabel(child, label)
+      if (match) return match
+    }
+    return null
+  }
   for (const slot of ['chassis', 'suspension', 'wheels', 'drivetrain', 'brakes', 'aero']) {
     const select = findElement(ui.element, (element) => element.id === 'config-' + slot + '-select')
     const label = findElement(ui.element, (element) => element.tagName === 'label' && element.htmlFor === select.id)
@@ -237,6 +251,358 @@ test('dirty state tracking via UI interaction', async () => {
   // Since we can't easily simulate select change events in the fake DOM,
   // we test that the dirty state API exists and returns a boolean.
   assert.equal(typeof ui.isDirty(), 'boolean')
+})
+
+
+test('the Apply button hands the staged configuration to the host', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  let applied = null
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: (config) => { applied = config; },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  assert.ok(applyButton, 'the panel must expose an Apply button')
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.ok(applied, 'the host callback must receive the staged configuration')
+  assert.equal(applied.vehicleConfig.slots.chassis, 'chassis-suv')
+  assert.equal(applied.terrain, 'proving-ground')
+  assert.equal(ui.isDirty(), false, 'a successful apply clears the dirty state')
+})
+
+test('a successful apply reports the applied time and leaves no preview-only wording', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const status = findById(ui.element, 'config-vehicle-preview')
+  const modeNotice = findElement(
+    ui.element,
+    (element) => element.tagName === 'div' && typeof element.textContent === 'string' &&
+      element.textContent.includes('Apply')
+  )
+
+  assert.doesNotMatch(status.textContent, /preview only/i)
+  assert.doesNotMatch(modeNotice.textContent, /does not change the running controller/i)
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  assert.match(status.textContent, /Staged setup/)
+
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.match(status.textContent, /Applied at \d{2}:\d{2}:\d{2}/)
+  assert.equal(ui.isDirty(), false)
+})
+
+test('a failed apply keeps the panel dirty and reports the error', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: () => { ui.setApplyError(new Error('invalid vehicle configuration: bad slot')); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  applyButton.dispatchEvent({ type: 'click' })
+
+  const status = findById(ui.element, 'config-vehicle-preview')
+  assert.match(status.textContent, /Apply failed: invalid vehicle configuration/)
+  assert.equal(ui.isDirty(), true, 'a failed apply keeps the panel dirty')
+  assert.equal(applyButton.element?.disabled ?? applyButton.disabled, false)
+})
+
+test('Reset All restores the stock configuration and applies it', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  let resetConfig = null
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onReset: () => { resetConfig = ui.getVehicleConfig(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-suv')
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset All') !== null
+  )
+  assert.ok(resetButton, 'the panel must expose a Reset All button')
+  resetButton.dispatchEvent({ type: 'click' })
+
+  assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-hatchback')
+  assert.equal(ui.getVehicleConfig().slots.drivetrain, 'drivetrain-stock')
+  assert.ok(resetConfig, 'the host is told about the reset')
+  assert.equal(resetConfig.slots.chassis, 'chassis-hatchback')
+  assert.equal(ui.isDirty(), false)
+})
+
+
+test('the Apply button applies the staged setup to a running controller', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+  for (let step = 0; step < 120; step += 1) {
+    controller.update(1 / 60, { throttle: true })
+  }
+
+  const before = controller.getSnapshot()
+  const beforePositionX = before.position.x
+  const beforePositionZ = before.position.z
+  const beforeGear = before.gear
+
+  let ui
+  ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: ({ vehicleConfig }) => {
+      controller.setVehicleConfiguration(vehicleConfig)
+      ui.markApplied()
+    },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  applyButton.dispatchEvent({ type: 'click' })
+
+  const after = controller.getSnapshot()
+  assert.equal(after.chassisMassProperties.massKg, 1950)
+  assert.equal(after.position.x, beforePositionX)
+  assert.equal(after.position.z, beforePositionZ)
+  assert.equal(after.gear, beforeGear)
+  assert.equal(ui.isDirty(), false)
+})
+
+test('Reset All applies the stock setup to a running controller', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  let ui
+  ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: ({ vehicleConfig }) => {
+      controller.setVehicleConfiguration(vehicleConfig)
+      ui.markApplied()
+    },
+    onReset: () => {
+      controller.setVehicleConfiguration(createDefaultVehicleConfiguration())
+      ui.markApplied()
+    },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  applyButton.dispatchEvent({ type: 'click' })
+  assert.equal(controller.getSnapshot().chassisMassProperties.massKg, 1950)
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset All') !== null
+  )
+  resetButton.dispatchEvent({ type: 'click' })
+
+  assert.equal(
+    controller.getSnapshot().chassisMassProperties.massKg,
+    1400,
+    'Reset All restores the stock setup on the running controller'
+  )
+  assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-hatchback')
 })
 
 test('ConfigPanel destroy cleans up', async () => {

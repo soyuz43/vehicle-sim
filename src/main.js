@@ -5,11 +5,16 @@ import { CameraManager } from './controls/CameraManager.js'
 import { createSimulation } from './createSimulation.js'
 import { runSimulationFrame } from './runSimulationFrame.js'
 import { runRenderFrame } from './runRenderFrame.js'
-import { areVehicleConfigurationsEqual, createDefaultVehicleConfiguration } from './vehicle/config/createVehicleConfiguration.js'
+import {
+  areVehicleConfigurationsEqual,
+  cloneVehicleConfiguration,
+  createDefaultVehicleConfiguration,
+} from './vehicle/config/createVehicleConfiguration.js'
 import { createDriverHUD } from './ui/driver-hud/createDriverHUD.js'
 import { createTelemetryPanel } from './ui/telemetry-panel/createTelemetryPanel.js'
 import { createControlPanel } from './ui/control-panel/createControlPanel.js'
 import { createConfigPanel } from './ui/config-panel/createConfigPanel.js'
+import { applyConfigurationToController } from './vehicle/config/applyVehicleConfigurationToController.js'
 import { initTheme } from './ui/design-system/theme.js'
 import { initResponsive } from './ui/design-system/layout/Responsive.js'
 
@@ -70,6 +75,10 @@ const controlPanel = createControlPanel({
   onRearDifferentialChange: (type) => vehicleController.setRearDifferentialType?.(type),
   onReset: () => vehicleController.resetDynamicsTuning?.(),
 })
+// The configuration the running controller actually carries. An Apply that
+// changes nothing is a no-op instead of a redundant re-apply.
+let lastAppliedVehicleConfig = cloneVehicleConfiguration(initialVehicleConfig)
+
 let configPanel
 configPanel = createConfigPanel({
   anchor: 'bottom-left', initiallyCollapsed: false,
@@ -85,15 +94,42 @@ configPanel = createConfigPanel({
       params.set('terrain', terrain)
       if (globalThis.location) globalThis.location.search = params.toString()
     }
-    if (!areVehicleConfigurationsEqual(vehicleConfig, initialVehicleConfig)) {
-      console.warn('[ConfigPanel] Vehicle component selections are preview-only; the running controller and rendered vehicle are unchanged.', { vehicleConfig })
-    }
+    applyVehicleConfigurationToController(vehicleConfig)
   },
   onReset: () => {
     configPanel.setTerrain('proving-ground')
-    configPanel.setVehicleConfig(createDefaultVehicleConfiguration())
+    const stockVehicleConfig = createDefaultVehicleConfiguration()
+    configPanel.setVehicleConfig(stockVehicleConfig)
+    applyVehicleConfigurationToController(stockVehicleConfig)
   },
 })
+
+// Apply a vehicle configuration to the running controller.
+//
+// The controller object never changes: the configuration is swapped in place,
+// so every holder of a controller reference (the camera, the panels, the
+// obstacle interaction, the console hook) keeps working. A failed apply
+// leaves the controller untouched and reports the failure to the panel.
+function applyVehicleConfigurationToController(vehicleConfig) {
+  if (areVehicleConfigurationsEqual(vehicleConfig, lastAppliedVehicleConfig)) {
+    configPanel.markApplied()
+    return
+  }
+
+  applyConfigurationToController({
+    vehicleController,
+    vehicleConfig,
+    onApplied: () => {
+      lastAppliedVehicleConfig = cloneVehicleConfiguration(vehicleConfig)
+      configPanel.markApplied()
+    },
+    onError: (error) => {
+      console.error('[ConfigPanel] Vehicle configuration apply failed.', error)
+      configPanel.setApplyError(error)
+    },
+  })
+}
+
 const panels = { driverHUD, telemetryPanel, controlPanel }
 
 window.addEventListener('resize', () => {
