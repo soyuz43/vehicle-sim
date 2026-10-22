@@ -53,12 +53,12 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
 // The spec fields the chassis component owns.
 //
 // Selecting a chassis component REPLACES these fields on the vehicle spec.
-// The mass, center-of-mass height, and polar inertia feed the planar and
-// vertical dynamics directly. The geometry fields are fallbacks: the load
-// transfer geometry derives the wheelbase and the track widths from the
-// wheel layout, and only the track width is read directly (by the
-// vertical-dynamics roll inertia). The rendered car keeps its fixed mesh
-// dimensions, so none of these fields change the drawn vehicle.
+// All of them are live physics properties: the mass, center-of-mass height
+// and polar inertia feed the planar and vertical dynamics directly, and the
+// wheelbase and the track widths are the authoritative chassis geometry that
+// the load transfer, the chassis mass properties and the vertical dynamics
+// all read (see resolveChassisGeometry). The rendered body mesh stays fixed
+// to the hatchback shape, so none of these fields change the drawn vehicle.
 export const CHASSIS_OWNED_SPEC_FIELDS = Object.freeze([
   'massKg',
   'centerOfMassHeightMeters',
@@ -111,12 +111,13 @@ const CHASSIS_COMPONENTS = Object.freeze({
     label: 'Hatchback (stock)',
     description:
       'Baseline 1400 kg unibody. Matches the default proving-ground mass and ' +
-      'inertia. The wheelbase and track width are spec fallbacks for the ' +
-      'load-transfer geometry.' +
-      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
-      'the wheelbase and track width do not change the drawn vehicle. The ' +
-      'physics derives the wheelbase from the wheel layout; the track width ' +
-      'still feeds the vertical-dynamics roll inertia.',
+      'inertia.' +
+      ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
+      'and yaw inertia are live physics properties: the load transfer, the ' +
+      'chassis mass properties and the vertical dynamics all honor them.' +
+      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
+      'so selecting a different chassis changes how the car drives but not ' +
+      'how it looks.',
 
     spec: {
       massKg: 1400,
@@ -133,10 +134,12 @@ const CHASSIS_COMPONENTS = Object.freeze({
     description:
       'Lightweight 1180 kg roadster with a lower center of mass; approximate ' +
       'polar inertia scales with the reduced mass for snappier yaw response.' +
-      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
-      'the wheelbase and track width do not change the drawn vehicle. The ' +
-      'physics derives the wheelbase from the wheel layout; the track width ' +
-      'still feeds the vertical-dynamics roll inertia.',
+      ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
+      'and yaw inertia are live physics properties: the load transfer, the ' +
+      'chassis mass properties and the vertical dynamics all honor them.' +
+      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
+      'so selecting a different chassis changes how the car drives but not ' +
+      'how it looks.',
 
     spec: {
       massKg: 1180,
@@ -151,12 +154,14 @@ const CHASSIS_COMPONENTS = Object.freeze({
     id: 'chassis-suv',
     label: 'SUV',
     description:
-      'Heavy 1950 kg body-on-frame SUV with raised center of mass and wider ' +
-      'track; approximate polar inertia reflects the larger footprint.' +
-      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
-      'the wheelbase and track width do not change the drawn vehicle. The ' +
-      'physics derives the wheelbase from the wheel layout; the track width ' +
-      'still feeds the vertical-dynamics roll inertia.',
+      'Heavy 1950 kg SUV with raised center of mass and wider track; ' +
+      'approximate polar inertia reflects the larger footprint.' +
+      ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
+      'and yaw inertia are live physics properties: the load transfer, the ' +
+      'chassis mass properties and the vertical dynamics all honor them.' +
+      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
+      'so selecting a different chassis changes how the car drives but not ' +
+      'how it looks.',
 
     spec: {
       massKg: 1950,
@@ -171,12 +176,14 @@ const CHASSIS_COMPONENTS = Object.freeze({
     id: 'chassis-heavytruck',
     label: 'Heavy Truck',
     description:
-      '3200 kg ladder-frame truck with a high center of mass; approximate polar ' +
-      'inertia is dominated by the long wheelbase for slow yaw response.' +
-      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
-      'the wheelbase and track width do not change the drawn vehicle. The ' +
-      'physics derives the wheelbase from the wheel layout; the track width ' +
-      'still feeds the vertical-dynamics roll inertia.',
+      '3200 kg truck with a high center of mass; approximate polar inertia ' +
+      'is dominated by the long wheelbase for slow yaw response.' +
+      ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
+      'and yaw inertia are live physics properties: the load transfer, the ' +
+      'chassis mass properties and the vertical dynamics all honor them.' +
+      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
+      'so selecting a different chassis changes how the car drives but not ' +
+      'how it looks.',
 
     spec: {
       massKg: 3200,

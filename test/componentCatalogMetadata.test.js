@@ -16,6 +16,31 @@ test('slippery aero description matches its disabled-downforce setting', () => {
   assert.doesNotMatch(aero.description, /mild downforce/i)
 })
 
+test('chassis descriptions state that the geometry is live and the mesh is fixed', () => {
+  for (const componentId of [
+    'chassis-hatchback',
+    'chassis-lightroadster',
+    'chassis-suv',
+    'chassis-heavytruck',
+  ]) {
+    const chassis = VEHICLE_COMPONENT_CATALOG.chassis.components[componentId]
+
+    assert.match(chassis.description, /live physics properties/i)
+    assert.match(chassis.description, /load transfer/i)
+    assert.match(chassis.description, /chassis mass properties/i)
+    assert.match(chassis.description, /vertical dynamics/i)
+    assert.match(
+      chassis.description,
+      /rendered body mesh is fixed to the hatchback shape/i
+    )
+    assert.doesNotMatch(chassis.description, /spec fallback/i)
+    assert.doesNotMatch(
+      chassis.description,
+      /derives the wheelbase from the wheel layout/i
+    )
+  }
+})
+
 test('disabled stock aero entries omit unused downforce coefficients', () => {
   for (const componentId of ['aero-stock', 'aero-slippery']) {
     const aero = VEHICLE_COMPONENT_CATALOG.aero.components[componentId]
