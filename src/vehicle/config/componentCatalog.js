@@ -31,6 +31,10 @@ export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
 // axle coupling modes, so swapping back to a component that does not use a
 // coupling mode clears a coupling mode a previously selected component set.
 //
+// The camber fields carry live physics: the static camber and the
+// archetype's camber gain per meter of suspension travel, both read by the
+// camber state and the camber thrust term.
+//
 // 'suspensionVisualKind' is the one field in this list that carries NO
 // physics. It selects which archetype-specific geometry the renderer
 // draws for the suspension, and no force model reads it. It is owned by
@@ -48,6 +52,8 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'frontAxleCoupling',
   'rearAxleCoupling',
   'suspensionVisualKind',
+  'camberStaticRadians',
+  'camberGainRadiansPerMeterCompression',
 ])
 
 // The spec fields the chassis component owns.
@@ -215,6 +221,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-lowered': {
@@ -235,6 +243,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-lifted': {
@@ -255,6 +265,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-stiff': {
@@ -275,6 +287,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-solid-axle-rear': {
@@ -298,6 +312,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'rigidAxle',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-macpherson-strut': {
@@ -324,6 +340,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'macphersonStrut',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
 })

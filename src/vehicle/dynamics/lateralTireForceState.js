@@ -1,5 +1,7 @@
 // src/vehicle/dynamics/lateralTireForceState.js
 
+import { computeCamberThrustForceNewtons } from './camberState.js'
+
 const DEFAULT_LATERAL_TIRE_FORCE_SPEC = Object.freeze({
   lateralTireStiffnessNewtonsPerRadian: 6000,
   lateralTireForceSaturationEpsilonNewtons: 0.001,
@@ -33,6 +35,7 @@ export function resetLateralTireForceSummary(lateralTireForceSummary) {
 }
 
 export function resetWheelLateralTireForceState(wheelState) {
+  wheelState.camberThrustForceNewtons = 0
   wheelState.uncappedLateralTireForceNewtons = 0
   wheelState.linearLateralTireForceNewtons = 0
   wheelState.appliedLateralTireForceNewtons = 0
@@ -82,8 +85,16 @@ export function updateWheelLateralTireForceState(wheelState, spec = {}) {
 
     // Positive slip means velocity points toward the wheel's local right axis,
     // so positive tire force must push back toward local left to oppose slip.
+    //
+    // The camber thrust is added to the slip response at the force level:
+    // both terms are linear in their own angle, and the friction cap below
+    // bounds their sum. A wheel without camber contributes exactly zero.
+    const camberThrustForceNewtons =
+      computeCamberThrustForceNewtons(wheelState, spec)
+    wheelState.camberThrustForceNewtons = camberThrustForceNewtons
     wheelState.linearLateralTireForceNewtons =
-      -lateralTireStiffnessNewtonsPerRadian * lateralSlipAngleRadians
+      -lateralTireStiffnessNewtonsPerRadian * lateralSlipAngleRadians +
+      camberThrustForceNewtons
     wheelState.uncappedLateralTireForceNewtons =
       wheelState.linearLateralTireForceNewtons
     wheelState.appliedLateralTireForceNewtons = clampMagnitude(
