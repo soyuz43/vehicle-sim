@@ -1,16 +1,14 @@
 // src/vehicle/dynamics/chassisMassPropertiesState.js
 
+import { resolveChassisGeometry } from './resolveChassisGeometry.js'
+
+// The chassis geometry (wheelbase and track widths) is NOT a mass-properties
+// fallback: it is resolved by resolveChassisGeometry, which reads the spec
+// first so that the mass properties, the load transfer and the vertical
+// dynamics all agree on the same geometry.
 const DEFAULT_CHASSIS_MASS_PROPERTIES = Object.freeze({
   massKg: 1400,
   centerOfMassHeightMeters: 0.55,
-  wheelbaseMeters: 2.9,
-  frontTrackWidthMeters: 2.5,
-  rearTrackWidthMeters: 2.5,
-})
-
-const AXLES = Object.freeze({
-  FRONT: 'front',
-  REAR: 'rear',
 })
 
 export function createChassisMassPropertiesState() {
@@ -96,77 +94,20 @@ export function updateChassisMassPropertiesState(
 }
 
 function deriveChassisGeometry(wheelStates, spec) {
-  let frontWheelCount = 0
-  let rearWheelCount = 0
-  let frontTotalZ = 0
-  let rearTotalZ = 0
-  let frontMinX = Number.POSITIVE_INFINITY
-  let frontMaxX = Number.NEGATIVE_INFINITY
-  let rearMinX = Number.POSITIVE_INFINITY
-  let rearMaxX = Number.NEGATIVE_INFINITY
-
-  for (const wheelState of wheelStates) {
-    const localOffset = wheelState?.contactPatchLocal ?? wheelState?.localPosition
-    const wheelOffsetRightMeters = sanitizeNumber(localOffset?.x)
-    const wheelOffsetForwardMeters = sanitizeNumber(localOffset?.z)
-
-    if (wheelState?.axle === AXLES.FRONT) {
-      frontWheelCount += 1
-      frontTotalZ += wheelOffsetForwardMeters
-      frontMinX = Math.min(frontMinX, wheelOffsetRightMeters)
-      frontMaxX = Math.max(frontMaxX, wheelOffsetRightMeters)
-    } else if (wheelState?.axle === AXLES.REAR) {
-      rearWheelCount += 1
-      rearTotalZ += wheelOffsetForwardMeters
-      rearMinX = Math.min(rearMinX, wheelOffsetRightMeters)
-      rearMaxX = Math.max(rearMaxX, wheelOffsetRightMeters)
-    }
-  }
-
-  const hasAxleGeometry = frontWheelCount > 0 && rearWheelCount > 0
-  const frontAxleCenterZMeters =
-    frontWheelCount > 0 ? frontTotalZ / frontWheelCount : 0
-  const rearAxleCenterZMeters =
-    rearWheelCount > 0 ? rearTotalZ / rearWheelCount : 0
-  const derivedWheelbaseMeters = hasAxleGeometry
-    ? Math.abs(frontAxleCenterZMeters - rearAxleCenterZMeters)
-    : 0
-  const derivedFrontTrackWidthMeters =
-    frontWheelCount > 1 ? Math.max(0, frontMaxX - frontMinX) : 0
-  const derivedRearTrackWidthMeters =
-    rearWheelCount > 1 ? Math.max(0, rearMaxX - rearMinX) : 0
+  // The spec owns the wheelbase and the track widths. The rendered mesh is a
+  // fixed hatchback shape, so reading the geometry from the wheel layout made
+  // the mass properties disagree with the load transfer and the vertical
+  // dynamics for every non-stock chassis.
+  const geometry = resolveChassisGeometry(wheelStates, spec)
 
   return {
-    frontAxleCenterZMeters,
-    rearAxleCenterZMeters,
-    hasAxleGeometry,
-    wheelbaseMeters: sanitizePositiveNumber(
-      derivedWheelbaseMeters,
-      sanitizePositiveNumber(
-        spec.wheelbaseMeters,
-        DEFAULT_CHASSIS_MASS_PROPERTIES.wheelbaseMeters
-      )
-    ),
-    frontTrackWidthMeters: sanitizePositiveNumber(
-      derivedFrontTrackWidthMeters,
-      sanitizePositiveNumber(
-        spec.frontTrackWidthMeters,
-        DEFAULT_CHASSIS_MASS_PROPERTIES.frontTrackWidthMeters
-      )
-    ),
-    rearTrackWidthMeters: sanitizePositiveNumber(
-      derivedRearTrackWidthMeters,
-      sanitizePositiveNumber(
-        spec.rearTrackWidthMeters,
-        DEFAULT_CHASSIS_MASS_PROPERTIES.rearTrackWidthMeters
-      )
-    ),
-    source:
-      derivedWheelbaseMeters > 0 &&
-      derivedFrontTrackWidthMeters > 0 &&
-      derivedRearTrackWidthMeters > 0
-        ? 'wheel-layout'
-        : 'spec-fallback',
+    frontAxleCenterZMeters: geometry.frontAxleCenterZMeters,
+    rearAxleCenterZMeters: geometry.rearAxleCenterZMeters,
+    hasAxleGeometry: geometry.source !== 'default',
+    wheelbaseMeters: geometry.wheelbaseMeters,
+    frontTrackWidthMeters: geometry.frontTrackWidthMeters,
+    rearTrackWidthMeters: geometry.rearTrackWidthMeters,
+    source: geometry.source,
   }
 }
 
