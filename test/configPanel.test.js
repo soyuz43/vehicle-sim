@@ -928,6 +928,123 @@ test('an external change to one slot keeps the staged change in another slot', a
   assert.equal(ui.isDirty(), true, 'the staged brake change is still pending')
 })
 
+test('applying a chassis change at 120 km/h warns about the dropped vertical state', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { describeVehicleApplyWarning } = await import(
+    '../src/vehicle/config/describeVehicleApplyWarning.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+  for (let step = 0; step < 1200; step += 1) {
+    controller.update(1 / 60, { throttle: true })
+  }
+
+  const speedMetersPerSecond = controller.getSnapshot().worldSpeedMetersPerSecond
+  assert.ok(
+    speedMetersPerSecond > 30 / 3.6,
+    'the test vehicle is above the warning threshold'
+  )
+
+  let lastAppliedVehicleConfig = createDefaultVehicleConfiguration()
+
+  // The host does what main.js does: read the speed, describe the
+  // consequence, apply, and report the outcome to the panel.
+  function applyToController(vehicleConfig) {
+    const warning = describeVehicleApplyWarning({
+      pendingVehicleConfig: vehicleConfig,
+      appliedVehicleConfig: lastAppliedVehicleConfig,
+      speedMetersPerSecond: controller.getSnapshot().worldSpeedMetersPerSecond,
+    })
+
+    controller.setVehicleConfiguration(vehicleConfig)
+    lastAppliedVehicleConfig = vehicleConfig
+    ui.markApplied({ vehicleConfig, warning })
+  }
+
+  let ui
+  ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: lastAppliedVehicleConfig,
+    onApply: ({ vehicleConfig }) => {
+      applyToController(vehicleConfig)
+    },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  const status = findById(ui.element, 'config-vehicle-preview')
+
+  // A chassis change at speed drops the vertical dynamics state.
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.match(
+    status.textContent,
+    /heave, pitch, and roll state was dropped/,
+    'the status line reports the dropped vertical dynamics state'
+  )
+  assert.match(status.textContent, /km\/h/, 'the status line reports the speed')
+  assert.match(status.textContent, /Applied at \d{2}:\d{2}:\d{2}/)
+
+  // An aero change at speed drops no vertical dynamics state.
+  const aeroSelect = findById(ui.element, 'config-aero-select')
+  aeroSelect.value = 'aero-slippery'
+  aeroSelect.dispatchEvent({ type: 'change', target: aeroSelect })
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.doesNotMatch(
+    status.textContent,
+    /heave, pitch, and roll state was dropped/,
+    'an aero change at speed reports nothing'
+  )
+
+  // Re-applying the chassis the vehicle already has changes nothing.
+  const terrainSelect = findById(ui.element, 'config-terrain-select')
+  terrainSelect.value = 'offroad'
+  terrainSelect.dispatchEvent({ type: 'change', target: terrainSelect })
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.doesNotMatch(
+    status.textContent,
+    /heave, pitch, and roll state was dropped/,
+    'an unchanged chassis at speed reports nothing'
+  )
+})
+
 test('ConfigPanel destroy cleans up', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')

@@ -15,6 +15,7 @@ import { createTelemetryPanel } from './ui/telemetry-panel/createTelemetryPanel.
 import { createControlPanel } from './ui/control-panel/createControlPanel.js'
 import { createConfigPanel } from './ui/config-panel/createConfigPanel.js'
 import { applyConfigurationToController } from './vehicle/config/applyVehicleConfigurationToController.js'
+import { describeVehicleApplyWarning } from './vehicle/config/describeVehicleApplyWarning.js'
 import { initTheme } from './ui/design-system/theme.js'
 import { initResponsive } from './ui/design-system/layout/Responsive.js'
 
@@ -127,8 +128,18 @@ configPanel.applyExternalVehicleConfig(vehicleController.getVehicleConfiguration
 // obstacle interaction, the console hook) keeps working. A failed apply
 // leaves the controller untouched and reports the failure to the panel.
 function applyVehicleConfigurationToController(vehicleConfig) {
+  // The panel has no controller reference and no snapshot access, so the
+  // speed is read here and the consequence is described here. The apply
+  // always proceeds: the warning reports what already happened.
+  const warning = describeVehicleApplyWarning({
+    pendingVehicleConfig: vehicleConfig,
+    appliedVehicleConfig: lastAppliedVehicleConfig,
+    speedMetersPerSecond:
+      vehicleController.getSnapshot().worldSpeedMetersPerSecond,
+  })
+
   if (areVehicleConfigurationsEqual(vehicleConfig, lastAppliedVehicleConfig)) {
-    configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig })
+    configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig, warning })
     return
   }
 
@@ -137,7 +148,7 @@ function applyVehicleConfigurationToController(vehicleConfig) {
     vehicleConfig,
     onApplied: () => {
       lastAppliedVehicleConfig = cloneVehicleConfiguration(vehicleConfig)
-      configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig })
+      configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig, warning })
     },
     onError: (error) => {
       console.error('[ConfigPanel] Vehicle configuration apply failed.', error)

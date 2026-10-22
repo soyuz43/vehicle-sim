@@ -281,7 +281,18 @@ export function createConfigPanel(config = {}) {
     }
 
     if (applyStatus?.kind === 'applied') {
-      vehicleSetupPreview.textContent = `Applied at ${applyStatus.time} — ${setupText}`;
+      const appliedText = `Applied at ${applyStatus.time} — ${setupText}`;
+
+      if (applyStatus.warning) {
+        // The warning names a consequence of the apply the driver should
+        // know about, so it is shown in the warning color rather than
+        // buried in the setup summary.
+        vehicleSetupPreview.textContent = `${appliedText} — ${applyStatus.warning}`;
+        vehicleSetupPreview.style.color = 'var(--ui-color-semantic-warning)';
+        return;
+      }
+
+      vehicleSetupPreview.textContent = appliedText;
       return;
     }
 
@@ -402,10 +413,13 @@ export function createConfigPanel(config = {}) {
 
   // Report a successful apply. The host passes the configuration that
   // actually landed on the vehicle; without it the panel assumes the staged
-  // configuration was applied. The panel leaves the dirty state and shows
-  // the time the configuration was applied.
+  // configuration was applied. The host may also pass a warning that names
+  // a consequence of the apply the driver should know about.
+  //
+  // The panel leaves the dirty state and shows the time the configuration
+  // was applied.
   function markApplied(options = {}) {
-    const { vehicleConfig = null } = options ?? {};
+    const { vehicleConfig = null, warning = null } = options ?? {};
     appliedVehicleConfig = cloneVehicleConfiguration(
       vehicleConfig ?? currentVehicleConfig
     );
@@ -413,6 +427,7 @@ export function createConfigPanel(config = {}) {
     applyStatus = {
       kind: 'applied',
       time: formatAppliedTime(new Date()),
+      warning,
     };
     refreshDirtyState();
     updateVehicleSetupPreview();
