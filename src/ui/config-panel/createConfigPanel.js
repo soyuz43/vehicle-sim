@@ -163,7 +163,7 @@ export function createConfigPanel(config = {}) {
   modeNotice.textContent =
     'Selections are staged here. Apply changes the running vehicle ' +
     'immediately: the pose, velocity, gear, and tire pressures are ' +
-    'preserved, and the terrain selection reloads the page.';
+    'preserved.';
   vehicleContent.appendChild(modeNotice);
 
   // Slot selectors

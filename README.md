@@ -75,6 +75,7 @@ Reachable today via the browser console: `__vehicleSim.vehicleController.setSusp
 - **Chassis change**: A new chassis mass and center of mass make the stored vertical dynamics state stale, so the chassis mass properties are re-derived and the heave, pitch, and roll positions and rates are dropped. The vehicle keeps its pose and its velocity
 - **Console access**: `__vehicleSim.vehicleController.setVehicleConfiguration({ version: 1, slots: { chassis: 'chassis-suv', suspension: 'susp-stock', wheels: 'tires-stock', drivetrain: 'drivetrain-stock', brakes: 'brakes-stock', aero: 'aero-stock' } })`
 - **Cosmetic fields**: The chassis wheelbase, the chassis track widths, and the tire base rolling radius do not change the rendered vehicle, because the car mesh owns the real dimensions. The track width still feeds the vertical-dynamics roll inertia; the wheelbase and the rolling radius are fallbacks that the wheel layout and the wheel geometry normally replace
+- **Terrain and vehicle are decoupled**: A terrain selection still reloads the page, and the vehicle selection of that apply is not re-applied after the reload. The vehicle setup is applied live on its own
 
 ## Advanced Features (Feature-Gated)
 
