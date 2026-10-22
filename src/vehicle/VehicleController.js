@@ -5,6 +5,12 @@ import * as THREE from 'three'
 import { DEFAULT_VEHICLE_SPEC } from './defaultVehicleSpec.js'
 import { createFlatTerrainContactQuery } from '../terrain/createFlatTerrainContactQuery.js'
 import {
+    createAxleCouplingState,
+    applyAxleCouplingConstraints,
+    getAxleCouplingVerticalOffsetMeters,
+    resetAxleCouplingState,
+} from './dynamics/axleCouplingState.js'
+import {
     createAerodynamicDragState,
     updateAerodynamicDragState,
 } from './dynamics/aerodynamicDragState.js'
@@ -212,6 +218,10 @@ const WHEEL_WORLD_POSITION_SCRATCH = [
     { x: 0, z: 0 },
 ]
 
+// Reused for the axle beam roll's world-space offset so the wheel contact
+// update does not allocate in the hot loop.
+const AXLE_COUPLING_WORLD_OFFSET_SCRATCH = new THREE.Vector3()
+
 
 export class VehicleController {
   constructor(config = {}) {
@@ -355,6 +365,7 @@ export class VehicleController {
         lateralTireForceSummary,
         loadTransferSummary,
         verticalChassisDynamicsState,
+        axleCouplingState: createAxleCouplingState(),
         suspensionNormalForceSummary: createSuspensionNormalForceSummary(),
         chassisTerrainSupportState,
         slopeGravityState: createSlopeGravityState(),
@@ -515,6 +526,7 @@ export class VehicleController {
         resetLateralTireForceSummary(state.lateralTireForceSummary)
         resetLoadTransferSummary(state.loadTransferSummary)
         resetVerticalChassisDynamicsState(state.verticalChassisDynamicsState, spec)
+        resetAxleCouplingState(state.axleCouplingState)
         resetSuspensionNormalForceSummary(state.suspensionNormalForceSummary)
         resetChassisAttitudeState(state.chassisAttitudeState, spec)
         resetSlopeGravityState(state.slopeGravityState)
@@ -883,6 +895,7 @@ export class VehicleController {
             },
             loadTransferSummary: state.loadTransferSummary,
             verticalDynamics: state.verticalChassisDynamicsState,
+            axleCoupling: state.axleCouplingState,
             tirePressureHandlingSummary: state.tirePressureHandlingSummary,
             vehicleDynamicsStepTrace: state.vehicleDynamicsStepTrace,
             engineProfile: state.engineProfile,
@@ -1672,15 +1685,49 @@ export class VehicleController {
         }
     }
 
+    // The wheel contact update runs in three passes.
+    //
+    //   Pass 1 resolves each wheel's own terrain contact and its own
+    //   suspension length. This is the per-wheel model the independent
+    //   suspension has always used.
+    //   Pass 2 solves the axle beam constraints. It is a no-op for every axle
+    //   whose coupling mode is 'independent', so the independent model is
+    //   unchanged by construction.
+    //   Pass 3 writes the wheel centre positions and the contact state.
+    //
+    // The split is what lets an axle constraint see both wheels' terrain
+    // contacts before either wheel's position is written.
     function updateWheelContactStates(advanceContactHysteresis = true) {
         vehicle.updateMatrixWorld(true)
 
         for (const wheelState of state.wheelStates) {
-            updateWheelContactState(wheelState, advanceContactHysteresis)
+            resolveWheelSuspensionContact(wheelState, advanceContactHysteresis)
+        }
+
+        applyAxleCouplingConstraintsToWheelStates()
+
+        for (const wheelState of state.wheelStates) {
+            finalizeWheelContactState(wheelState)
         }
     }
 
-    function updateWheelContactState(wheelState, advanceContactHysteresis) {
+    function applyAxleCouplingConstraintsToWheelStates() {
+        applyAxleCouplingConstraints({
+            axleCouplingState: state.axleCouplingState,
+            wheelStates: state.wheelStates,
+            spec,
+            suspensionMinimumLengthMeters:
+                resolveSuspensionMinimumLengthMeters(),
+            suspensionMaximumLengthMeters:
+                resolveSuspensionMaximumLengthMeters(),
+        })
+    }
+
+    // Pass 1: resolve one wheel's own terrain contact and suspension length.
+    function resolveWheelSuspensionContact(
+        wheelState,
+        advanceContactHysteresis
+    ) {
         const suspensionMountLocalPosition =
             wheelState.suspensionMountLocalPosition ?? wheelState.localPosition
         const suspensionAxisDownLocal =
@@ -1768,26 +1815,10 @@ export class VehicleController {
             )
             : suspensionMaximumLengthMeters
 
-        wheelState.wheelCenterLocalPosition
-            .copy(suspensionMountLocalPosition)
-            .addScaledVector(
-                suspensionAxisDownLocal,
-                wheelState.suspensionCurrentLengthMeters
-            )
-        wheelState.wheelCenterWorldPosition
-            .copy(wheelState.suspensionMountWorld)
-            .addScaledVector(
-                wheelState.suspensionAxisDownWorld,
-                wheelState.suspensionCurrentLengthMeters
-            )
-
-        copySuspensionContactResultToWheelState(
-            wheelState,
-            suspensionContactQueryResult,
-            effectiveWheelRadiusMeters,
-            hasValidSuspensionContact
-        )
-
+        // The contact status describes this wheel's own terrain contact and
+        // its own suspension path. A coupled axle changes the axle's shared
+        // length, not the reach of an individual wheel's path, so the status
+        // keeps its per-wheel meaning.
         if (hasValidSuspensionContact) {
             wheelState.suspensionContactStatus = isWithinContactHysteresis
                 ? 'within-contact-hysteresis'
@@ -1804,6 +1835,59 @@ export class VehicleController {
             wheelState.suspensionContactStatus =
                 suspensionContactQueryResult.status ?? 'no-intersection'
         }
+    }
+
+    // Pass 3: write the wheel centre positions and the contact state.
+    //
+    // A coupled axle adds the beam roll to the wheel's vertical position. The
+    // beam roll is a rigid rotation about the axle's longitudinal axis, so
+    // the offset is applied along the vehicle's up axis in the local frame
+    // and along the rotated up axis in the world frame.
+    //
+    // The shared length is the leaf's length, not this wheel's own path
+    // length. A corner of a coupled axle that has lost its ground contact is
+    // still held at the beam's height here, while the suspension force path
+    // reports the ungrounded convention (full droop, zero compression)
+    // because that corner has no ground reaction to carry.
+    function finalizeWheelContactState(wheelState) {
+        const suspensionMountLocalPosition =
+            wheelState.suspensionMountLocalPosition ?? wheelState.localPosition
+        const suspensionAxisDownLocal =
+            wheelState.suspensionAxisDownLocal ?? DEFAULT_SUSPENSION_DOWN_LOCAL
+        const effectiveWheelRadiusMeters = getWheelRollingRadiusMeters(wheelState)
+        const suspensionContactQueryResult =
+            wheelState.suspensionContactQueryResult
+        const axleCouplingVerticalOffsetMeters =
+            getAxleCouplingVerticalOffsetMeters(
+                state.axleCouplingState,
+                wheelState
+            )
+
+        wheelState.wheelCenterLocalPosition
+            .copy(suspensionMountLocalPosition)
+            .addScaledVector(
+                suspensionAxisDownLocal,
+                wheelState.suspensionCurrentLengthMeters
+            )
+        wheelState.wheelCenterLocalPosition.y += axleCouplingVerticalOffsetMeters
+
+        wheelState.wheelCenterWorldPosition
+            .copy(wheelState.suspensionMountWorld)
+            .addScaledVector(
+                wheelState.suspensionAxisDownWorld,
+                wheelState.suspensionCurrentLengthMeters
+            )
+        AXLE_COUPLING_WORLD_OFFSET_SCRATCH
+            .set(0, axleCouplingVerticalOffsetMeters, 0)
+            .applyQuaternion(vehicle.quaternion)
+        wheelState.wheelCenterWorldPosition.add(AXLE_COUPLING_WORLD_OFFSET_SCRATCH)
+
+        copySuspensionContactResultToWheelState(
+            wheelState,
+            suspensionContactQueryResult,
+            effectiveWheelRadiusMeters,
+            wheelState.isGrounded === true
+        )
     }
 
     function copySuspensionContactResultToWheelState(
