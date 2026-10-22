@@ -5,8 +5,21 @@
 // This is PROFILE DATA. The active powertrain drive-torque source v1 and the
 // shared representative-ratio helper read the selected representative forward
 // gear ratio, absolute reverse ratio, and final-drive ratio to multiply engine
-// torque into axle torque. These profiles do NOT drive shifting, clutch,
-// torque-converter, or any other drivetrain behavior in the current simulation.
+// torque into axle torque.
+//
+// Flag status (read before trusting a flag):
+// - supportsAutomaticShifting IS consumed. The controller's automatic gear
+//   selection gate requires it, so a profile that declares it false (every
+//   manual gearbox) never auto-shifts, even when the global
+//   automaticTransmissionEnabled spec flag is enabled.
+// - hasClutchPedal, hasTorqueConverter, and supportsManualSelection are NOT
+//   consumed by physics. They are carried as metadata for telemetry and as
+//   future-work signals. Wiring them would require, respectively, a clutch
+//   pedal input path, a torque-converter model, and a per-gear manual shift
+//   input. None of those exist in the current simulation.
+//
+// The profiles do NOT drive clutch slip, torque-converter behavior, or manual
+// gear selection in the current simulation.
 //
 // Scope (v1): manual-4, manual-5, manual-6, manual-6-granny, automatic-6,
 // automatic-8, dct-7, dct-8, cvt. All static data profiles only.
@@ -46,6 +59,9 @@ function defineTransmission(raw) {
     forwardGearRatios: freezeForwardGearRatios(raw.forwardGearRatios),
     reverseGearRatio: raw.reverseGearRatio,
     finalDriveRatio: raw.finalDriveRatio,
+    // supportsAutomaticShifting is read by the controller's auto-shift gate.
+    // The other three are telemetry-only metadata until the clutch pedal,
+    // torque-converter, and per-gear manual shift inputs exist.
     hasClutchPedal: raw.hasClutchPedal,
     hasTorqueConverter: raw.hasTorqueConverter,
     supportsAutomaticShifting: raw.supportsAutomaticShifting,

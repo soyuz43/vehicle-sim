@@ -77,7 +77,7 @@
 
 ### Drivetrain Enhancements
 - Engine inertia and RPM integration
-- Automatic transmission shifting
+- Automatic transmission shifting (only for transmission profiles that support it; manual gearboxes hold their first gear)
 - Clutch modeling
 - Various feature flags control advanced behaviors
 

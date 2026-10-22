@@ -7,6 +7,11 @@
 // controller snapshot. It does NOT add any engine braking, RPM, clutch, shift
 // scheduling, torque-converter, or gear-ratio force behavior. Unknown profile
 // ids fall back to safe defaults so the simulation state always stays finite.
+//
+// The one exception is profileSupportsAutomaticShifting() below, a read-only
+// capability query over static profile data. It tells the controller whether
+// the selected transmission is allowed to auto-shift. It adds no drivetrain
+// behavior of its own.
 
 import {
   DEFAULT_ENGINE_ID,
@@ -84,6 +89,20 @@ export function createStockEngineCatalogTelemetry(engineProfile) {
     findStockEngineCatalogEntryByLinkedProfileId(engineProfile.engineId)
 
   return deriveStockEngineCatalogTelemetry(entry)
+}
+
+// Whether the selected transmission profile may perform automatic gear
+// selection.
+//
+// The controller's automatic gear selection requires BOTH the global
+// spec.automaticTransmissionEnabled flag and this per-profile capability.
+// A profile that declares supportsAutomaticShifting: false (a manual
+// gearbox) must never auto-shift, even when the global flag is on.
+//
+// A profile that does not declare the flag at all is treated as capable, so
+// an incomplete or hand-made profile cannot silently disable shifting.
+export function profileSupportsAutomaticShifting(transmissionProfile) {
+  return transmissionProfile?.supportsAutomaticShifting !== false
 }
 
 function createTransmissionSnapshot(transmissionProfile) {
