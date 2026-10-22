@@ -35,6 +35,8 @@
 //   treats a coupled axle as ONE spring at the axle centre - see the roll arm
 //   in src/vehicle/dynamics/verticalChassisDynamicsState.js.
 
+import { resolveChassisGeometry } from './resolveChassisGeometry.js'
+
 export const AXLE_COUPLING_MODES = Object.freeze({
     INDEPENDENT: 'independent',
     RIGID_AXLE: 'rigidAxle',
@@ -82,8 +84,14 @@ export function getAxleCouplingVerticalOffsetMeters(
     const record = axleCouplingState?.axles?.[wheelState?.axle]
     if (!record || record.isCoupled !== true) return 0
 
-    const lateralOffsetMeters =
-        resolveMountLateralOffsetMeters(wheelState) -
+    const wheelLateralArmMeters = wheelState?.side === 'left'
+        ? record.leftWheelLateralArmMeters
+        : wheelState?.side === 'right'
+          ? record.rightWheelLateralArmMeters
+          : null
+    if (!Number.isFinite(wheelLateralArmMeters)) return 0
+
+    const lateralOffsetMeters = wheelLateralArmMeters -
         record.axleCentreLateralOffsetMeters
 
     return record.beamRollRadians * lateralOffsetMeters
@@ -102,10 +110,7 @@ export function syncAxleCouplingModesToSpec(axleCouplingState, spec = {}) {
     for (const axle of ['front', 'rear']) {
         const record = ensureAxleCouplingRecord(axleCouplingState, axle)
         record.couplingMode = resolveAxleCouplingMode(spec, axle)
-        record.isCoupled = false
-        record.beamRollRadians = 0
-        record.sharedSuspensionLengthMeters = null
-        record.supportedWheelCount = 0
+        clearAxleCouplingPose(record)
     }
 
     return axleCouplingState
@@ -122,6 +127,8 @@ export function applyAxleCouplingConstraints({
 } = {}) {
     if (!axleCouplingState) return axleCouplingState
 
+    let chassisGeometry = null
+
     for (let index = 0; index < wheelStates.length; index += 1) {
         const wheelState = wheelStates[index]
         const axle = wheelState?.axle
@@ -136,11 +143,31 @@ export function applyAxleCouplingConstraints({
         record.couplingMode = couplingMode
 
         const partnerWheelState = findAxlePartnerWheel(wheelStates, index, axle)
-        if (couplingMode !== AXLE_COUPLING_MODES.RIGID_AXLE || !partnerWheelState) {
-            record.isCoupled = false
-            record.beamRollRadians = 0
-            record.sharedSuspensionLengthMeters = null
-            record.supportedWheelCount = 0
+        if (
+            couplingMode !== AXLE_COUPLING_MODES.RIGID_AXLE ||
+            !partnerWheelState
+        ) {
+            clearAxleCouplingPose(record)
+            continue
+        }
+
+        if (chassisGeometry === null) {
+            chassisGeometry = resolveChassisGeometry(wheelStates, spec)
+        }
+        const wheelLateralArmMeters = resolveWheelLateralArmMeters(
+            wheelState,
+            chassisGeometry
+        )
+        const partnerLateralArmMeters = resolveWheelLateralArmMeters(
+            partnerWheelState,
+            chassisGeometry
+        )
+        if (
+            !Number.isFinite(wheelLateralArmMeters) ||
+            !Number.isFinite(partnerLateralArmMeters) ||
+            wheelState.side === partnerWheelState.side
+        ) {
+            clearAxleCouplingPose(record)
             continue
         }
 
@@ -148,6 +175,8 @@ export function applyAxleCouplingConstraints({
         solveRigidAxleBeam(record, wheelState, partnerWheelState, {
             minimumLengthMeters: suspensionMinimumLengthMeters,
             maximumLengthMeters: suspensionMaximumLengthMeters,
+            wheelLateralArmMeters,
+            partnerLateralArmMeters,
         })
     }
 
@@ -160,13 +189,20 @@ function solveRigidAxleBeam(
     partnerWheelState,
     limits
 ) {
-    const wheelLateralMeters = resolveMountLateralOffsetMeters(wheelState)
-    const partnerLateralMeters = resolveMountLateralOffsetMeters(partnerWheelState)
-    // The axle centre is the midpoint of the two wheels' lateral offsets, and
-    // the beam roll is measured about it.
+    const wheelLateralMeters = limits.wheelLateralArmMeters
+    const partnerLateralMeters = limits.partnerLateralArmMeters
+    // This is an interim seam until E3-b mesh parameterization or full
+    // geometry remediation: beam arms and roll use spec track, while terrain
+    // queries still sample mesh-mounted X/Z and contact patches remain mesh-based.
     const axleCentreLateralOffsetMeters =
         (wheelLateralMeters + partnerLateralMeters) * 0.5
     record.axleCentreLateralOffsetMeters = axleCentreLateralOffsetMeters
+    record.leftWheelLateralArmMeters = wheelState.side === 'left'
+        ? wheelLateralMeters
+        : partnerLateralMeters
+    record.rightWheelLateralArmMeters = wheelState.side === 'right'
+        ? wheelLateralMeters
+        : partnerLateralMeters
     const offsetMeters = wheelLateralMeters - axleCentreLateralOffsetMeters
     const partnerOffsetMeters = partnerLateralMeters - axleCentreLateralOffsetMeters
 
@@ -303,6 +339,8 @@ function ensureAxleCouplingRecord(axleCouplingState, axle) {
         isCoupled: false,
         beamRollRadians: 0,
         axleCentreLateralOffsetMeters: 0,
+        leftWheelLateralArmMeters: 0,
+        rightWheelLateralArmMeters: 0,
         sharedSuspensionLengthMeters: null,
         supportedWheelCount: 0,
     }
@@ -325,15 +363,31 @@ function findAxlePartnerWheel(wheelStates, index, axle) {
     return null
 }
 
-// This lateral arm still uses mesh mount positions. When vertical dynamics
-// became spec-authoritative (E2.5), axle coupling was deliberately deferred —
-// see vertical-dynamics-spec-arms-e2-5. For a rigid-axle chassis with non-default
-// track, the beam solve and the vertical assembly use different lateral arms.
-// Fixing requires aligning this arm with resolveChassisGeometry AND reconciling
-// it with the contact query's mesh-based ray origins — a separate design gate.
-function resolveMountLateralOffsetMeters(wheelState) {
-    const mountLocalPosition = wheelState?.suspensionMountLocalPosition
-    return Number.isFinite(mountLocalPosition?.x) ? mountLocalPosition.x : 0
+function resolveWheelLateralArmMeters(wheelState, chassisGeometry) {
+    if (!wheelState) return null
+
+    const trackWidthMeters = wheelState.axle === 'front'
+        ? chassisGeometry.frontTrackWidthMeters
+        : wheelState.axle === 'rear'
+          ? chassisGeometry.rearTrackWidthMeters
+          : null
+    if (!Number.isFinite(trackWidthMeters) || trackWidthMeters <= 0) {
+        return null
+    }
+
+    if (wheelState.side === 'left') return trackWidthMeters * 0.5
+    if (wheelState.side === 'right') return -trackWidthMeters * 0.5
+    return null
+}
+
+function clearAxleCouplingPose(record) {
+    record.isCoupled = false
+    record.beamRollRadians = 0
+    record.axleCentreLateralOffsetMeters = 0
+    record.leftWheelLateralArmMeters = 0
+    record.rightWheelLateralArmMeters = 0
+    record.sharedSuspensionLengthMeters = null
+    record.supportedWheelCount = 0
 }
 
 function resolveMountWorldHeightMeters(wheelState) {

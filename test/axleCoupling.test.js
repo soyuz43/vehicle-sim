@@ -29,6 +29,11 @@ import * as THREE from 'three'
 import { createCar } from '../src/car/createCar.js'
 import { createVehicleController } from '../src/vehicle/createVehicleController.js'
 import { createHeightfieldTerrainContactQuery } from '../src/terrain/createHeightfieldTerrainContactQuery.js'
+import {
+    applyAxleCouplingConstraints,
+    createAxleCouplingState,
+    getAxleCouplingVerticalOffsetMeters,
+} from '../src/vehicle/dynamics/axleCouplingState.js'
 import { DEFAULT_VEHICLE_SPEC } from '../src/vehicle/defaultVehicleSpec.js'
 
 const DT_SECONDS = 1 / 60
@@ -386,6 +391,130 @@ function buildDrivingTrace(spec) {
 
     return lines.join('\n')
 }
+
+test('coupled axle roll and wheel offsets use spec track arms', () => {
+    const scenarios = [
+        {
+            label: 'stock hatchback',
+            trackWidthMeters: 2.5,
+            spec: { ...SPEC, rearAxleCoupling: 'rigidAxle' },
+        },
+        {
+            label: 'heavy truck',
+            trackWidthMeters: 2.7,
+            spec: {
+                ...SPEC,
+                wheelbaseMeters: 4.2,
+                frontTrackWidthMeters: 2.7,
+                rearTrackWidthMeters: 2.7,
+                rearAxleCoupling: 'rigidAxle',
+            },
+        },
+    ]
+
+    for (const scenario of scenarios) {
+        const leftWheelState = {
+            axle: 'rear',
+            side: 'left',
+            isGrounded: true,
+            suspensionMountLocalPosition: { x: 1.25, y: 0.8, z: -1.45 },
+            suspensionMountWorld: { y: 1 },
+            suspensionAxisDownWorld: { y: -1 },
+            suspensionCurrentLengthMeters: 0.5,
+        }
+        const rightWheelState = {
+            axle: 'rear',
+            side: 'right',
+            isGrounded: true,
+            suspensionMountLocalPosition: { x: -1.25, y: 0.8, z: -1.45 },
+            suspensionMountWorld: { y: 1 },
+            suspensionAxisDownWorld: { y: -1 },
+            suspensionCurrentLengthMeters: 0.58,
+        }
+        const axleCouplingState = createAxleCouplingState()
+        const wheelHeightDifferenceMeters =
+            leftWheelState.suspensionMountWorld.y -
+            leftWheelState.suspensionCurrentLengthMeters -
+            rightWheelState.suspensionMountWorld.y +
+            rightWheelState.suspensionCurrentLengthMeters
+
+        applyAxleCouplingConstraints({
+            axleCouplingState,
+            wheelStates: [leftWheelState, rightWheelState],
+            spec: scenario.spec,
+            suspensionMinimumLengthMeters: 0.1,
+            suspensionMaximumLengthMeters: 1,
+        })
+
+        const axleRecord = axleCouplingState.axles.rear
+        const expectedRollRadians =
+            wheelHeightDifferenceMeters / scenario.trackWidthMeters
+
+        assert.equal(axleRecord.isCoupled, true, scenario.label)
+        assert.equal(
+            axleRecord.beamRollRadians,
+            expectedRollRadians,
+            scenario.label + ': spec-track roll must match exactly'
+        )
+        assert.equal(
+            axleRecord.leftWheelLateralArmMeters,
+            scenario.trackWidthMeters / 2,
+            scenario.label + ': left arm must be +track/2'
+        )
+        assert.equal(
+            axleRecord.rightWheelLateralArmMeters,
+            -scenario.trackWidthMeters / 2,
+            scenario.label + ': right arm must be -track/2'
+        )
+        assert.equal(
+            getAxleCouplingVerticalOffsetMeters(
+                axleCouplingState,
+                leftWheelState
+            ),
+            axleRecord.beamRollRadians * (scenario.trackWidthMeters / 2)
+        )
+        assert.equal(
+            getAxleCouplingVerticalOffsetMeters(
+                axleCouplingState,
+                rightWheelState
+            ),
+            axleRecord.beamRollRadians * (-scenario.trackWidthMeters / 2)
+        )
+        if (scenario.label === 'heavy truck') {
+            assert.ok(
+                Math.abs(
+                    axleRecord.beamRollRadians -
+                    wheelHeightDifferenceMeters / 2.5
+                ) > 1e-3,
+                'truck roll must not use the fixed mesh track'
+            )
+        }
+    }
+})
+
+test('invalid axle-side metadata does not activate a rigid beam', () => {
+    const axleCouplingState = createAxleCouplingState()
+    const wheelStates = [
+        { axle: 'rear', side: 'center', isGrounded: true },
+        { axle: 'rear', side: 'right', isGrounded: true },
+    ]
+
+    applyAxleCouplingConstraints({
+        axleCouplingState,
+        wheelStates,
+        spec: { rearAxleCoupling: 'rigidAxle', rearTrackWidthMeters: 2.7 },
+    })
+
+    assert.equal(axleCouplingState.axles.rear.isCoupled, false)
+    assert.equal(axleCouplingState.axles.rear.beamRollRadians, 0)
+    assert.equal(
+        getAxleCouplingVerticalOffsetMeters(
+            axleCouplingState,
+            wheelStates[1]
+        ),
+        0
+    )
+})
 
 test('the shipped spec keeps both axles independent', () => {
     assert.equal(SPEC.frontAxleCoupling, 'independent')
