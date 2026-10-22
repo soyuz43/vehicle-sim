@@ -31,10 +31,17 @@ function makeController(transmissionId, specOverrides = {}) {
   })
 }
 
-test('the controller exposes the manual shift API', () => {
+test('the controller exposes the shift API and no longer exposes the stale one', () => {
   const controller = makeController('manual-6')
   assert.equal(typeof controller.requestShiftUp, 'function')
   assert.equal(typeof controller.requestShiftDown, 'function')
+  assert.equal(typeof controller.setTransmission, 'function')
+  assert.equal(
+    controller.shiftGearUp,
+    undefined,
+    'the orphaned R/N/D cycling shift API must be removed'
+  )
+  assert.equal(controller.shiftGearDown, undefined)
 })
 
 test('the main.js key handler calls the shift API that actually exists', () => {

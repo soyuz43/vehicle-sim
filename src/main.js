@@ -101,6 +101,10 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
 })
+// DEV ONLY — expose simulation internals for browser-console testing.
+// Example: __vehicleSim.vehicleController.setTransmission('manual-6')
+window.__vehicleSim = { vehicleController, simulation, camera, renderer, cameraManager, panels }
+
 const clock = new THREE.Clock()
 function animate() {
   requestAnimationFrame(animate)

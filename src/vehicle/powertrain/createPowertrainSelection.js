@@ -57,6 +57,29 @@ export function selectTransmissionProfile(transmissionId) {
   return TRANSMISSION_PROFILE_BY_ID[DEFAULT_TRANSMISSION_ID]
 }
 
+// Strict catalog lookup used by runtime transmission swapping.
+//
+// Unlike selectTransmissionProfile() above, an unknown id is an error rather
+// than a silent fallback to the default profile: a swap request that quietly
+// kept the previous gearbox would misrepresent what the driver asked for.
+// The catalog map is the single source of truth; no profile is constructed
+// here.
+export function requireTransmissionProfile(transmissionId) {
+  const normalizedId = normalizeProfileId(transmissionId)
+  const candidate = TRANSMISSION_PROFILE_BY_ID[normalizedId]
+
+  if (!candidate) {
+    throw new Error(
+      'Unknown transmission id "' +
+        normalizedId +
+        '". Known ids: ' +
+        Object.keys(TRANSMISSION_PROFILE_BY_ID).join(', ')
+    )
+  }
+
+  return candidate
+}
+
 function createEngineSnapshot(engineProfile) {
   return {
     engineId: engineProfile.engineId,

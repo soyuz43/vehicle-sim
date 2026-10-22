@@ -150,6 +150,7 @@ import {
     createStockEngineCatalogTelemetry,
     profileSupportsAutomaticShifting,
     profileSupportsManualSelection,
+    requireTransmissionProfile,
     selectEngineProfile,
     selectTransmissionProfile,
 } from './powertrain/createPowertrainSelection.js'
@@ -690,6 +691,30 @@ export class VehicleController {
                 syncShiftModeState()
             }
         }
+    }
+
+    // Swap the selected transmission profile at runtime.
+    //
+    // Transmission only: the engine profile, rear differential, chassis,
+    // suspension, tires, and terrain are untouched. The manual shift state is
+    // reset because a forward gear index from the previous gearbox is
+    // meaningless in the new one.
+    //
+    // The R/N/D drive selector is deliberately PRESERVED. It is the driver's
+    // drive-mode choice, not a property of the gearbox, and forcing it to
+    // Drive would silently change the direction of travel for a driver who
+    // swapped the transmission while in Reverse.
+    function setTransmission(transmissionId) {
+        const profile = requireTransmissionProfile(transmissionId)
+
+        state.transmissionProfile = profile
+        state.manualForwardGearIndex = null
+        state.manualShiftCooldownRemainingSeconds = 0
+        state.manualShiftOverrideRemainingSeconds = 0
+        state.selectedForwardGearIndex = 0
+        syncShiftModeState()
+
+        return profile
     }
 
     function setGear(nextGear) {
@@ -3244,6 +3269,7 @@ export class VehicleController {
     this.reset = reset
     this.requestShiftUp = requestShiftUp
     this.requestShiftDown = requestShiftDown
+    this.setTransmission = setTransmission
     this.setGear = setGear
     this.setDynamicsTuning = setDynamicsTuning
     this.resetDynamicsTuning = resetDynamicsTuning
