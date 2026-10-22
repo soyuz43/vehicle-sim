@@ -14,7 +14,11 @@ import { createDriverHUD } from './ui/driver-hud/createDriverHUD.js'
 import { createTelemetryPanel } from './ui/telemetry-panel/createTelemetryPanel.js'
 import { createControlPanel } from './ui/control-panel/createControlPanel.js'
 import { createConfigPanel } from './ui/config-panel/createConfigPanel.js'
-import { applyConfigurationToController } from './vehicle/config/applyVehicleConfigurationToController.js'
+import { applyVehicleConfigurationToSession } from './vehicle/config/applyVehicleConfigurationToSession.js'
+import {
+  resolveInitialVehicleConfiguration,
+  writeStoredVehicleConfiguration,
+} from './vehicle/config/vehicleConfigurationStorage.js'
 import { describeVehicleApplyWarning } from './vehicle/config/describeVehicleApplyWarning.js'
 import { initTheme } from './ui/design-system/theme.js'
 import { initResponsive } from './ui/design-system/layout/Responsive.js'
@@ -43,7 +47,15 @@ initTheme()
 initResponsive()
 
 const keyState = { forward: false, backward: false, left: false, right: false, handbrake: false }
-const simulation = createSimulation({ scene, keyState })
+// The vehicle setup the session starts with. A stored configuration is
+// restored; a missing, corrupt, or invalid one falls back to the stock
+// setup. The terrain is carried by the session URL, the vehicle setup by
+// this store.
+const simulation = createSimulation({
+  scene,
+  keyState,
+  vehicleConfiguration: resolveInitialVehicleConfiguration(),
+})
 const { terrainSelection, vehicleController, car, initialVehicleConfig } = simulation
 const cameraManager = new CameraManager(camera, renderer, car)
 
@@ -139,11 +151,14 @@ function applyVehicleConfigurationToController(vehicleConfig) {
   })
 
   if (areVehicleConfigurationsEqual(vehicleConfig, lastAppliedVehicleConfig)) {
+    // Nothing changed on the vehicle, but the session record is refreshed
+    // so it always describes the setup the vehicle is running.
+    writeStoredVehicleConfiguration(lastAppliedVehicleConfig)
     configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig, warning })
     return
   }
 
-  applyConfigurationToController({
+  applyVehicleConfigurationToSession({
     vehicleController,
     vehicleConfig,
     onApplied: () => {

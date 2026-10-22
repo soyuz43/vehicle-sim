@@ -8,7 +8,10 @@ import { createObstacleFieldVisuals } from './terrain/obstacles/createObstacleFi
 import { createCar } from './car/createCar.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
 import { createControllerConfig } from './vehicle/config/applyVehicleConfiguration.js'
-import { createDefaultVehicleConfiguration } from './vehicle/config/createVehicleConfiguration.js'
+import {
+  cloneVehicleConfiguration,
+  createDefaultVehicleConfiguration,
+} from './vehicle/config/createVehicleConfiguration.js'
 import { createTireSlipFeedback } from './effects/tireSlipFeedback/createTireSlipFeedback.js'
 import { createFixedTimestepRunner } from './simulation/createFixedTimestepRunner.js'
 import { createTerrainDeformation as createDefaultTerrainDeformation } from './terrain/deformation/createTerrainDeformation.js'
@@ -75,7 +78,12 @@ export function createSimulation(deps = {}) {
     scene.add(waterVisuals.mesh)
   }
 
-  const initialVehicleConfig = createDefaultVehicleConfiguration()
+  // The vehicle configuration the session starts with. A stored
+  // configuration is restored here, so the controller is BUILT with it
+  // instead of having it applied after construction.
+  const initialVehicleConfig = deps.vehicleConfiguration
+    ? cloneVehicleConfiguration(deps.vehicleConfiguration)
+    : createDefaultVehicleConfiguration()
   const car = createCar()
   scene.add(car)
 
