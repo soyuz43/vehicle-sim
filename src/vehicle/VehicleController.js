@@ -9,7 +9,13 @@ import {
     applyAxleCouplingConstraints,
     getAxleCouplingVerticalOffsetMeters,
     resetAxleCouplingState,
+    syncAxleCouplingModesToSpec,
 } from './dynamics/axleCouplingState.js'
+import {
+    SUSPENSION_OWNED_SPEC_FIELDS,
+    VEHICLE_COMPONENT_CATALOG,
+    getComponent,
+} from './config/componentCatalog.js'
 import {
     createAerodynamicDragState,
     updateAerodynamicDragState,
@@ -336,6 +342,8 @@ export class VehicleController {
     const brakeLightVisuals = createBrakeLightVisuals(vehicle)
     const wheelAxleVisualKinematics =
         vehicle.userData.vehicle?.wheelAxleVisualKinematics ?? null
+    const suspensionVisuals =
+        vehicle.userData.vehicle?.suspensionVisuals ?? null
 
     const state = {
         controllerKind: 'uneven-terrain-raycast-suspension-v1',
@@ -555,6 +563,7 @@ export class VehicleController {
         syncVehicleYawFromPlanarState()
         applyChassisAttitudeVisualState()
         wheelAxleVisualKinematics?.reset()
+        suspensionVisuals?.reset()
 
         for (const wheelState of state.wheelStates) {
             resetWheelRotationalState(wheelState, spec)
@@ -740,6 +749,68 @@ export class VehicleController {
         return profile
     }
 
+    // Swap the vehicle's suspension profile at runtime.
+    //
+    // The selected catalog component REPLACES the suspension-owned spec
+    // fields, so swapping back to a component that does not use an axle
+    // coupling mode clears a coupling mode the previous component set.
+    //
+    // The vehicle is NOT reset. Position, velocity, gear, and the
+    // transmission profile are preserved, so the swap is a setup change and
+    // not a teleport.
+    //
+    // The axle coupling state is re-synced to the new spec so the snapshot
+    // reports the new mode immediately; the next step's constraint solve
+    // fills the beam pose in again. The per-wheel damper sample is dropped
+    // so a changed rest length cannot produce a one-frame damper spike.
+    function setSuspension(suspensionId) {
+        const component = requireSuspensionComponent(suspensionId)
+
+        applySuspensionSpec(component.spec)
+        syncAxleCouplingModesToSpec(state.axleCouplingState, spec)
+        dropSuspensionDamperSamples()
+
+        return component
+    }
+
+    // Strict catalog lookup used by runtime suspension swapping. An unknown
+    // id is an error rather than a silent fallback: a swap request that
+    // quietly kept the previous suspension would misrepresent what the
+    // driver asked for.
+    function requireSuspensionComponent(suspensionId) {
+        const component = getComponent('suspension', suspensionId)
+
+        if (!component) {
+            throw new Error(
+                'Unknown suspension id "' +
+                String(suspensionId) +
+                '". Known ids: ' +
+                Object.keys(VEHICLE_COMPONENT_CATALOG.suspension.components).join(', ')
+            )
+        }
+
+        return component
+    }
+
+    // A suspension component owns its spec fields outright, so a field the
+    // component does not declare falls back to the default spec instead of
+    // keeping the previous component's value.
+    function applySuspensionSpec(componentSpec) {
+        for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+            const value = componentSpec?.[field]
+            spec[field] =
+                value === undefined || value === null
+                    ? DEFAULT_VEHICLE_SPEC[field]
+                    : value
+        }
+    }
+
+    function dropSuspensionDamperSamples() {
+        for (const wheelState of state.wheelStates) {
+            wheelState.hasSuspensionCompressionSample = false
+        }
+    }
+
     function setGear(nextGear) {
         state.gear = normalizeGear(nextGear)
 
@@ -801,6 +872,7 @@ export class VehicleController {
             wheelStates: state.wheelStates,
             wheelAxleVisualKinematics:
                 wheelAxleVisualKinematics?.getSnapshot() ?? null,
+            suspensionVisuals: suspensionVisuals?.getSnapshot() ?? null,
             tirePressureState: state.tirePressureState,
             tirePressureKpa: state.tirePressureState.tirePressureKpa,
             tireInflationNormalized01:
@@ -3255,6 +3327,10 @@ export class VehicleController {
         }
 
         wheelAxleVisualKinematics?.updateFromWheelStates(state.wheelStates)
+        suspensionVisuals?.updateFromWheelStates(
+            state.wheelStates,
+            state.axleCouplingState
+        )
     }
 
     function countGroundedWheels() {
@@ -3368,6 +3444,7 @@ export class VehicleController {
     this.requestShiftUp = requestShiftUp
     this.requestShiftDown = requestShiftDown
     this.setTransmission = setTransmission
+    this.setSuspension = setSuspension
     this.setGear = setGear
     this.setDynamicsTuning = setDynamicsTuning
     this.resetDynamicsTuning = resetDynamicsTuning

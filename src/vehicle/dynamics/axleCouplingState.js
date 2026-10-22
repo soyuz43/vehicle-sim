@@ -96,6 +96,28 @@ export function getAxleCouplingVerticalOffsetMeters(
     return record.beamRollRadians * lateralOffsetMeters
 }
 
+// Re-reads the coupling mode of every axle from the spec and clears the
+// stale beam pose.
+//
+// This is used when the spec changes at runtime, for example when the
+// suspension profile is swapped. The next step's constraint solve fills the
+// pose in again. This does NOT solve the beam: applyAxleCouplingConstraints()
+// remains the only place the beam pose is computed.
+export function syncAxleCouplingModesToSpec(axleCouplingState, spec = {}) {
+    if (!axleCouplingState) return axleCouplingState
+
+    for (const axle of ['front', 'rear']) {
+        const record = ensureAxleCouplingRecord(axleCouplingState, axle)
+        record.couplingMode = resolveAxleCouplingMode(spec, axle)
+        record.isCoupled = false
+        record.beamRollRadians = 0
+        record.sharedSuspensionLengthMeters = null
+        record.supportedWheelCount = 0
+    }
+
+    return axleCouplingState
+}
+
 // Pass 2 of the wheel contact update: solves the axle beam constraints.
 // This is a no-op for every axle whose coupling mode is 'independent'.
 export function applyAxleCouplingConstraints({

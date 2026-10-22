@@ -37,6 +37,16 @@
 - **Rotation**: Angular velocity integrates from applied torques and wheel inertia
 - **Slip**: Longitudinal slip ratio calculated from wheel surface vs ground speed
 
+### Suspension Archetypes
+- **Axle coupling mode per axle**: `frontAxleCoupling` and `rearAxleCoupling` select `independent` (each wheel resolves its own vertical position) or `rigidAxle` (one rigid beam carries both wheels of the axle)
+- **Rigid beam**: A coupled axle has one shared leaf, so both of its wheels report the same suspension length, and the axle carries one roll angle about its longitudinal axis
+- **Catalog archetype**: `susp-solid-axle-rear` ("Rear Solid Axle (shared leaf)") selects a coupled rear axle with an independent front axle
+- **Visual**: A coupled axle is drawn as a beam that spans its two wheel centres, with a leaf pack riding on top of it. The beam follows the published wheel positions and rolls with the simulated beam; an independent axle draws no beam at all
+- **Driving effect**: A one-sided bump under one rear wheel lifts that wheel and holds the other one up instead of letting the far wheel stay on its own path, and the rear axle stops contributing a terrain roll moment to the body
+- **Not modelled**: progressive leaf rates, inter-leaf friction, anti-roll bars, unsprung mass, per-corner spring rates, and a hanging-beam pose for a fully airborne axle
+
+Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')`. The Config Panel dropdown lists the archetype but Apply remains preview-only until Session D wires live vehicle reconfiguration.
+
 ### Tire Modeling
 - **Longitudinal Force**: Linear stiffness model capped by friction limit (coefficient × normal force)
 - **Lateral Force**: Linear slip angle model with similar friction capping
@@ -126,6 +136,7 @@ The same seed and configuration reproduce the same terrain heights, normals, sur
 ## Visualization
 - Toroidal tire geometry with pressure/load-responsive deformation
 - Independent wheel kinematics following suspension physics
+- Solid axle beam and leaf pack that follow the wheels of a coupled axle
 - Visual-only chassis attitude estimation (heave/pitch/roll)
 - Slip state visualization overlays
 
@@ -139,6 +150,7 @@ The same seed and configuration reproduce the same terrain heights, normals, sur
 - Live tuning parameters for drive/brake/tire stiffness multipliers
 - Comprehensive state tracing for debugging
 - Swap transmissions live from the browser console: `__vehicleSim.vehicleController.setTransmission('manual-6')` (also: manual-4, manual-5, manual-6-granny, automatic-6, automatic-8, dct-7, dct-8, cvt).
+- Swap suspension profiles live from the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` (also: susp-stock, susp-lowered, susp-lifted, susp-stiff). The swap replaces the suspension spec fields and keeps the vehicle's position, velocity, gear, and transmission.
 
 ---
 *Last Updated: Wednesday, August 19, 2026*
