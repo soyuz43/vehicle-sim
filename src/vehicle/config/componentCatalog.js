@@ -327,9 +327,11 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       'which is +0.5 degrees of camber per 100 mm of suspension travel. ' +
       'A compressed strut wheel gains positive camber, so the tire gives ' +
       'up a little lateral force in a corner and this entry does change ' +
-      'handling. Visual: a coil-over strut per front corner. The camber ' +
-      'gain is modelled; the high roll center of a real MacPherson strut ' +
-      'is still not modelled, because that needs roll-center parameters.',
+      'handling. The camber gain applies to every wheel of the archetype: ' +
+      'the camber model has no per-axle camber gain. Visual: a coil-over ' +
+      'strut per front corner. The camber gain is modelled; the high roll ' +
+      'center of a real MacPherson strut is still not modelled, because ' +
+      'that needs roll-center parameters.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -343,6 +345,37 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'macphersonStrut',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0.0873,
+    },
+  },
+  'susp-double-wishbone': {
+    id: 'susp-double-wishbone',
+    label: 'Double Wishbone (SLA)',
+    description:
+      'The suspension keeps the stock spring rate, travel, damping and ' +
+      'independent coupling, and adds the double wishbone\'s defining ' +
+      'behavior: a negative camber gain of -0.262 rad/m, which is -1.5 ' +
+      'degrees of camber per 100 mm of suspension travel. A compressed ' +
+      'wishbone wheel gains negative camber, so the tire keeps a little ' +
+      'more lateral force in a corner than the stock setup, and more than ' +
+      'the MacPherson strut, which gains positive camber instead. The ' +
+      'camber gain applies to every wheel of the archetype: the camber ' +
+      'model has no per-axle camber gain. Visual: this entry draws no ' +
+      'archetype geometry yet; the wishbone mesh is a separate seam. The ' +
+      'roll center of a real double wishbone is still not modelled, ' +
+      'because that needs roll-center parameters.',
+    spec: {
+      suspensionRestLengthMeters: 0.35,
+      suspensionMaximumLengthMeters: 0.35,
+      suspensionMinimumLengthMeters: 0.13,
+      suspensionTravelMeters: 0.22,
+      suspensionTargetStaticCompressionRatio01: 0.4,
+      suspensionDampingRatio: 0.35,
+      chassisTerrainSupportBaselineOffsetMeters: 0,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: -0.262,
     },
   },
 })
