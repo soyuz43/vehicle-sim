@@ -48,7 +48,7 @@
 - **Visual archetype**: `susp-macpherson-strut` ("MacPherson Strut (visual only)") draws a coil-over strut per front corner and leaves the rear axle stock. Its physics are identical to the stock profile - it changes no spring rate, travel, damping, or coupling mode. The catalog entry exists to establish the per-corner visual seam for future archetypes; it does not currently change handling
 - **Not modelled (MacPherson)**: roll-center height, camber gain, strut kinematics, anti-roll bars, and unsprung mass. Those need roll-center parameters and a tire model that accepts camber input
 
-Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` or `__vehicleSim.vehicleController.setSuspension('susp-macpherson-strut')`. The Config Panel dropdown lists the archetypes but Apply remains preview-only until Session D wires live vehicle reconfiguration.
+Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` or `__vehicleSim.vehicleController.setSuspension('susp-macpherson-strut')`. The Config Panel dropdown lists the archetypes, and its Apply button now applies the selected setup to the running vehicle live.
 
 ### Tire Modeling
 - **Longitudinal Force**: Linear stiffness model capped by friction limit (coefficient × normal force)
@@ -67,6 +67,14 @@ Reachable today via the browser console: `__vehicleSim.vehicleController.setSusp
 - **Transmission Profiles**: Manual, automatic, DCT, CVT with defined ratios
 - **Drive Torque**: Engine curve-based with redline limiting and differential distribution
 - **Differentials**: Open, limited-slip, Torsen, locked, and welded modes available
+
+### Vehicle Configuration
+- **Catalog slots**: Six slots (chassis, suspension, wheels, drivetrain, brakes, aero) select one component each from the vehicle component catalog. A component owns its spec fields outright, so selecting a component replaces those fields and a field the component does not declare falls back to the default spec
+- **Live apply**: The Config Panel's Apply button applies the selected setup to the running controller in place. The controller object itself never changes, so every holder of a controller reference (camera, panels, obstacle interaction, console hook) keeps working
+- **Preserved state**: The pose, the velocity, the yaw, the R/N/D gear selector, and the tire pressures survive an apply. A setup change is not a teleport
+- **Chassis change**: A new chassis mass and center of mass make the stored vertical dynamics state stale, so the chassis mass properties are re-derived and the heave, pitch, and roll positions and rates are dropped. The vehicle keeps its pose and its velocity
+- **Console access**: `__vehicleSim.vehicleController.setVehicleConfiguration({ version: 1, slots: { chassis: 'chassis-suv', suspension: 'susp-stock', wheels: 'tires-stock', drivetrain: 'drivetrain-stock', brakes: 'brakes-stock', aero: 'aero-stock' } })`
+- **Cosmetic fields**: The chassis wheelbase, the chassis track widths, and the tire base rolling radius do not change the rendered vehicle, because the car mesh owns the real dimensions. The track width still feeds the vertical-dynamics roll inertia; the wheelbase and the rolling radius are fallbacks that the wheel layout and the wheel geometry normally replace
 
 ## Advanced Features (Feature-Gated)
 

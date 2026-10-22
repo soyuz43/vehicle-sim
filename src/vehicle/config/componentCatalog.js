@@ -111,7 +111,12 @@ const CHASSIS_COMPONENTS = Object.freeze({
     label: 'Hatchback (stock)',
     description:
       'Baseline 1400 kg unibody. Matches the default proving-ground mass and ' +
-      'inertia. Wheelbase/track are spec fallbacks for load transfer.',
+      'inertia. The wheelbase and track width are spec fallbacks for the ' +
+      'load-transfer geometry.' +
+      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
+      'the wheelbase and track width do not change the drawn vehicle. The ' +
+      'physics derives the wheelbase from the wheel layout; the track width ' +
+      'still feeds the vertical-dynamics roll inertia.',
 
     spec: {
       massKg: 1400,
@@ -127,7 +132,11 @@ const CHASSIS_COMPONENTS = Object.freeze({
     label: 'Light Roadster',
     description:
       'Lightweight 1180 kg roadster with a lower center of mass; approximate ' +
-      'polar inertia scales with the reduced mass for snappier yaw response.',
+      'polar inertia scales with the reduced mass for snappier yaw response.' +
+      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
+      'the wheelbase and track width do not change the drawn vehicle. The ' +
+      'physics derives the wheelbase from the wheel layout; the track width ' +
+      'still feeds the vertical-dynamics roll inertia.',
 
     spec: {
       massKg: 1180,
@@ -143,7 +152,11 @@ const CHASSIS_COMPONENTS = Object.freeze({
     label: 'SUV',
     description:
       'Heavy 1950 kg body-on-frame SUV with raised center of mass and wider ' +
-      'track; approximate polar inertia reflects the larger footprint.',
+      'track; approximate polar inertia reflects the larger footprint.' +
+      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
+      'the wheelbase and track width do not change the drawn vehicle. The ' +
+      'physics derives the wheelbase from the wheel layout; the track width ' +
+      'still feeds the vertical-dynamics roll inertia.',
 
     spec: {
       massKg: 1950,
@@ -159,7 +172,11 @@ const CHASSIS_COMPONENTS = Object.freeze({
     label: 'Heavy Truck',
     description:
       '3200 kg ladder-frame truck with a high center of mass; approximate polar ' +
-      'inertia is dominated by the long wheelbase for slow yaw response.',
+      'inertia is dominated by the long wheelbase for slow yaw response.' +
+      ' Geometry note: the rendered car keeps its fixed mesh dimensions, so ' +
+      'the wheelbase and track width do not change the drawn vehicle. The ' +
+      'physics derives the wheelbase from the wheel layout; the track width ' +
+      'still feeds the vertical-dynamics roll inertia.',
 
     spec: {
       massKg: 3200,
@@ -310,7 +327,10 @@ const WHEELS_COMPONENTS = Object.freeze({
     label: 'Touring Tires (stock)',
     description:
       'Baseline 0.48 m rolling radius, 1.2 kg m^2 wheel inertia, neutral ' +
-      'rolling resistance, and the default lateral cornering stiffness.',
+      'rolling resistance, and the default lateral cornering stiffness.' +
+      ' Radius note: cosmetic in the current mesh-driven model - the ' +
+      'rendered tire keeps its fixed 0.48 m radius, so this value is a ' +
+      'fallback only.',
 
     spec: {
       baseTireRollingRadiusMeters: 0.48,
@@ -324,7 +344,10 @@ const WHEELS_COMPONENTS = Object.freeze({
     label: 'Track Slicks',
     description:
       'Higher lateral cornering stiffness and slightly lower rolling ' +
-      'resistance; larger radius and lighter wheel reduce rotational inertia.',
+      'resistance; larger radius and lighter wheel reduce rotational inertia.' +
+      ' Radius note: cosmetic in the current mesh-driven model - the ' +
+      'rendered tire keeps its fixed 0.48 m radius, so this value is a ' +
+      'fallback only.',
 
     spec: {
       baseTireRollingRadiusMeters: 0.49,
@@ -338,7 +361,10 @@ const WHEELS_COMPONENTS = Object.freeze({
     label: 'All-Terrain',
     description:
       'Taller, heavier tire with higher rolling resistance; reduced lateral ' +
-      'stiffness reflects the compliant sidewall offroad use case.',
+      'stiffness reflects the compliant sidewall offroad use case.' +
+      ' Radius note: cosmetic in the current mesh-driven model - the ' +
+      'rendered tire keeps its fixed 0.48 m radius, so this value is a ' +
+      'fallback only.',
 
     spec: {
       baseTireRollingRadiusMeters: 0.5,
@@ -352,7 +378,10 @@ const WHEELS_COMPONENTS = Object.freeze({
     label: 'Low-Profile',
     description:
       'Smaller radius and lighter wheel for quicker spin-up; higher lateral ' +
-      'stiffness from the short sidewall, modest rolling resistance.',
+      'stiffness from the short sidewall, modest rolling resistance.' +
+      ' Radius note: cosmetic in the current mesh-driven model - the ' +
+      'rendered tire keeps its fixed 0.48 m radius, so this value is a ' +
+      'fallback only.',
 
     spec: {
       baseTireRollingRadiusMeters: 0.44,
