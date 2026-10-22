@@ -111,7 +111,8 @@ function createController({ spec = {}, terrainContactQuery } = {}) {
   })
 }
 
-function createCatalogController(suspensionComponentId, terrainContactQuery) {
+function createCatalogCar(suspensionComponentId, terrainContactQuery) {
+  const car = createCar()
   const configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
     'suspension',
@@ -119,10 +120,43 @@ function createCatalogController(suspensionComponentId, terrainContactQuery) {
   )
   const applied = applyVehicleConfiguration(configuration)
 
-  return createController({
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+    terrainContactQuery: terrainContactQuery ?? createFlatHeightfieldQuery(),
     spec: applied.spec,
-    terrainContactQuery,
   })
+
+  return { car, controller }
+}
+
+function createCatalogController(suspensionComponentId, terrainContactQuery) {
+  return createCatalogCar(suspensionComponentId, terrainContactQuery).controller
+}
+
+// Every node name in the vehicle tree, so a test can assert that a kind of
+// geometry is absent without depending on one specific node name.
+function collectNodeNames(node, names = []) {
+  if (node?.name) names.push(node.name)
+  for (const child of node?.children ?? []) collectNodeNames(child, names)
+  return names
+}
+
+// The axle beam and the leaf pack are the archetype's visual signature. A
+// stock car must carry neither.
+function findAxleBeamNodeNames(car) {
+  return collectNodeNames(car).filter(
+    (name) => name.includes('axle-beam') || name.includes('axle-leaf-pack')
+  )
+}
+
+// The beam's roll, read back from the node's own transform rather than from
+// the visual module's bookkeeping. The beam runs from the RIGHT wheel to the
+// LEFT wheel, so its axis points along +X and its elevation angle is the
+// axle's roll in radians (positive when the left wheel is higher).
+function readBeamRollRadians(beamNode) {
+  const beamAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(beamNode.quaternion)
+  return Math.atan2(beamAxis.y, beamAxis.x)
 }
 
 function settle(controller, steps = SETTLE_STEPS) {
@@ -279,4 +313,129 @@ test('the front axle of the archetype stays independent', () => {
     'the front axle must keep its own suspension length per wheel'
   )
   assert.equal(snapshot.axleCoupling.axles.front.isCoupled, false)
+})
+
+// ---------------------------------------------------------------------------
+// The archetype's visual: a rigid beam that spans the two wheel centres of a
+// coupled axle, plus the leaf pack that carries it.
+// ---------------------------------------------------------------------------
+
+test('the stock car carries no axle beam geometry at all', () => {
+  const { car, controller } = createCatalogCar(STOCK_ID)
+  settle(controller)
+
+  assert.deepEqual(findAxleBeamNodeNames(car), [])
+  assert.equal(car.getObjectByName('rear-axle-beam-visual'), undefined)
+  assert.equal(car.getObjectByName('front-axle-beam-visual'), undefined)
+  assert.equal(car.getObjectByName('rear-axle-leaf-pack-visual'), undefined)
+})
+
+test('the coupled archetype draws a rear axle beam and a leaf pack', () => {
+  const { car, controller } = createCatalogCar(ARCHETYPE_ID)
+  settle(controller)
+
+  const beamNode = car.getObjectByName('rear-axle-beam-visual')
+  const leafPackNode = car.getObjectByName('rear-axle-leaf-pack-visual')
+
+  assert.ok(beamNode, 'the coupled rear axle must draw a beam')
+  assert.ok(leafPackNode, 'the coupled rear axle must draw a leaf pack')
+  assert.equal(beamNode.visible, true)
+  assert.equal(leafPackNode.visible, true)
+  assert.equal(
+    car.getObjectByName('front-axle-beam-visual'),
+    undefined,
+    'the independent front axle must not draw a beam'
+  )
+  assert.equal(car.getObjectByName('front-axle-leaf-pack-visual'), undefined)
+})
+
+test('the axle beam tracks the wheel positions it spans', () => {
+  const { car, controller } = createCatalogCar(
+    ARCHETYPE_ID,
+    createRaisedStepQuery(REAR_LEFT_WHEEL_XZ)
+  )
+  const snapshot = settle(controller)
+
+  const beamNode = car.getObjectByName('rear-axle-beam-visual')
+  assert.ok(beamNode)
+
+  const leftCenter = wheelState(snapshot, 'rear-left').wheelCenterLocalPosition.clone()
+  const rightCenter = wheelState(snapshot, 'rear-right').wheelCenterLocalPosition.clone()
+  const expectedMidpoint = new THREE.Vector3()
+    .addVectors(leftCenter, rightCenter)
+    .multiplyScalar(0.5)
+
+  assert.ok(
+    beamNode.position.distanceTo(expectedMidpoint) < 1e-6,
+    'the beam must sit at the mean of the two wheel centres; got ' +
+      beamNode.position.toArray().join(', ') + ' vs ' + expectedMidpoint.toArray().join(', ')
+  )
+  assert.ok(
+    Math.abs(beamNode.scale.y - leftCenter.distanceTo(rightCenter)) < 1e-6,
+    'the beam must be stretched to the distance between the wheel centres'
+  )
+})
+
+test('the axle beam roll tracks the simulated beam roll', () => {
+  const { car, controller } = createCatalogCar(
+    ARCHETYPE_ID,
+    createRaisedStepQuery(REAR_LEFT_WHEEL_XZ)
+  )
+  const snapshot = settle(controller)
+
+  const beamNode = car.getObjectByName('rear-axle-beam-visual')
+  const leafPackNode = car.getObjectByName('rear-axle-leaf-pack-visual')
+  const simulatedRollRadians = snapshot.axleCoupling.axles.rear.beamRollRadians
+
+  assert.ok(
+    Math.abs(simulatedRollRadians) > 1e-3,
+    'a one-sided rear step must roll the beam; got ' + simulatedRollRadians
+  )
+  assert.ok(
+    Math.abs(readBeamRollRadians(beamNode) - simulatedRollRadians) < 1e-6,
+    'the drawn beam roll must match the simulated beam roll; got ' +
+      readBeamRollRadians(beamNode) + ' vs ' + simulatedRollRadians
+  )
+  assert.ok(
+    Math.abs(leafPackNode.rotation.z - simulatedRollRadians) < 1e-6,
+    'the leaf pack must roll with the beam'
+  )
+})
+
+test('a level axle draws a level beam', () => {
+  const { car, controller } = createCatalogCar(ARCHETYPE_ID)
+  const snapshot = settle(controller)
+
+  const beamNode = car.getObjectByName('rear-axle-beam-visual')
+  const simulatedRollRadians = snapshot.axleCoupling.axles.rear.beamRollRadians
+
+  assert.ok(Math.abs(simulatedRollRadians) < 1e-9)
+  assert.ok(Math.abs(readBeamRollRadians(beamNode)) < 1e-9)
+})
+
+test('a reset keeps the archetype and its beam', () => {
+  const { car, controller } = createCatalogCar(
+    ARCHETYPE_ID,
+    createRaisedStepQuery(REAR_LEFT_WHEEL_XZ)
+  )
+  settle(controller)
+
+  const beamNode = car.getObjectByName('rear-axle-beam-visual')
+  const leafPackNode = car.getObjectByName('rear-axle-leaf-pack-visual')
+  assert.equal(beamNode.visible, true)
+
+  controller.reset()
+  const snapshot = settle(controller, 1)
+
+  // A reset re-solves the axle coupling inside the reset itself, so the
+  // archetype and its beam survive it.
+  assert.equal(snapshot.axleCoupling.axles.rear.isCoupled, true)
+  assert.equal(beamNode.visible, true)
+  assert.equal(leafPackNode.visible, true)
+  assert.ok(
+    Math.abs(
+      readBeamRollRadians(beamNode) -
+        snapshot.axleCoupling.axles.rear.beamRollRadians
+    ) < 1e-6
+  )
 })

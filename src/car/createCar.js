@@ -1,6 +1,7 @@
 // src/car/createCar.js
 
 import * as THREE from 'three'
+import { createSuspensionVisuals } from './createSuspensionVisuals.js'
 import { createTirePressureVisuals } from './createTirePressureVisuals.js'
 import { createWheelAxleVisualKinematics } from './createWheelAxleVisualKinematics.js'
 import { createAnchoredToroidalTireGeometry } from './tireDeformationGeometry.js'
@@ -342,6 +343,12 @@ export function createCar() {
 
   const wheelAxleVisualKinematics = createWheelAxleVisualKinematics(car)
   car.userData.vehicle.wheelAxleVisualKinematics = wheelAxleVisualKinematics
+
+  // The solid axle beam and leaf pack are created on demand by this module,
+  // the first time their axle is coupled. The stock car therefore has no
+  // axle beam geometry at all.
+  const suspensionVisuals = createSuspensionVisuals(car)
+  car.userData.vehicle.suspensionVisuals = suspensionVisuals
 
   const tirePressureVisuals = createTirePressureVisuals(car)
   car.userData.vehicle.tirePressureVisuals = tirePressureVisuals
