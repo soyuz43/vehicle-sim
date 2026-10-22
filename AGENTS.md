@@ -171,6 +171,10 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 - Rear differential models (open, limited-slip, torsen, locked, welded), powertrain profiles, active drive torque v1 with predictive redline cap, and feature-gated automatic gear selection, clutch engagement, engine braking, and engine rotational integration.
 - Service brake bias, ABS v1, feature-gated wheel-lock detection/advanced ABS, traction control, and electronic stability control.
 - Tire pressure handling and visual deformation, a developer tuning panel, step-trace instrumentation, and a multi-rate timestep-sensitivity regression suite.
+- Config Panel session state: the panel's dirty state is DERIVED from the staged selection and the running selection, never a stored flag, so it cannot disagree with what the panel shows. The panel's reset control is "Reset Vehicle" and restores the vehicle setup only; a staged terrain selection stays staged and keeps the panel dirty.
+- Config Panel live apply: the applied setup is applied and RECORDED in `localStorage` (`vehicle-sim-config`) before a terrain change reloads the session, so a combined terrain and vehicle apply lands both changes. A stored value is validated on read and falls back to the stock setup when it is corrupt or names an unknown slot.
+- Controller configuration reporting: the controller DERIVES the catalog configuration it is effectively running (`src/vehicle/config/deriveActiveVehicleConfiguration.js`) and reports every configuration change through `onConfigurationChanged`. A state that matches no catalog component is reported as `null` and the panel shows it as "modified outside catalog".
+- Apply-at-speed reporting: a chassis change above 30 km/h drops the vertical dynamics state, and the apply reports that consequence in the panel's status line instead of blocking the apply (`src/vehicle/config/describeVehicleApplyWarning.js`).
 
 ### 3.2 Documented Unfinished Seams
 The genuine next-layer gaps, self-identified in source comments and `README.md`. Any "future work" claim must map to one of these or be evidenced in code:
