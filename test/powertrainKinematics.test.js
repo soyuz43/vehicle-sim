@@ -55,12 +55,30 @@ test("effective drive ratio multiplies the representative ratio by the final dri
 })
 
 test("active physics and telemetry select the same forward effective ratio", () => {
+  // The engaged gear index is threaded in by the caller. The telemetry must
+  // report the ratio of the gear the driveline is actually in, not a
+  // representative first-gear ratio.
   const forward = computePowertrainKinematics({
     transmissionProfile: MANUAL,
     gearDirection: 1,
     averageDrivenWheelAngularVelocityRadiansPerSecond: 0,
+    selectedForwardGearIndex: 1,
   })
-  assert.ok(Math.abs(forward.effectiveDriveRatio - computeEffectiveDriveRatio(MANUAL, false)) < 1e-12)
+  assert.ok(Math.abs(forward.effectiveDriveRatio - computeEffectiveDriveRatio(MANUAL, false, 1)) < 1e-12)
+  assert.equal(forward.selectedForwardGearIndex, 1)
+  assert.equal(forward.selectedForwardGearLabel, '2')
+})
+
+test("telemetry without an engaged gear reports no gear instead of claiming first gear", () => {
+  const unknown = computePowertrainKinematics({
+    transmissionProfile: MANUAL,
+    gearDirection: 1,
+    averageDrivenWheelAngularVelocityRadiansPerSecond: 0,
+  })
+  assert.equal(unknown.selectedForwardGearIndex, -1)
+  assert.equal(unknown.selectedForwardGearLabel, 'none')
+  assert.equal(unknown.effectiveDriveRatio, 0)
+  assert.equal(unknown.engineRpmClampReason, 'no-engaged-gear')
 })
 
 test("active physics and telemetry select the same reverse effective ratio", () => {
@@ -68,6 +86,7 @@ test("active physics and telemetry select the same reverse effective ratio", () 
     transmissionProfile: MANUAL,
     gearDirection: -1,
     averageDrivenWheelAngularVelocityRadiansPerSecond: 0,
+    selectedForwardGearIndex: 1,
   })
   assert.ok(Math.abs(reverse.effectiveDriveRatio - computeEffectiveDriveRatio(MANUAL, true)) < 1e-12)
 })
@@ -77,6 +96,7 @@ test("cvt telemetry and active ratio share the midpoint policy", () => {
     transmissionProfile: CVT,
     gearDirection: 1,
     averageDrivenWheelAngularVelocityRadiansPerSecond: 0,
+    selectedForwardGearIndex: 0,
   })
   assert.ok(Math.abs(cvt.effectiveDriveRatio - computeEffectiveDriveRatio(CVT, false)) < 1e-12)
 })

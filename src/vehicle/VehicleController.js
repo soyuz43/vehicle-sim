@@ -336,6 +336,7 @@ export class VehicleController {
             transmissionProfile,
             gearDirection: getGearDirection(initialGear),
             averageDrivenWheelAngularVelocityRadiansPerSecond: 0,
+            selectedForwardGearIndex: 0,
         }),
         gear: initialGear,
         speedScalar: 0,
@@ -364,6 +365,12 @@ export class VehicleController {
         engineAngularVelocityRadiansPerSecond: 0,
         clutchEngagement01: 1,
         selectedForwardGearIndex: 0,
+        // The forward gear index resolved for the current step. It is written
+        // by the same resolution the active drive-torque source uses, so the
+        // powertrain telemetry always describes the gear that is applying
+        // torque. It is kept separate from selectedForwardGearIndex because
+        // that field is also written by a driver shift request between steps.
+        resolvedForwardGearIndex: 0,
         // Driver-selected forward gear. Null means "no manual selection in
         // effect". It is stored separately from selectedForwardGearIndex
         // because the latter is recomputed from wheel speed every step.
@@ -387,6 +394,8 @@ export class VehicleController {
             transmissionProfile: state.transmissionProfile,
             gearDirection,
             averageDrivenWheelAngularVelocityRadiansPerSecond,
+            // The gear the driveline is actually in, resolved for this step.
+            selectedForwardGearIndex: state.resolvedForwardGearIndex,
         })
     }
 
@@ -485,6 +494,7 @@ export class VehicleController {
         state.manualShiftCooldownRemainingSeconds = 0
         state.manualShiftOverrideRemainingSeconds = 0
         state.selectedForwardGearIndex = 0
+        state.resolvedForwardGearIndex = 0
         syncShiftModeState()
         state.speedScalar = 0
         state.throttleInput = 0
@@ -712,6 +722,7 @@ export class VehicleController {
         state.manualShiftCooldownRemainingSeconds = 0
         state.manualShiftOverrideRemainingSeconds = 0
         state.selectedForwardGearIndex = 0
+        state.resolvedForwardGearIndex = 0
         syncShiftModeState()
 
         return profile
@@ -2135,6 +2146,9 @@ export class VehicleController {
             manualForwardGearIndex: state.manualForwardGearIndex,
         })
         state.selectedForwardGearIndex = effectiveForwardGearIndex
+        // Same resolved index, kept for the powertrain telemetry so the
+        // displayed gear/ratio/RPM always match the applied drive torque.
+        state.resolvedForwardGearIndex = effectiveForwardGearIndex
         const requestedAxleDriveTorqueNewtonMeters = updatePowertrainDriveTorqueSource({
             state: state.activePowertrainDriveTorque,
             spec,
