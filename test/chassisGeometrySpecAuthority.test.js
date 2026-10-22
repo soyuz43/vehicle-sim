@@ -154,6 +154,100 @@ function measureVerticalDynamicsGeometry(spec, wheelStates) {
   }
 }
 
+const ASSEMBLY_SPRING_RATE_NEWTONS_PER_METER = 12000
+const ASSEMBLY_DAMPING_RATE_NEWTONS_PER_METER_PER_SECOND = 2500
+const ASSEMBLY_BASE_NORMAL_FORCE_NEWTONS = 100000
+const ASSEMBLY_PROBE_ATTITUDE = 0.01
+const ASSEMBLY_PROBE_RATE = 0.01
+
+function makeVerticalAssemblyWheelStates(spec, rateOverrides = {}) {
+  const staticCompressionMeters =
+    spec.suspensionTravelMeters * spec.suspensionTargetStaticCompressionRatio01
+
+  return meshWheelStates().map((wheelState) => {
+    const springRateNewtonsPerMeter =
+      rateOverrides.springRateForWheel?.(wheelState) ??
+      rateOverrides.springRateNewtonsPerMeter ??
+      ASSEMBLY_SPRING_RATE_NEWTONS_PER_METER
+    const dampingRateNewtonsPerMeterPerSecond =
+      rateOverrides.dampingRateForWheel?.(wheelState) ??
+      rateOverrides.dampingRateNewtonsPerMeterPerSecond ??
+      ASSEMBLY_DAMPING_RATE_NEWTONS_PER_METER_PER_SECOND
+
+    return {
+      ...wheelState,
+      suspensionSpringRateNewtonsPerMeter: springRateNewtonsPerMeter,
+      suspensionCompressionDampingNewtonsPerMeterPerSecond:
+        dampingRateNewtonsPerMeterPerSecond,
+      suspensionReboundDampingNewtonsPerMeterPerSecond:
+        dampingRateNewtonsPerMeterPerSecond,
+      suspensionCompressionMeters: staticCompressionMeters,
+      baseNormalForceNewtons: ASSEMBLY_BASE_NORMAL_FORCE_NEWTONS,
+      normalForceNewtons: ASSEMBLY_BASE_NORMAL_FORCE_NEWTONS,
+      frictionCoefficient: 1,
+    }
+  })
+}
+
+function expectedSpecWheelArms(wheelState, spec) {
+  const trackWidthMeters = wheelState.axle === 'front'
+    ? spec.frontTrackWidthMeters
+    : spec.rearTrackWidthMeters
+  const sideSign = wheelState.side === 'left' ? 1 : -1
+
+  return {
+    xMeters: sideSign * trackWidthMeters / 2,
+    zMeters: wheelState.axle === 'front'
+      ? spec.wheelbaseMeters / 2
+      : -spec.wheelbaseMeters / 2,
+  }
+}
+
+function probeVerticalAssembly(spec, wheelStates, initialState = {}) {
+  const state = createVerticalChassisDynamicsState(spec)
+  Object.assign(state, initialState)
+  updateVerticalChassisDynamics(state, wheelStates, spec, 0, {
+    planarAccelerationLocalForwardMetersPerSecondSquared: 0,
+    planarAccelerationLocalLateralMetersPerSecondSquared: 0,
+  })
+  return state
+}
+
+function measureVerticalAssemblyResponse(spec, accelerationKind) {
+  const staticCompressionMeters =
+    spec.suspensionTravelMeters * spec.suspensionTargetStaticCompressionRatio01
+  const springRateNewtonsPerMeter =
+    (spec.massKg * GRAVITY_METERS_PER_SECOND_SQUARED / 4) /
+    staticCompressionMeters
+  const dampingRateNewtonsPerMeterPerSecond =
+    2 * spec.suspensionDampingRatio *
+    Math.sqrt(springRateNewtonsPerMeter * spec.massKg / 4)
+  const wheelStates = makeVerticalAssemblyWheelStates(spec, {
+    springRateNewtonsPerMeter,
+    dampingRateNewtonsPerMeterPerSecond,
+  })
+  const state = createVerticalChassisDynamicsState(spec)
+  const accelerationMetersPerSecondSquared =
+    accelerationKind === 'braking'
+      ? -0.5 * GRAVITY_METERS_PER_SECOND_SQUARED
+      : 0.5 * GRAVITY_METERS_PER_SECOND_SQUARED
+
+  for (let step = 0; step < 1200; step += 1) {
+    updateVerticalChassisDynamics(state, wheelStates, spec, 1 / 60, {
+      planarAccelerationLocalForwardMetersPerSecondSquared:
+        accelerationKind === 'braking'
+          ? accelerationMetersPerSecondSquared
+          : 0,
+      planarAccelerationLocalLateralMetersPerSecondSquared:
+        accelerationKind === 'lateral'
+          ? accelerationMetersPerSecondSquared
+          : 0,
+    })
+  }
+
+  return { state, wheelStates, springRateNewtonsPerMeter }
+}
+
 test('the spec is the authoritative chassis geometry for every consumer', () => {
   const wheelStates = meshWheelStates()
 
@@ -221,6 +315,281 @@ test('the spec is the authoritative chassis geometry for every consumer', () => 
   }
 })
 
+test('the vertical assembly stiffness uses spec arms for every chassis', () => {
+  for (const componentId of CHASSIS_COMPONENT_IDS) {
+    const spec = specForChassis(componentId)
+    const wheelStates = makeVerticalAssemblyWheelStates(spec)
+    const expectedPitchStiffness = wheelStates.reduce(
+      (total, wheelState) => {
+        const arms = expectedSpecWheelArms(wheelState, spec)
+        return total +
+          wheelState.suspensionSpringRateNewtonsPerMeter * arms.zMeters ** 2
+      },
+      0
+    )
+    const expectedRollStiffness = wheelStates.reduce(
+      (total, wheelState) => {
+        const arms = expectedSpecWheelArms(wheelState, spec)
+        return total +
+          wheelState.suspensionSpringRateNewtonsPerMeter * arms.xMeters ** 2
+      },
+      0
+    )
+    const pitchProbe = probeVerticalAssembly(spec, wheelStates, {
+      pitchRadians: ASSEMBLY_PROBE_ATTITUDE,
+    })
+    const rollProbe = probeVerticalAssembly(spec, wheelStates, {
+      rollRadians: ASSEMBLY_PROBE_ATTITUDE,
+    })
+    const measuredPitchStiffness =
+      -pitchProbe.pitchAccelerationRadiansPerSecondSquared *
+      pitchProbe.pitchInertiaKgMeterSquared / ASSEMBLY_PROBE_ATTITUDE
+    const measuredRollStiffness =
+      -rollProbe.rollAccelerationRadiansPerSecondSquared *
+      rollProbe.rollInertiaKgMeterSquared / ASSEMBLY_PROBE_ATTITUDE
+
+    assert.ok(
+      Math.abs(measuredPitchStiffness - expectedPitchStiffness) < 1e-7,
+      componentId + ': pitch stiffness did not use the spec axle arms'
+    )
+    assert.ok(
+      Math.abs(measuredRollStiffness - expectedRollStiffness) < 1e-7,
+      componentId + ': roll stiffness did not use the spec track arms'
+    )
+  }
+})
+
+test('the heavy-truck symmetric stiffness and damping cross terms vanish', () => {
+  const spec = specForChassis('chassis-heavytruck')
+  const wheelStates = makeVerticalAssemblyWheelStates(spec)
+  const stiffnessProbe = probeVerticalAssembly(spec, wheelStates, {
+    rollRadians: ASSEMBLY_PROBE_ATTITUDE,
+  })
+  const dampingProbe = probeVerticalAssembly(spec, wheelStates, {
+    rollRateRadiansPerSecond: ASSEMBLY_PROBE_RATE,
+  })
+  const measuredKpr =
+    -stiffnessProbe.pitchAccelerationRadiansPerSecondSquared *
+    stiffnessProbe.pitchInertiaKgMeterSquared / ASSEMBLY_PROBE_ATTITUDE
+  const measuredCpr =
+    -dampingProbe.pitchAccelerationRadiansPerSecondSquared *
+    dampingProbe.pitchInertiaKgMeterSquared / ASSEMBLY_PROBE_RATE
+
+  assert.ok(Math.abs(measuredKpr) < 1e-9)
+  assert.ok(Math.abs(measuredCpr) < 1e-9)
+})
+
+test('asymmetric heavy-truck corner rates retain spec-based cross terms', () => {
+  const spec = specForChassis('chassis-heavytruck')
+  const wheelStates = makeVerticalAssemblyWheelStates(spec, {
+    springRateForWheel: (wheelState) =>
+      wheelState.axle === 'front' && wheelState.side === 'left'
+        ? 24000
+        : 12000,
+    dampingRateForWheel: (wheelState) =>
+      wheelState.axle === 'front' && wheelState.side === 'left'
+        ? 5000
+        : 2500,
+  })
+  const expectedKpr = wheelStates.reduce((total, wheelState) => {
+    const arms = expectedSpecWheelArms(wheelState, spec)
+    return total +
+      wheelState.suspensionSpringRateNewtonsPerMeter *
+      arms.xMeters * arms.zMeters
+  }, 0)
+  const expectedCpr = wheelStates.reduce((total, wheelState) => {
+    const arms = expectedSpecWheelArms(wheelState, spec)
+    return total +
+      wheelState.suspensionCompressionDampingNewtonsPerMeterPerSecond *
+      arms.xMeters * arms.zMeters
+  }, 0)
+  const stiffnessProbe = probeVerticalAssembly(spec, wheelStates, {
+    rollRadians: ASSEMBLY_PROBE_ATTITUDE,
+  })
+  const dampingProbe = probeVerticalAssembly(spec, wheelStates, {
+    rollRateRadiansPerSecond: ASSEMBLY_PROBE_RATE,
+  })
+  const measuredKpr =
+    -stiffnessProbe.pitchAccelerationRadiansPerSecondSquared *
+    stiffnessProbe.pitchInertiaKgMeterSquared / ASSEMBLY_PROBE_ATTITUDE
+  const measuredCpr =
+    -dampingProbe.pitchAccelerationRadiansPerSecondSquared *
+    dampingProbe.pitchInertiaKgMeterSquared / ASSEMBLY_PROBE_RATE
+
+  assert.ok(Math.abs(measuredKpr - expectedKpr) < 1e-7)
+  assert.ok(Math.abs(measuredCpr - expectedCpr) < 1e-7)
+})
+
+test('vertical load writeback uses the spec arm for every chassis corner', () => {
+  for (const componentId of CHASSIS_COMPONENT_IDS) {
+    const spec = specForChassis(componentId)
+    const wheelStates = makeVerticalAssemblyWheelStates(spec)
+    const initialState = {
+      heaveMeters: 0.012,
+      heaveVelocityMetersPerSecond: 0.03,
+      pitchRadians: -0.004,
+      pitchRateRadiansPerSecond: -0.02,
+      rollRadians: 0.006,
+      rollRateRadiansPerSecond: 0.04,
+    }
+    probeVerticalAssembly(spec, wheelStates, initialState)
+
+    for (const wheelState of wheelStates) {
+      const arms = expectedSpecWheelArms(wheelState, spec)
+      const uMeters =
+        initialState.heaveMeters +
+        initialState.pitchRadians * arms.zMeters +
+        initialState.rollRadians * arms.xMeters
+      const uRateMetersPerSecond =
+        initialState.heaveVelocityMetersPerSecond +
+        initialState.pitchRateRadiansPerSecond * arms.zMeters +
+        initialState.rollRateRadiansPerSecond * arms.xMeters
+      const expectedDeviationNewtons =
+        -wheelState.suspensionSpringRateNewtonsPerMeter * uMeters -
+        wheelState.suspensionCompressionDampingNewtonsPerMeterPerSecond *
+          uRateMetersPerSecond
+
+      assert.ok(
+        Math.abs(
+          wheelState.verticalDynamicsLoadDeviationNewtons -
+            expectedDeviationNewtons
+        ) < 1e-8,
+        componentId + ': ' + wheelState.side + ' ' + wheelState.axle +
+          ' writeback did not use its spec-derived arms'
+      )
+    }
+  }
+})
+
+test('heavy-truck terrain moments use spec-derived corner arms', () => {
+  const spec = specForChassis('chassis-heavytruck')
+  const wheelStates = makeVerticalAssemblyWheelStates(spec)
+  const frontLeft = wheelStates.find(
+    (wheelState) =>
+      wheelState.axle === 'front' && wheelState.side === 'left'
+  )
+  const staticCompressionMeters =
+    spec.suspensionTravelMeters * spec.suspensionTargetStaticCompressionRatio01
+  const terrainCompressionDeviationMeters = 0.01 - 1e-4
+  frontLeft.suspensionCompressionMeters =
+    staticCompressionMeters + 0.01
+  const state = probeVerticalAssembly(spec, wheelStates)
+  const arms = expectedSpecWheelArms(frontLeft, spec)
+  const terrainForceNewtons =
+    frontLeft.suspensionSpringRateNewtonsPerMeter *
+    terrainCompressionDeviationMeters
+
+  assert.ok(
+    Math.abs(
+      state.terrainRollMomentNewtonMeters -
+        arms.xMeters * terrainForceNewtons
+    ) < 1e-9
+  )
+  assert.ok(
+    Math.abs(
+      state.terrainPitchMomentNewtonMeters -
+        arms.zMeters * terrainForceNewtons
+    ) < 1e-9
+  )
+})
+
+test('the heavy truck steady braking transfer uses the 4.2 m spec wheelbase', () => {
+  const spec = specForChassis('chassis-heavytruck')
+  const { state, wheelStates, springRateNewtonsPerMeter } =
+    measureVerticalAssemblyResponse(spec, 'braking')
+  const expectedPerCornerDeviationNewtons =
+    (spec.massKg *
+      0.5 * GRAVITY_METERS_PER_SECOND_SQUARED *
+      spec.centerOfMassHeightMeters) /
+    (2 * spec.wheelbaseMeters)
+  const frontWheelStates = wheelStates.filter(
+    (wheelState) => wheelState.axle === 'front'
+  )
+  const frontAverageDeviationNewtons =
+    frontWheelStates.reduce(
+      (total, wheelState) =>
+        total + wheelState.verticalDynamicsLoadDeviationNewtons,
+      0
+    ) / frontWheelStates.length
+  const totalLoadDeviationNewtons = wheelStates.reduce(
+    (total, wheelState) =>
+      total + wheelState.verticalDynamicsLoadDeviationNewtons,
+    0
+  )
+  const expectedPitchRadians =
+    -(spec.massKg *
+      0.5 * GRAVITY_METERS_PER_SECOND_SQUARED *
+      spec.centerOfMassHeightMeters) /
+    (springRateNewtonsPerMeter * spec.wheelbaseMeters ** 2)
+
+  assert.ok(Math.abs(state.pitchRadians - expectedPitchRadians) < 1e-10)
+  assert.ok(
+    Math.abs(frontAverageDeviationNewtons - expectedPerCornerDeviationNewtons) <
+      1e-8
+  )
+  assert.ok(Math.abs(totalLoadDeviationNewtons) < 1e-8)
+})
+
+test('the heavy-truck steady lateral transfer uses the 2.7 m spec track', () => {
+  const spec = specForChassis('chassis-heavytruck')
+  const { state, wheelStates, springRateNewtonsPerMeter } =
+    measureVerticalAssemblyResponse(spec, 'lateral')
+  const expectedPerCornerDeviationNewtons =
+    (spec.massKg *
+      0.5 * GRAVITY_METERS_PER_SECOND_SQUARED *
+      spec.centerOfMassHeightMeters) /
+    (2 * spec.frontTrackWidthMeters)
+  const leftWheelStates = wheelStates.filter(
+    (wheelState) => wheelState.side === 'left'
+  )
+  const leftAverageDeviationNewtons =
+    leftWheelStates.reduce(
+      (total, wheelState) =>
+        total + wheelState.verticalDynamicsLoadDeviationNewtons,
+      0
+    ) / leftWheelStates.length
+  const expectedRollRadians =
+    (spec.massKg *
+      0.5 * GRAVITY_METERS_PER_SECOND_SQUARED *
+      spec.centerOfMassHeightMeters) /
+    (springRateNewtonsPerMeter * spec.frontTrackWidthMeters ** 2)
+
+  assert.ok(Math.abs(state.rollRadians - expectedRollRadians) < 1e-10)
+  assert.ok(
+    Math.abs(leftAverageDeviationNewtons + expectedPerCornerDeviationNewtons) <
+      1e-8
+  )
+})
+
+test('coupled axle-center averaging uses spec lateral arms', () => {
+  const spec = {
+    ...specForChassis('chassis-heavytruck'),
+    frontAxleCoupling: 'rigidAxle',
+  }
+  const wheelStates = makeVerticalAssemblyWheelStates(spec).filter(
+    (wheelState) =>
+      wheelState.axle !== 'front' || wheelState.side !== 'right'
+  )
+  const expectedRollStiffness = wheelStates.reduce(
+    (total, wheelState) => {
+      const arms = expectedSpecWheelArms(wheelState, spec)
+      const rollArmMeters = wheelState.axle === 'front'
+        ? spec.frontTrackWidthMeters / 2
+        : arms.xMeters
+      return total +
+        wheelState.suspensionSpringRateNewtonsPerMeter * rollArmMeters ** 2
+    },
+    0
+  )
+  const rollProbe = probeVerticalAssembly(spec, wheelStates, {
+    rollRadians: ASSEMBLY_PROBE_ATTITUDE,
+  })
+  const measuredRollStiffness =
+    -rollProbe.rollAccelerationRadiansPerSecondSquared *
+    rollProbe.rollInertiaKgMeterSquared / ASSEMBLY_PROBE_ATTITUDE
+
+  assert.ok(Math.abs(measuredRollStiffness - expectedRollStiffness) < 1e-7)
+})
 test('the load transfer, the mass properties and the vertical dynamics agree on one geometry', () => {
   const wheelStates = meshWheelStates()
 

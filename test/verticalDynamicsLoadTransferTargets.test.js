@@ -60,7 +60,7 @@ function makeWheelState({ x, z, axle }) {
   return {
     isGrounded: true,
     axle,
-    side: x < 0 ? 'left' : 'right',
+    side: x > 0 ? 'left' : 'right',
     localPosition: { x, y: 0, z },
     suspensionSpringRateNewtonsPerMeter: SPRING_RATE_NEWTONS_PER_METER,
     suspensionCompressionDampingNewtonsPerMeterPerSecond:

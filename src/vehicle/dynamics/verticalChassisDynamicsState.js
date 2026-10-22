@@ -77,6 +77,25 @@ function applyCompressionNoiseFloor(deviationMeters) {
     (magnitude - HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS)
 }
 
+function resolveWheelSpecArms(wheelState, chassisGeometry, target) {
+  const axle = wheelState?.axle
+  const side = wheelState?.side
+  const trackWidthMeters = axle === 'front'
+    ? chassisGeometry.frontTrackWidthMeters
+    : axle === 'rear'
+      ? chassisGeometry.rearTrackWidthMeters
+      : 0
+
+  target.xMeters = trackWidthMeters *
+    (side === 'left' ? 0.5 : side === 'right' ? -0.5 : 0)
+  target.zMeters = axle === 'front'
+    ? chassisGeometry.frontAxleCenterZMeters
+    : axle === 'rear'
+      ? chassisGeometry.rearAxleCenterZMeters
+      : 0
+  return target
+}
+
 // The lateral offset of each axle's centre: the mean of that axle's wheel
 // lateral offsets.
 //
@@ -85,14 +104,16 @@ function applyCompressionNoiseFloor(deviationMeters) {
 // because one of its corners left the ground. Deriving the centre from the
 // grounded corners only would make it jump to the surviving corner the
 // moment a wheel went airborne, and the axle's roll arm with it.
-function resolveAxleCentreLateralOffsets(wheelStates) {
+function resolveAxleCentreLateralOffsets(wheelStates, chassisGeometry) {
   let frontSumMeters = 0
   let frontWheelCount = 0
   let rearSumMeters = 0
   let rearWheelCount = 0
+  const wheelArms = { xMeters: 0, zMeters: 0 }
 
   for (const wheelState of wheelStates) {
-    const lateralMeters = sanitizeNumber(wheelState?.localPosition?.x)
+    resolveWheelSpecArms(wheelState, chassisGeometry, wheelArms)
+    const lateralMeters = wheelArms.xMeters
     if (wheelState?.axle === 'front') {
       frontSumMeters += lateralMeters
       frontWheelCount += 1
@@ -300,6 +321,7 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
     clamp(sanitizeNumber(spec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
 
   return {
+    chassisGeometry,
     sprungMassKg,
     pitchInertiaKgMeterSquared,
     rollInertiaKgMeterSquared,
@@ -368,7 +390,8 @@ export function updateVerticalChassisDynamics(
   // is read from the axle coupling mode in the spec, the same way the axle
   // constraint solve reads it.
   const axleCentreLateralOffsetMeters = resolveAxleCentreLateralOffsets(
-    safeWheelStates
+    safeWheelStates,
+    geometry.chassisGeometry
   )
   const coupledAxles = {
     front:
@@ -396,8 +419,13 @@ export function updateVerticalChassisDynamics(
       wheelState.tractionLimitNewtons = 0
       continue
     }
-    const xMeters = sanitizeNumber(wheelState.localPosition?.x)
-    const zMeters = sanitizeNumber(wheelState.localPosition?.z)
+    const corner = resolveWheelSpecArms(
+      wheelState,
+      geometry.chassisGeometry,
+      { wheelState }
+    )
+    const xMeters = corner.xMeters
+    const zMeters = corner.zMeters
     const axle = wheelState.axle ?? null
     const isCoupledAxleCorner =
       axle !== null && coupledAxles[axle] === true
@@ -468,15 +496,12 @@ export function updateVerticalChassisDynamics(
     Krr += springRateNewtonsPerMeter * rollArmMeters * rollArmMeters
     Kpr += springRateNewtonsPerMeter * rollArmMeters * zMeters
 
-    cornerData.push({
-      wheelState,
-      xMeters,
-      zMeters,
-      rollArmMeters,
-      springRateNewtonsPerMeter,
-      dampingRateNewtonsPerMeterPerSecond,
-      baseNormalForceNewtons,
-    })
+    corner.rollArmMeters = rollArmMeters
+    corner.springRateNewtonsPerMeter = springRateNewtonsPerMeter
+    corner.dampingRateNewtonsPerMeterPerSecond =
+      dampingRateNewtonsPerMeterPerSecond
+    corner.baseNormalForceNewtons = baseNormalForceNewtons
+    cornerData.push(corner)
   }
 
   let Chh = 0
