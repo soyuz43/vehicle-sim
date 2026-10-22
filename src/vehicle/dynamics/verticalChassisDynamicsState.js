@@ -41,6 +41,7 @@ import {
   AXLE_COUPLING_MODES,
   resolveAxleCouplingMode,
 } from './axleCouplingState.js'
+import { resolveChassisGeometry } from './resolveChassisGeometry.js'
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
 
@@ -226,15 +227,13 @@ export function resetVerticalChassisDynamicsState(state, spec = {}) {
 function deriveVerticalDynamicsGeometry(wheelStates, spec) {
   const safeWheelStates = Array.isArray(wheelStates) ? wheelStates : []
   const massKg = sanitizePositiveNumber(spec.massKg, 1400)
-  const wheelbaseMeters = sanitizePositiveNumber(spec.wheelbaseMeters, 2.9)
-  const frontTrackWidthMeters = sanitizePositiveNumber(
-    spec.frontTrackWidthMeters,
-    spec.rearTrackWidthMeters || 2.5
-  )
-  const rearTrackWidthMeters = sanitizePositiveNumber(
-    spec.rearTrackWidthMeters,
-    spec.frontTrackWidthMeters || 2.5
-  )
+  // The spec owns the chassis geometry. The rendered mesh is a fixed
+  // hatchback shape, so reading the geometry from the wheel layout made the
+  // vertical dynamics disagree with the load transfer and the chassis mass
+  // properties for every non-stock chassis.
+  const chassisGeometry = resolveChassisGeometry(safeWheelStates, spec)
+  const frontTrackWidthMeters = chassisGeometry.frontTrackWidthMeters
+  const rearTrackWidthMeters = chassisGeometry.rearTrackWidthMeters
   const trackWidthMeters = (frontTrackWidthMeters + rearTrackWidthMeters) / 2
   const centerOfMassHeightMeters = sanitizePositiveNumber(
     spec.centerOfMassHeightMeters,
@@ -247,24 +246,12 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
   )
   const sprungMassKg = massKg * sprungMassFraction01
 
-  // Pitch inertia: two-point mass model about the CG using actual front/rear
-  // wheel longitudinal offsets when available, else the wheelbase split.
-  let frontZ = 0
-  let rearZ = 0
-  let frontCount = 0
-  let rearCount = 0
-  for (const wheelState of safeWheelStates) {
-    const z = sanitizeNumber(wheelState?.localPosition?.z)
-    if (wheelState?.axle === 'front') {
-      frontZ += z
-      frontCount += 1
-    } else if (wheelState?.axle === 'rear') {
-      rearZ += z
-      rearCount += 1
-    }
-  }
-  const meanFrontZ = frontCount > 0 ? frontZ / frontCount : wheelbaseMeters / 2
-  const meanRearZ = rearCount > 0 ? rearZ / rearCount : -wheelbaseMeters / 2
+  // Pitch inertia: two-point mass model about the CG using the axle
+  // stations of the resolved chassis geometry. The axle stations come from the
+  // spec wheelbase, not from the rendered mesh, so the CG split matches the
+  // load-transfer and mass-property geometry.
+  const meanFrontZ = chassisGeometry.frontAxleCenterZMeters
+  const meanRearZ = chassisGeometry.rearAxleCenterZMeters
   const distanceCgToFrontAxleMeters = Math.max(
     meanFrontZ,
     VERTICAL_DYNAMICS_EPSILON

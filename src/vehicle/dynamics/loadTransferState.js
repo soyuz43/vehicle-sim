@@ -1,10 +1,13 @@
 // src/vehicle/dynamics/loadTransferState.js
 
+import { resolveChassisGeometry } from './resolveChassisGeometry.js'
+
+// The chassis geometry (wheelbase and track widths) is NOT a load-transfer
+// fallback: it is resolved by resolveChassisGeometry, which reads the spec
+// first so that the load transfer, the chassis mass properties and the
+// vertical dynamics all agree on the same geometry.
 const DEFAULT_LOAD_TRANSFER_SPEC = Object.freeze({
   centerOfMassHeightMeters: 0.55,
-  wheelbaseMeters: 2.9,
-  frontTrackWidthMeters: 2.5,
-  rearTrackWidthMeters: 2.5,
   minimumNormalForceNewtons: 0,
   loadTransferEnabled: true,
 })
@@ -203,56 +206,16 @@ export function updateLoadTransferState(
 }
 
 function deriveLoadTransferGeometry(wheelStates, spec) {
-  const frontWheelOffsets = []
-  const rearWheelOffsets = []
-
-  for (const wheelState of wheelStates) {
-    const localOffset =
-      wheelState.contactPatchLocal ?? wheelState.localPosition
-    const wheelOffsetRightMeters = sanitizeNumber(localOffset?.x)
-    const wheelOffsetForwardMeters = sanitizeNumber(localOffset?.z)
-
-    if (wheelState.axle === AXLES.FRONT) {
-      frontWheelOffsets.push({
-        x: wheelOffsetRightMeters,
-        z: wheelOffsetForwardMeters,
-      })
-    } else if (wheelState.axle === AXLES.REAR) {
-      rearWheelOffsets.push({
-        x: wheelOffsetRightMeters,
-        z: wheelOffsetForwardMeters,
-      })
-    }
-  }
-
-  const frontAxleCenterZMeters = averageAxisValue(frontWheelOffsets, 'z')
-  const rearAxleCenterZMeters = averageAxisValue(rearWheelOffsets, 'z')
-  const derivedWheelbaseMeters = Math.abs(
-    frontAxleCenterZMeters - rearAxleCenterZMeters
-  )
+  // The spec owns the wheelbase and the track widths. The rendered mesh is a
+  // fixed hatchback shape, so reading the wheelbase from the wheel layout
+  // made the load transfer disagree with the chassis mass properties and the
+  // vertical dynamics for every non-stock chassis.
+  const geometry = resolveChassisGeometry(wheelStates, spec)
 
   return {
-    wheelbaseMeters: sanitizePositiveNumber(
-      derivedWheelbaseMeters,
-      sanitizePositiveNumber(
-        spec.wheelbaseMeters,
-        DEFAULT_LOAD_TRANSFER_SPEC.wheelbaseMeters
-      )
-    ),
-    frontTrackWidthMeters: sanitizePositiveNumber(
-      axisSpan(frontWheelOffsets, 'x'),
-      sanitizePositiveNumber(
-        spec.frontTrackWidthMeters,
-        DEFAULT_LOAD_TRANSFER_SPEC.frontTrackWidthMeters
-      )
-    ),
-    rearTrackWidthMeters: sanitizePositiveNumber(
-      axisSpan(rearWheelOffsets, 'x'),
-      sanitizePositiveNumber(
-        spec.rearTrackWidthMeters,
-        DEFAULT_LOAD_TRANSFER_SPEC.rearTrackWidthMeters
-      )
-    ),
+    wheelbaseMeters: geometry.wheelbaseMeters,
+    frontTrackWidthMeters: geometry.frontTrackWidthMeters,
+    rearTrackWidthMeters: geometry.rearTrackWidthMeters,
   }
 }
 
@@ -453,33 +416,6 @@ function finalizeWheelNormalForces(
   loadTransferSummary.normalForceConservationErrorNewtons =
     loadTransferSummary.totalDynamicNormalForceNewtons -
     loadTransferSummary.totalStaticNormalForceNewtons
-}
-
-function averageAxisValue(offsets, axis) {
-  if (offsets.length === 0) return 0
-
-  let totalAxisValue = 0
-
-  for (const offset of offsets) {
-    totalAxisValue += sanitizeNumber(offset?.[axis])
-  }
-
-  return totalAxisValue / offsets.length
-}
-
-function axisSpan(offsets, axis) {
-  if (offsets.length < 2) return 0
-
-  let minAxisValue = Number.POSITIVE_INFINITY
-  let maxAxisValue = Number.NEGATIVE_INFINITY
-
-  for (const offset of offsets) {
-    const axisValue = sanitizeNumber(offset?.[axis])
-    minAxisValue = Math.min(minAxisValue, axisValue)
-    maxAxisValue = Math.max(maxAxisValue, axisValue)
-  }
-
-  return Math.max(0, maxAxisValue - minAxisValue)
 }
 
 function sanitizePositiveNumber(value, fallback = 0) {
