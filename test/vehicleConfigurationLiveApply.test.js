@@ -75,6 +75,65 @@ function captureMotion(snapshot) {
   }
 }
 
+test('the controller derives the active catalog configuration from the running state', () => {
+  const { controller } = createController()
+
+  const active = controller.getVehicleConfiguration()
+
+  assert.deepEqual(
+    active.slots,
+    createDefaultVehicleConfiguration().slots,
+    'a fresh controller runs the default catalog configuration'
+  )
+})
+
+test('a configuration apply reports one change to the configuration listeners', () => {
+  const { controller } = createController()
+  const reported = []
+  const unsubscribe = controller.onConfigurationChanged((active) => reported.push(active))
+
+  controller.setVehicleConfiguration(configurationWith({ chassis: 'chassis-suv' }))
+
+  assert.equal(reported.length, 1, 'the apply reports exactly one change')
+  assert.equal(reported[0].slots.chassis, 'chassis-suv')
+
+  unsubscribe()
+  controller.setVehicleConfiguration(configurationWith({ chassis: 'chassis-hatchback' }))
+
+  assert.equal(reported.length, 1, 'an unsubscribed listener stops hearing about changes')
+})
+
+test('a console suspension swap is reported to the configuration listeners', () => {
+  const { controller } = createController()
+  const reported = []
+  controller.onConfigurationChanged((active) => reported.push(active))
+
+  controller.setSuspension('susp-solid-axle-rear')
+
+  assert.equal(reported.length, 1, 'the swap reports one change')
+  assert.equal(reported[0].slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(
+    reported[0].slots.chassis,
+    'chassis-hatchback',
+    'the slots the swap did not touch keep their component'
+  )
+})
+
+test('a drivetrain state that matches no catalog component is reported as no component', () => {
+  const { controller } = createController()
+
+  controller.setTransmission('manual-6')
+
+  const active = controller.getVehicleConfiguration()
+
+  assert.equal(
+    active.slots.drivetrain,
+    null,
+    'a manual gearbox on the stock inline-4 is not a catalog component'
+  )
+  assert.equal(active.slots.chassis, 'chassis-hatchback')
+})
+
 test('the controller exposes a runtime vehicle configuration apply', () => {
   const { controller } = createController()
 

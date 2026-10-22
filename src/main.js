@@ -108,6 +108,18 @@ configPanel = createConfigPanel({
   },
 })
 
+// Keep the panel in step with a configuration change made outside it, for
+// example through the browser console hook. The controller reports the
+// catalog configuration it is effectively running, derived from the live
+// vehicle state.
+vehicleController.onConfigurationChanged((activeVehicleConfig) => {
+  configPanel.applyExternalVehicleConfig(activeVehicleConfig)
+})
+
+// Adopt the configuration the controller is running, so the panel starts in
+// step with the vehicle instead of assuming the initial selection.
+configPanel.applyExternalVehicleConfig(vehicleController.getVehicleConfiguration())
+
 // Apply a vehicle configuration to the running controller.
 //
 // The controller object never changes: the configuration is swapped in place,

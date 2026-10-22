@@ -32,6 +32,11 @@ const TERRAIN_OPTIONS = [
   { value: 'offroad', label: 'Offroad Playground' },
 ];
 
+// The value of the synthetic option that marks a slot whose running state
+// does not match any catalog component. A console swap can produce such a
+// state: a manual gearbox on the stock inline-4, for example.
+const MODIFIED_OPTION_VALUE = '__modified_outside_catalog__';
+
 const SLOT_LABELS = {
   chassis: 'Chassis',
   suspension: 'Suspension',
@@ -77,6 +82,10 @@ export function createConfigPanel(config = {}) {
   let runningTerrain = initialTerrain;
   // The terrain staged for the next apply.
   let currentTerrain = initialTerrain;
+  // The slots whose running state does not match any catalog component. The
+  // panel reports them instead of claiming a component the vehicle is not
+  // running.
+  const modifiedSlots = new Set();
   // The outcome of the last apply attempt: null (no attempt), 'applied', or
   // 'error'. The host reports the outcome through markApplied() and
   // setApplyError(); a host that reports nothing is treated as a successful
@@ -213,7 +222,14 @@ export function createConfigPanel(config = {}) {
       })),
       value: currentVehicleConfig.slots[slot],
       onChange: (val) => {
+        if (val === MODIFIED_OPTION_VALUE) {
+          // The modified marker is a report, not a selection. The panel
+          // keeps showing it until the driver picks a real component.
+          slotSelects[slot]?.setValue(MODIFIED_OPTION_VALUE);
+          return;
+        }
         currentVehicleConfig = setVehicleConfigurationSlot(currentVehicleConfig, slot, val);
+        setSlotModifiedState(slot, false);
         updateVehicleSetupPreview();
         cfg.onVehicleChange?.(cloneVehicleConfiguration(currentVehicleConfig));
         refreshDirtyState();
@@ -243,6 +259,9 @@ export function createConfigPanel(config = {}) {
   // the time it was applied), or the failure of the last apply attempt.
   function updateVehicleSetupPreview() {
     const selectedComponents = VEHICLE_COMPONENT_SLOTS.map((slot) => {
+      if (modifiedSlots.has(slot)) {
+        return `${SLOT_LABELS[slot] ?? slot}: modified outside catalog`;
+      }
       const component = VEHICLE_COMPONENT_CATALOG[slot]?.components[currentVehicleConfig.slots[slot]];
       return component ? `${SLOT_LABELS[slot] ?? slot}: ${component.label}` : null;
     }).filter(Boolean);
@@ -429,6 +448,96 @@ export function createConfigPanel(config = {}) {
     return `${hours}:${minutes}:${seconds}`;
   }
 
+  // The synthetic marker option marks a slot whose running state does not
+  // match any catalog component.
+  function findModifiedOption(select) {
+    for (const child of select.children ?? []) {
+      if (child.value === MODIFIED_OPTION_VALUE) return child;
+    }
+    return null;
+  }
+
+  function setSlotModifiedState(slot, modified) {
+    if (modified) {
+      modifiedSlots.add(slot);
+    } else {
+      modifiedSlots.delete(slot);
+    }
+
+    const select = slotSelects[slot]?.select;
+    if (!select) return;
+
+    const existing = findModifiedOption(select);
+
+    if (modified) {
+      if (!existing) {
+        const option = document.createElement('option');
+        option.value = MODIFIED_OPTION_VALUE;
+        option.textContent = 'Modified outside catalog';
+        select.appendChild(option);
+      }
+      select.value = MODIFIED_OPTION_VALUE;
+      return;
+    }
+
+    if (existing) {
+      select.value = currentVehicleConfig.slots[slot];
+      select.removeChild(existing);
+    }
+  }
+
+  // Adopt a configuration the host read from the running vehicle.
+  //
+  // The vehicle can be reconfigured outside the panel: the browser console
+  // and the control panel both reach the controller directly. The panel must
+  // not keep reporting a setup the vehicle is not running.
+  //
+  // An external change is not a staged change, so the panel does not become
+  // dirty. A slot the vehicle changed supersedes the panel's staged value
+  // for that slot; a slot the vehicle did not change keeps whatever the
+  // driver staged for it.
+  //
+  // A slot the vehicle reports as null is running a state no catalog
+  // component describes. The panel keeps the last known catalog selection
+  // so the configuration stays well formed, and marks the slot as modified.
+  function applyExternalVehicleConfig(externalConfig) {
+    const externalSlots = externalConfig?.slots ?? {};
+
+    for (const slot of VEHICLE_COMPONENT_SLOTS) {
+      if (!Object.prototype.hasOwnProperty.call(externalSlots, slot)) continue;
+
+      const externalValue = externalSlots[slot] ?? null;
+
+      if (externalValue === null) {
+        setSlotModifiedState(slot, true);
+        continue;
+      }
+
+      if (!VEHICLE_COMPONENT_CATALOG[slot]?.components[externalValue]) continue;
+
+      if (modifiedSlots.has(slot)) {
+        setSlotModifiedState(slot, false);
+      }
+
+      if (appliedVehicleConfig.slots[slot] === externalValue) continue;
+
+      currentVehicleConfig = setVehicleConfigurationSlot(
+        currentVehicleConfig,
+        slot,
+        externalValue
+      );
+      appliedVehicleConfig = setVehicleConfigurationSlot(
+        appliedVehicleConfig,
+        slot,
+        externalValue
+      );
+      slotSelects[slot]?.setValue(externalValue);
+    }
+
+    refreshDirtyState();
+    updateVehicleSetupPreview();
+  }
+
   // Public API for external sync.
   //
   // setTerrain and setVehicleConfig STAGE a selection: they change what the
@@ -472,6 +581,8 @@ export function createConfigPanel(config = {}) {
     update: () => {}, // No live telemetry updates needed
     setTerrain,
     setVehicleConfig,
+    applyExternalVehicleConfig,
+    getModifiedSlots: () => [...modifiedSlots],
     getConfig,
     getTerrain: () => currentTerrain,
     getVehicleConfig: () => cloneVehicleConfiguration(currentVehicleConfig),

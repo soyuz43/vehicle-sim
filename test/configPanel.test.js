@@ -754,6 +754,180 @@ test('the dirty state is derived from the staged and the running selection', asy
   assert.equal(ui.isDirty(), false, 'the committed terrain is the running terrain')
 })
 
+test('the panel reflects a console swap', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+  })
+  controller.onConfigurationChanged((activeConfig) => {
+    ui.applyExternalVehicleConfig(activeConfig)
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  const suspensionSelect = findById(ui.element, 'config-suspension-select')
+  assert.equal(
+    ui.getVehicleConfig().slots.suspension,
+    'susp-stock',
+    'the panel starts in step with the vehicle'
+  )
+
+  controller.setSuspension('susp-solid-axle-rear')
+
+  assert.equal(
+    suspensionSelect.value,
+    'susp-solid-axle-rear',
+    'the panel follows the console swap'
+  )
+  assert.equal(ui.getVehicleConfig().slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(ui.isDirty(), false, 'a console swap is not a staged change')
+
+  const status = findById(ui.element, 'config-vehicle-preview')
+  assert.match(status.textContent, /Suspension: Rear Solid Axle/)
+})
+
+test('console setTransmission on the stock drivetrain shows a modified select without dirtying the panel', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+  })
+  controller.onConfigurationChanged((activeConfig) => {
+    ui.applyExternalVehicleConfig(activeConfig)
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  const drivetrainSelect = findById(ui.element, 'config-drivetrain-select')
+  assert.equal(
+    ui.getVehicleConfig().slots.drivetrain,
+    'drivetrain-stock',
+    'the panel starts in step with the vehicle'
+  )
+
+  controller.setTransmission('manual-6')
+
+  assert.equal(
+    drivetrainSelect.value,
+    '__modified_outside_catalog__',
+    'the select reports that the running drivetrain is not a catalog component'
+  )
+  assert.deepEqual(ui.getModifiedSlots(), ['drivetrain'])
+
+  const markerOption = (drivetrainSelect.children ?? []).find(
+    (child) => child.value === '__modified_outside_catalog__'
+  )
+  assert.ok(markerOption, 'the select carries a visible modified marker')
+  assert.equal(markerOption.textContent, 'Modified outside catalog')
+
+  const status = findById(ui.element, 'config-vehicle-preview')
+  assert.match(status.textContent, /Drivetrain: modified outside catalog/)
+
+  assert.equal(
+    ui.isDirty(),
+    false,
+    'a console swap is not a staged change, so the panel stays clean'
+  )
+})
+
+test('an external change to one slot keeps the staged change in another slot', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+  })
+  controller.onConfigurationChanged((activeConfig) => {
+    ui.applyExternalVehicleConfig(activeConfig)
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  const brakesSelect = findById(ui.element, 'config-brakes-select')
+  brakesSelect.value = 'brakes-sport'
+  brakesSelect.dispatchEvent({ type: 'change', target: brakesSelect })
+  assert.equal(ui.isDirty(), true, 'the staged brake change is pending')
+
+  controller.setSuspension('susp-solid-axle-rear')
+
+  assert.equal(
+    ui.getVehicleConfig().slots.brakes,
+    'brakes-sport',
+    'the staged brake change survives a change in another slot'
+  )
+  assert.equal(ui.getVehicleConfig().slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(ui.isDirty(), true, 'the staged brake change is still pending')
+})
+
 test('ConfigPanel destroy cleans up', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')

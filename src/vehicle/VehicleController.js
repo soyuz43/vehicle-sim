@@ -25,6 +25,7 @@ import {
     cloneVehicleConfiguration,
     validateVehicleConfiguration,
 } from './config/createVehicleConfiguration.js'
+import { deriveActiveVehicleConfiguration } from './config/deriveActiveVehicleConfiguration.js'
 import {
     createAerodynamicDragState,
     updateAerodynamicDragState,
@@ -413,6 +414,61 @@ export class VehicleController {
         forces: createEmptyForceSnapshot(),
     }
 
+    // The listeners that want to know when the running vehicle configuration
+    // changes. The vehicle can be reconfigured from outside the catalog API
+    // (the browser console, the control panel), so a host that displays the
+    // configuration needs a way to learn that it moved.
+    const configurationChangeListeners = []
+
+    // The catalog configuration the vehicle is effectively running.
+    //
+    // It is DERIVED from the live state rather than stored, because the
+    // vehicle can be reconfigured without going through the catalog API. A
+    // slot whose effective state matches no catalog component is reported
+    // as null: the vehicle is running a combination the catalog does not
+    // describe, and naming a component for it would be a lie.
+    function getVehicleConfiguration() {
+        return deriveActiveVehicleConfiguration({
+            spec,
+            engineProfileId: state.engineProfile?.engineId ?? null,
+            transmissionProfileId:
+                state.transmissionProfile?.transmissionId ?? null,
+            rearDifferentialType:
+                state.rearDifferentialState?.rearDifferentialType ?? null,
+        })
+    }
+
+    // Subscribe to configuration changes. Returns the unsubscribe function.
+    function onConfigurationChanged(listener) {
+        if (typeof listener !== 'function') {
+            return () => {}
+        }
+
+        configurationChangeListeners.push(listener)
+
+        return () => {
+            const index = configurationChangeListeners.indexOf(listener)
+            if (index >= 0) configurationChangeListeners.splice(index, 1)
+        }
+    }
+
+    function notifyConfigurationChanged() {
+        if (configurationChangeListeners.length === 0) return
+
+        const configuration = getVehicleConfiguration()
+
+        for (const listener of configurationChangeListeners.slice()) {
+            try {
+                listener(configuration)
+            } catch (error) {
+                console.error(
+                    '[VehicleController] configuration change listener failed.',
+                    error
+                )
+            }
+        }
+    }
+
     function updatePowertrainKinematics() {
         const gearDirection = getGearDirection(state.gear)
         const averageDrivenWheelAngularVelocityRadiansPerSecond =
@@ -744,7 +800,7 @@ export class VehicleController {
     // drive-mode choice, not a property of the gearbox, and forcing it to
     // Drive would silently change the direction of travel for a driver who
     // swapped the transmission while in Reverse.
-    function setTransmission(transmissionId) {
+    function applyTransmissionProfile(transmissionId) {
         const profile = requireTransmissionProfile(transmissionId)
 
         state.transmissionProfile = profile
@@ -754,6 +810,13 @@ export class VehicleController {
         state.selectedForwardGearIndex = 0
         state.resolvedForwardGearIndex = 0
         syncShiftModeState()
+
+        return profile
+    }
+
+    function setTransmission(transmissionId) {
+        const profile = applyTransmissionProfile(transmissionId)
+        notifyConfigurationChanged()
 
         return profile
     }
@@ -772,12 +835,19 @@ export class VehicleController {
     // reports the new mode immediately; the next step's constraint solve
     // fills the beam pose in again. The per-wheel damper sample is dropped
     // so a changed rest length cannot produce a one-frame damper spike.
-    function setSuspension(suspensionId) {
+    function applySuspensionComponent(suspensionId) {
         const component = requireSuspensionComponent(suspensionId)
 
         applySuspensionSpec(component.spec)
         syncAxleCouplingModesToSpec(state.axleCouplingState, spec)
         dropSuspensionDamperSamples()
+
+        return component
+    }
+
+    function setSuspension(suspensionId) {
+        const component = applySuspensionComponent(suspensionId)
+        notifyConfigurationChanged()
 
         return component
     }
@@ -820,7 +890,7 @@ export class VehicleController {
             'suspension',
             vehicleConfiguration.slots.suspension
         )
-        setSuspension(suspensionComponent.id)
+        applySuspensionComponent(suspensionComponent.id)
         components.suspension = suspensionComponent
 
         // --- Drivetrain slot ---------------------------------------------
@@ -830,8 +900,8 @@ export class VehicleController {
             'drivetrain',
             vehicleConfiguration.slots.drivetrain
         )
-        setTransmission(drivetrainComponent.transmissionId)
-        setEngineProfile(drivetrainComponent.engineId)
+        applyTransmissionProfile(drivetrainComponent.transmissionId)
+        applyEngineProfile(drivetrainComponent.engineId)
         applyOwnedSpecFields(
             DRIVETRAIN_OWNED_SPEC_FIELDS,
             drivetrainComponent.spec
@@ -840,7 +910,7 @@ export class VehicleController {
         // the state wins for the physics, so the spec field is only kept in
         // sync for the snapshot. setRearDifferentialType() is what actually
         // changes the running differential.
-        setRearDifferentialType(spec.rearDifferentialType)
+        applyRearDifferentialType(spec.rearDifferentialType)
         components.drivetrain = drivetrainComponent
 
         // --- Brakes slot -------------------------------------------------
@@ -895,6 +965,8 @@ export class VehicleController {
         // refreshed here to keep the snapshot between steps honest.
         updatePowertrainKinematics()
 
+        notifyConfigurationChanged()
+
         return {
             configuration: cloneVehicleConfiguration(vehicleConfiguration),
             components,
@@ -924,7 +996,7 @@ export class VehicleController {
     // field: it is read from state.engineProfile on every step, so replacing
     // it is enough. An unknown id is an error rather than a silent fallback
     // to the default engine.
-    function setEngineProfile(engineId) {
+    function applyEngineProfile(engineId) {
         const profile = selectEngineProfile(engineId)
 
         if (profile.engineId !== engineId) {
@@ -932,6 +1004,13 @@ export class VehicleController {
         }
 
         state.engineProfile = profile
+
+        return profile
+    }
+
+    function setEngineProfile(engineId) {
+        const profile = applyEngineProfile(engineId)
+        notifyConfigurationChanged()
 
         return profile
     }
@@ -1228,7 +1307,7 @@ export class VehicleController {
         return state.dynamicsTuning
     }
 
-    function setRearDifferentialType(nextRearDifferentialType) {
+    function applyRearDifferentialType(nextRearDifferentialType) {
         setActiveRearDifferentialType(
             state.rearDifferentialState,
             spec,
@@ -1238,6 +1317,15 @@ export class VehicleController {
         refreshPostIntegrationTelemetry()
 
         return getRearDifferentialState()
+    }
+
+    function setRearDifferentialType(nextRearDifferentialType) {
+        const differentialState = applyRearDifferentialType(
+            nextRearDifferentialType
+        )
+        notifyConfigurationChanged()
+
+        return differentialState
     }
 
     function getRearDifferentialState() {
@@ -3666,6 +3754,8 @@ export class VehicleController {
     this.setTransmission = setTransmission
     this.setSuspension = setSuspension
     this.setVehicleConfiguration = setVehicleConfiguration
+    this.getVehicleConfiguration = getVehicleConfiguration
+    this.onConfigurationChanged = onConfigurationChanged
     this.setGear = setGear
     this.setDynamicsTuning = setDynamicsTuning
     this.resetDynamicsTuning = resetDynamicsTuning
