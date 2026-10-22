@@ -93,13 +93,17 @@ configPanel = createConfigPanel({
       const params = new URLSearchParams(typeof globalThis.location?.search === 'string' ? globalThis.location.search : '')
       params.set('terrain', terrain)
       if (globalThis.location) globalThis.location.search = params.toString()
+      // The session URL is now the committed terrain, and the document is
+      // being replaced. The panel is told that the terrain it staged is
+      // running, so it does not keep reporting it as pending on the way out.
+      configPanel.markTerrainApplied(terrain)
     }
     applyVehicleConfigurationToController(vehicleConfig)
   },
   onReset: () => {
-    configPanel.setTerrain('proving-ground')
+    // Reset Vehicle restores the vehicle setup only. The terrain is not
+    // touched: a terrain selection is applied by reloading the session.
     const stockVehicleConfig = createDefaultVehicleConfiguration()
-    configPanel.setVehicleConfig(stockVehicleConfig)
     applyVehicleConfigurationToController(stockVehicleConfig)
   },
 })
@@ -112,7 +116,7 @@ configPanel = createConfigPanel({
 // leaves the controller untouched and reports the failure to the panel.
 function applyVehicleConfigurationToController(vehicleConfig) {
   if (areVehicleConfigurationsEqual(vehicleConfig, lastAppliedVehicleConfig)) {
-    configPanel.markApplied()
+    configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig })
     return
   }
 
@@ -121,7 +125,7 @@ function applyVehicleConfigurationToController(vehicleConfig) {
     vehicleConfig,
     onApplied: () => {
       lastAppliedVehicleConfig = cloneVehicleConfiguration(vehicleConfig)
-      configPanel.markApplied()
+      configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig })
     },
     onError: (error) => {
       console.error('[ConfigPanel] Vehicle configuration apply failed.', error)

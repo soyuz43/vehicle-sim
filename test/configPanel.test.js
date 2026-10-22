@@ -406,7 +406,7 @@ test('a failed apply keeps the panel dirty and reports the error', async () => {
   assert.equal(applyButton.element?.disabled ?? applyButton.disabled, false)
 })
 
-test('Reset All restores the stock configuration and applies it', async () => {
+test('Reset Vehicle restores the stock configuration and applies it', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
   const { createDefaultVehicleConfiguration } = await import(
@@ -445,9 +445,9 @@ test('Reset All restores the stock configuration and applies it', async () => {
   const resetButton = findElement(
     ui.element,
     (element) => element.tagName === 'button' &&
-      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset All') !== null
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
   )
-  assert.ok(resetButton, 'the panel must expose a Reset All button')
+  assert.ok(resetButton, 'the panel must expose a Reset Vehicle button')
   resetButton.dispatchEvent({ type: 'click' })
 
   assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-hatchback')
@@ -530,7 +530,7 @@ test('the Apply button applies the staged setup to a running controller', async 
   assert.equal(ui.isDirty(), false)
 })
 
-test('Reset All applies the stock setup to a running controller', async () => {
+test('Reset Vehicle applies the stock setup to a running controller', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
   const { createDefaultVehicleConfiguration } = await import(
@@ -593,16 +593,165 @@ test('Reset All applies the stock setup to a running controller', async () => {
   const resetButton = findElement(
     ui.element,
     (element) => element.tagName === 'button' &&
-      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset All') !== null
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
   )
   resetButton.dispatchEvent({ type: 'click' })
 
   assert.equal(
     controller.getSnapshot().chassisMassProperties.massKg,
     1400,
-    'Reset All restores the stock setup on the running controller'
+    'Reset Vehicle restores the stock setup on the running controller'
   )
   assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-hatchback')
+})
+
+test('Reset Vehicle does not change the terrain selection', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'offroad',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onReset: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
+  )
+  assert.ok(resetButton, 'the panel must expose a Reset Vehicle button')
+  resetButton.dispatchEvent({ type: 'click' })
+
+  assert.equal(
+    ui.getTerrain(),
+    'offroad',
+    'Reset Vehicle leaves the running terrain selection alone'
+  )
+  assert.equal(ui.isDirty(), false)
+})
+
+test('staging a terrain change, then clicking Reset Vehicle, leaves the panel dirty and keeps the terrain staged', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onReset: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const terrainSelect = findById(ui.element, 'config-terrain-select')
+  terrainSelect.value = 'offroad'
+  terrainSelect.dispatchEvent({ type: 'change', target: terrainSelect })
+  assert.equal(ui.getTerrain(), 'offroad', 'the terrain selection is staged')
+  assert.equal(ui.isDirty(), true, 'a staged terrain selection is pending')
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-suv')
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
+  )
+  resetButton.dispatchEvent({ type: 'click' })
+
+  assert.equal(
+    ui.getTerrain(),
+    'offroad',
+    'Reset Vehicle does not clear the staged terrain selection'
+  )
+  assert.equal(
+    ui.getVehicleConfig().slots.chassis,
+    'chassis-hatchback',
+    'the vehicle setup is back to the stock configuration'
+  )
+  assert.equal(
+    ui.isDirty(),
+    true,
+    'the staged terrain selection keeps the panel dirty after the vehicle reset'
+  )
+})
+
+test('the dirty state is derived from the staged and the running selection', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  assert.equal(ui.isDirty(), false, 'a fresh panel is clean')
+
+  // Staging the terrain the session is already running is not a change.
+  ui.setTerrain('proving-ground')
+  assert.equal(ui.isDirty(), false, 're-staging the running terrain is not a change')
+
+  // A staged terrain selection that is not the running one is pending.
+  ui.setTerrain('offroad')
+  assert.equal(ui.isDirty(), true, 'a staged terrain selection is pending')
+
+  // The host reports that the staged terrain is now the running one, so
+  // the selection is no longer pending.
+  ui.markTerrainApplied('offroad')
+  assert.equal(ui.isDirty(), false, 'the committed terrain is the running terrain')
 })
 
 test('ConfigPanel destroy cleans up', async () => {

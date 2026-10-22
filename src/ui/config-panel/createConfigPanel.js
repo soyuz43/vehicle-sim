@@ -2,7 +2,8 @@
 /**
  * ConfigPanel — Unified session configuration (terrain + vehicle).
  * Merges terrain selector and vehicle customization into accordion sections.
- * Dirty-state tracking with Apply/Reset actions.
+ * Dirty-state tracking with Apply/Reset actions. The dirty state is derived
+ * from the staged selection and the running selection, never a stored flag.
  */
 
 import { token } from '../design-system/theme.js';
@@ -20,6 +21,7 @@ import {
   VEHICLE_COMPONENT_CATALOG,
 } from '../../vehicle/config/componentCatalog.js';
 import {
+  areVehicleConfigurationsEqual,
   cloneVehicleConfiguration,
   createDefaultVehicleConfiguration,
   setVehicleConfigurationSlot,
@@ -55,15 +57,26 @@ const DEFAULT_CONFIG = {
 export function createConfigPanel(config = {}) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  let currentTerrain = cfg.initialTerrain;
-  let currentVehicleConfig = cfg.initialVehicleConfig
+  // The stock catalog configuration. It is the fixed baseline the Reset
+  // Vehicle control restores, and it is never overwritten by an apply: an
+  // applied configuration is not the baseline, it is the current setup.
+  const stockVehicleConfig = createDefaultVehicleConfiguration();
+  // The configuration the running vehicle actually carries. The host reports
+  // it through markApplied(); it starts as the configuration the panel was
+  // built with, which is the one the controller was created with.
+  let appliedVehicleConfig = cfg.initialVehicleConfig
     ? cloneVehicleConfiguration(cfg.initialVehicleConfig)
     : createDefaultVehicleConfiguration();
-  // The stock catalog configuration. It is the fixed baseline the Reset All
-  // control restores, and it is never overwritten by an apply: an applied
-  // configuration is not the baseline, it is the current setup.
-  const stockVehicleConfig = createDefaultVehicleConfiguration();
-  let isDirty = false;
+  // The configuration staged for the next apply.
+  let currentVehicleConfig = cloneVehicleConfiguration(appliedVehicleConfig);
+  // The terrain the session is running on. A terrain selection is applied by
+  // reloading the page, so this only changes when the host reports that a
+  // different terrain is running. It is tracked as state rather than derived
+  // from the URL so the panel stays correct if a live terrain swap lands.
+  const initialTerrain = cfg.initialTerrain;
+  let runningTerrain = initialTerrain;
+  // The terrain staged for the next apply.
+  let currentTerrain = initialTerrain;
   // The outcome of the last apply attempt: null (no attempt), 'applied', or
   // 'error'. The host reports the outcome through markApplied() and
   // setApplyError(); a host that reports nothing is treated as a successful
@@ -113,7 +126,8 @@ export function createConfigPanel(config = {}) {
     value: currentTerrain,
     onChange: (val) => {
       currentTerrain = val;
-      markDirty();
+      refreshDirtyState();
+      updateVehicleSetupPreview();
     },
   });
   terrainContent.appendChild(terrainSelect.element);
@@ -137,6 +151,15 @@ export function createConfigPanel(config = {}) {
   terrainSelect.select.addEventListener('change', () => {
     updateTerrainDescription(terrainDesc, currentTerrain);
   });
+
+  // A terrain selection is applied by reloading the session, so the terrain
+  // section says so instead of implying a live swap.
+  const terrainApplyNote = document.createElement('div');
+  terrainApplyNote.style.fontSize = 'var(--ui-typeScale-xs)';
+  terrainApplyNote.style.color = 'var(--ui-color-text-muted)';
+  terrainApplyNote.textContent =
+    'A terrain change is applied on Apply and reloads the session.';
+  terrainContent.appendChild(terrainApplyNote);
 
   // === VEHICLE SECTION ===
   const vehicleSection = createSection({
@@ -193,7 +216,7 @@ export function createConfigPanel(config = {}) {
         currentVehicleConfig = setVehicleConfigurationSlot(currentVehicleConfig, slot, val);
         updateVehicleSetupPreview();
         cfg.onVehicleChange?.(cloneVehicleConfiguration(currentVehicleConfig));
-        markDirty();
+        refreshDirtyState();
       },
     });
     slotSelects[slot] = select;
@@ -233,7 +256,7 @@ export function createConfigPanel(config = {}) {
 
     vehicleSetupPreview.style.color = 'var(--ui-color-text-secondary)';
 
-    if (isDirty) {
+    if (computeIsDirty()) {
       vehicleSetupPreview.textContent = `Staged setup — ${setupText}`;
       return;
     }
@@ -255,10 +278,10 @@ export function createConfigPanel(config = {}) {
   const resetBtn = createButton({
     variant: 'ghost',
     size: 'sm',
-    label: 'Reset All',
+    label: 'Reset Vehicle',
     icon: getIconSvg('rotateCcw', 12),
     onClick: () => {
-      resetToDefaults();
+      resetVehicleToDefaults();
     },
   });
 
@@ -271,52 +294,53 @@ export function createConfigPanel(config = {}) {
       applyChanges();
     },
   });
-  applyBtn.element.disabled = !isDirty;
-  applyBtn.element.setAttribute('aria-disabled', String(!isDirty));
-  applyBtn.element.style.opacity = isDirty ? '1' : '0.5';
+  const initiallyDirty = computeIsDirty();
+  applyBtn.element.disabled = !initiallyDirty;
+  applyBtn.element.setAttribute('aria-disabled', String(!initiallyDirty));
+  applyBtn.element.style.opacity = initiallyDirty ? '1' : '0.5';
 
   actionBar.appendChild(resetBtn.element);
   actionBar.appendChild(applyBtn.element);
   content.appendChild(actionBar);
 
-  function markDirty() {
-    isDirty = true;
-    applyBtn.element.disabled = false;
-    applyBtn.element.setAttribute('aria-disabled', 'false');
-    applyBtn.element.style.opacity = '1';
-    // Update panel title to show dirty state
-    panel.titleEl.textContent = 'Session Config ●';
-    panel.titleEl.style.color = 'var(--ui-color-semantic-warning)';
-    // The status line reports the staged setup while the panel is dirty.
-    updateVehicleSetupPreview();
+  // The dirty state is DERIVED from the staged state and the running state,
+  // so it can never disagree with what the panel shows. A staged terrain
+  // selection keeps the panel dirty even when the vehicle setup already
+  // matches the running setup, because the terrain is still pending.
+  function computeIsDirty() {
+    return (
+      !areVehicleConfigurationsEqual(currentVehicleConfig, appliedVehicleConfig) ||
+      currentTerrain !== runningTerrain
+    );
   }
 
-  function clearDirty() {
-    isDirty = false;
-    applyBtn.element.disabled = true;
-    applyBtn.element.setAttribute('aria-disabled', 'true');
-    applyBtn.element.style.opacity = '0.5';
-    panel.titleEl.textContent = 'Session Config';
-    panel.titleEl.style.color = '';
+  // Recompute the dirty state and repaint the Apply button and the title.
+  function refreshDirtyState() {
+    const dirty = computeIsDirty();
+    applyBtn.element.disabled = !dirty;
+    applyBtn.element.setAttribute('aria-disabled', String(!dirty));
+    applyBtn.element.style.opacity = dirty ? '1' : '0.5';
+    panel.titleEl.textContent = dirty ? 'Session Config ●' : 'Session Config';
+    panel.titleEl.style.color = dirty ? 'var(--ui-color-semantic-warning)' : '';
   }
 
-  // Reset All restores the stock catalog configuration and applies it live.
-  // The vehicle's pose is NOT reset here: the R key owns that. The terrain
-  // selection is reset the way it always was, independently of the vehicle
-  // setup.
-  function resetToDefaults() {
-    currentTerrain = 'proving-ground';
+  // Reset Vehicle restores the stock catalog configuration and applies it
+  // live. The vehicle's pose is NOT reset here: the R key owns that.
+  //
+  // The terrain is deliberately NOT touched. A terrain selection is applied
+  // by reloading the session, so a staged terrain selection stays staged:
+  // the panel keeps reporting it as pending instead of claiming a terrain
+  // the simulation is not running. The dirty state is derived, so the panel
+  // stays dirty while that terrain selection is outstanding.
+  function resetVehicleToDefaults() {
     currentVehicleConfig = cloneVehicleConfiguration(stockVehicleConfig);
-    terrainSelect.setValue(currentTerrain);
     for (const slot of VEHICLE_COMPONENT_SLOTS) {
       if (slotSelects[slot]) {
         slotSelects[slot].setValue(currentVehicleConfig.slots[slot]);
       }
     }
-    updateTerrainDescription(terrainDesc, currentTerrain);
     updateVehicleSetupPreview();
     cfg.onVehicleChange?.(cloneVehicleConfiguration(currentVehicleConfig));
-    clearDirty();
 
     applyOutcome = null;
     applyStatus = null;
@@ -334,7 +358,7 @@ export function createConfigPanel(config = {}) {
   }
 
   function applyChanges() {
-    if (!isDirty) return;
+    if (!computeIsDirty()) return;
 
     applyOutcome = null;
     applyStatus = null;
@@ -357,15 +381,31 @@ export function createConfigPanel(config = {}) {
     }
   }
 
-  // Report a successful apply. The panel leaves the dirty state and shows
+  // Report a successful apply. The host passes the configuration that
+  // actually landed on the vehicle; without it the panel assumes the staged
+  // configuration was applied. The panel leaves the dirty state and shows
   // the time the configuration was applied.
-  function markApplied() {
+  function markApplied(options = {}) {
+    const { vehicleConfig = null } = options ?? {};
+    appliedVehicleConfig = cloneVehicleConfiguration(
+      vehicleConfig ?? currentVehicleConfig
+    );
     applyOutcome = 'applied';
     applyStatus = {
       kind: 'applied',
       time: formatAppliedTime(new Date()),
     };
-    clearDirty();
+    refreshDirtyState();
+    updateVehicleSetupPreview();
+  }
+
+  // Report that a different terrain is now running. A terrain selection is
+  // applied by reloading the session, so the host reports the committed
+  // terrain once the new session URL is written.
+  function markTerrainApplied(terrain) {
+    if (typeof terrain !== 'string' || terrain.length === 0) return;
+    runningTerrain = terrain;
+    refreshDirtyState();
     updateVehicleSetupPreview();
   }
 
@@ -377,6 +417,7 @@ export function createConfigPanel(config = {}) {
       kind: 'error',
       message: error?.message ?? String(error ?? 'unknown error'),
     };
+    refreshDirtyState();
     updateVehicleSetupPreview();
   }
 
@@ -388,11 +429,16 @@ export function createConfigPanel(config = {}) {
     return `${hours}:${minutes}:${seconds}`;
   }
 
-  // Public API for external sync
+  // Public API for external sync.
+  //
+  // setTerrain and setVehicleConfig STAGE a selection: they change what the
+  // next apply applies, not what is running. The running state is reported
+  // back by the host through markApplied() and markTerrainApplied().
   function setTerrain(terrain) {
     currentTerrain = terrain;
     terrainSelect.setValue(terrain);
     updateTerrainDescription(terrainDesc, terrain);
+    refreshDirtyState();
   }
 
   function setVehicleConfig(vConfig) {
@@ -403,6 +449,7 @@ export function createConfigPanel(config = {}) {
       }
     }
     updateVehicleSetupPreview();
+    refreshDirtyState();
   }
 
   function getConfig() {
@@ -428,8 +475,9 @@ export function createConfigPanel(config = {}) {
     getConfig,
     getTerrain: () => currentTerrain,
     getVehicleConfig: () => cloneVehicleConfiguration(currentVehicleConfig),
-    isDirty: () => isDirty,
+    isDirty: () => computeIsDirty(),
     markApplied,
+    markTerrainApplied,
     setApplyError,
     collapse: () => panel.collapse(true),
     expand: () => panel.collapse(false),
