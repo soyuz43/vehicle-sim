@@ -1,23 +1,25 @@
 // test/macphersonStrutArchetype.test.js
 
-// The MacPherson strut archetype (Session A3).
+// The MacPherson strut archetype (Session A3, camber session).
 //
-// The archetype is VISUAL-ONLY: its physics are identical to the stock
-// profile, so this file is mostly about proving that separation:
+// The archetype keeps the stock suspension model and the stock coupling
+// modes, and it is physics-distinct in exactly one respect: the strut's
+// positive camber gain.
 //
 //   - the catalog entry exists and describes its own scope honestly,
-//   - the entry differs from the stock preset ONLY in the suspension visual
-//     kind, so the physics cannot drift apart from the stock profile,
+//   - the entry differs from the stock preset in the suspension visual kind
+//     and in the camber gain, and in nothing else,
 //   - the stock car draws no strut geometry at all, and the MacPherson
 //     profile draws a strut on each front corner and none on the rear,
 //   - the strut follows the published wheel position, so it compresses with
 //     the suspension travel instead of being a static prop,
-//   - a runtime swap to the archetype changes the visuals only: the physics
-//     trace stays byte-identical to a run that never swapped.
+//   - a runtime swap to the archetype changes the visuals AND the physics:
+//     the physics trace is distinguishable from a run that never swapped,
+//     and the per-wheel lateral force delta stays bounded.
 //
-// The physics-identity test is the load-bearing one. It is what makes the
-// "visual only" claim in the catalog description a checked statement rather
-// than a promise.
+// The bounded-delta test is the load-bearing one. The camber gain is a
+// real tire-model term and a small effect by construction: it is not a
+// handling rewrite, and the test says so.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -143,6 +145,48 @@ function createCatalogCar(suspensionComponentId, terrainContactQuery) {
   return { car, controller, spec: applied.spec }
 }
 
+// The lateral force of every wheel at every step, so two runs can be
+// compared field by field without depending on the text trace format.
+function buildLateralForceTrace(controller, steps = TRACE_STEPS) {
+  const rows = []
+
+  for (let step = 0; step < steps; step += 1) {
+    const input = step < 300 ? { throttle: true } : { throttle: true, left: true }
+    const snapshot = controller.update(DT_SECONDS, input)
+    rows.push(
+      snapshot.wheelStates.map((wheel) => wheel.appliedLateralTireForceNewtons)
+    )
+  }
+
+  return rows
+}
+
+function maximumPerWheelForceDelta(stockRows, otherRows) {
+  let maximumDeltaNewtons = 0
+
+  for (let step = 0; step < stockRows.length; step += 1) {
+    for (let wheel = 0; wheel < stockRows[step].length; wheel += 1) {
+      maximumDeltaNewtons = Math.max(
+        maximumDeltaNewtons,
+        Math.abs(stockRows[step][wheel] - otherRows[step][wheel])
+      )
+    }
+  }
+
+  return maximumDeltaNewtons
+}
+
+function runCorner(controller, steps = TRACE_STEPS) {
+  let snapshot
+
+  for (let step = 0; step < steps; step += 1) {
+    const input = step < 300 ? { throttle: true } : { throttle: true, left: true }
+    snapshot = controller.update(DT_SECONDS, input)
+  }
+
+  return snapshot
+}
+
 function settle(controller, steps = SETTLE_STEPS) {
   let snapshot
   for (let step = 0; step < steps; step += 1) {
@@ -230,11 +274,14 @@ test('the MacPherson archetype describes what it actually models', () => {
   assert.equal(component.id, ARCHETYPE_ID)
   assert.equal(typeof component.label, 'string')
   assert.ok(component.label.length > 0)
-  assert.match(component.label, /visual/i)
+  assert.match(component.label, /strut/i)
+  assert.match(component.label, /camber/i)
+  assert.doesNotMatch(component.label, /visual only/i)
 
   // The description must name the visual, say that the front axle is the
-  // strut axle and that the rear stays independent, and must not claim
-  // models this simulation does not have.
+  // strut axle and that the rear stays independent, claim the camber gain
+  // it actually models, and still not claim models this simulation does
+  // not have.
   assert.match(component.description, /strut/i)
   assert.match(component.description, /front/i)
   assert.match(component.description, /rear/i)
@@ -243,12 +290,14 @@ test('the MacPherson archetype describes what it actually models', () => {
   assert.match(component.description, /no spring rate, travel, damping, or coupling mode/i)
   assert.match(component.description, /not modelled/i)
   assert.match(component.description, /roll-center parameters/i)
-  assert.match(component.description, /camber input/i)
-  assert.match(component.description, /does not currently change handling/i)
-  assert.doesNotMatch(component.description, /camber gain is modelled/i)
+  assert.match(component.description, /camber gain/i)
+  assert.match(component.description, /camber gain is modelled/i)
+  assert.match(component.description, /\+0\.0873 rad\/m/)
+  assert.match(component.description, /does change handling/i)
+  assert.doesNotMatch(component.description, /does not currently change handling/i)
 })
 
-test('the MacPherson archetype differs from the stock preset only in its visual kind', () => {
+test('the MacPherson archetype differs from the stock preset in its visual kind and its camber gain', () => {
   const archetype = getComponent('suspension', ARCHETYPE_ID)
   const stock = getComponent('suspension', STOCK_ID)
 
@@ -257,12 +306,20 @@ test('the MacPherson archetype differs from the stock preset only in its visual 
   assert.equal(archetype.spec.frontAxleCoupling, 'independent')
   assert.equal(archetype.spec.rearAxleCoupling, 'independent')
 
+  // The camber gain is the physics difference: a strut gains positive
+  // camber as it compresses.
+  assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, 0.0873)
+  assert.equal(stock.spec.camberGainRadiansPerMeterCompression, 0)
+  assert.ok(archetype.spec.camberGainRadiansPerMeterCompression > 0)
+
+  // Every other owned field must still match the stock preset.
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'suspensionVisualKind') continue
+    if (field === 'camberGainRadiansPerMeterCompression') continue
     assert.equal(
       archetype.spec[field],
       stock.spec[field],
-      field + ' must match the stock preset so the visual kind is the only difference'
+      field + ' must match the stock preset so the visual kind and the camber gain are the only differences'
     )
   }
 })
@@ -450,7 +507,7 @@ test('the MacPherson archetype keeps both axles independent', () => {
   assert.equal(snapshot.axleCoupling.axles.rear.couplingMode, 'independent')
 })
 
-test('the MacPherson archetype produces a byte-identical physics trace', () => {
+test('the MacPherson archetype produces a distinguishable but bounded physics trace', () => {
   const stock = createCatalogCar(STOCK_ID)
   const macpherson = createCatalogCar(ARCHETYPE_ID)
 
@@ -458,14 +515,71 @@ test('the MacPherson archetype produces a byte-identical physics trace', () => {
   const macphersonTrace = buildPhysicsTrace(macpherson.controller)
 
   assert.equal(macphersonTrace.split('\n').length, TRACE_STEPS)
-  assert.equal(
+  assert.notEqual(
     macphersonTrace,
     stockTrace,
-    'the MacPherson archetype must not change a single physics field'
+    'the camber gain must make the archetype physics-distinct from stock'
+  )
+
+  const stockForces = buildLateralForceTrace(
+    createCatalogCar(STOCK_ID).controller
+  )
+  const macphersonForces = buildLateralForceTrace(
+    createCatalogCar(ARCHETYPE_ID).controller
+  )
+  const maximumLateralForceDeltaNewtons = maximumPerWheelForceDelta(
+    stockForces,
+    macphersonForces
+  )
+
+  assert.ok(
+    maximumLateralForceDeltaNewtons > 0,
+    'the archetype must change the per-wheel lateral force'
+  )
+  assert.ok(
+    maximumLateralForceDeltaNewtons < 15,
+    'the per-wheel lateral force delta must stay bounded, got ' +
+      maximumLateralForceDeltaNewtons + ' N'
   )
 })
 
-test('swapping to the MacPherson archetype at runtime changes the visuals only', () => {
+test('the MacPherson camber gain makes the archetype physics-distinct in a corner', () => {
+  const stockSnapshot = runCorner(createCatalogCar(STOCK_ID).controller)
+  const macphersonSnapshot = runCorner(
+    createCatalogCar(ARCHETYPE_ID).controller
+  )
+
+  const wheel = (snapshot, id) =>
+    snapshot.wheelStates.find((entry) => entry.id === id)
+  const outer = wheel(macphersonSnapshot, 'front-right')
+  const inner = wheel(macphersonSnapshot, 'front-left')
+
+  // The body rolls to the right in a left turn, so the right (outer) strut
+  // is the compressed one and the left (inner) strut extends.
+  assert.ok(
+    outer.camberRadians > 0,
+    'the compressed strut wheel must gain positive camber'
+  )
+  assert.ok(
+    inner.camberRadians < 0,
+    'the extended strut wheel must gain negative camber'
+  )
+  assert.equal(
+    wheel(stockSnapshot, 'front-right').camberRadians,
+    0,
+    'the stock vehicle must report no camber'
+  )
+
+  // The positive camber pushes the outer wheel outboard, away from the
+  // turn, so the strut gives up a little lateral force there.
+  assert.ok(
+    outer.appliedLateralTireForceNewtons <
+      wheel(stockSnapshot, 'front-right').appliedLateralTireForceNewtons,
+    'the strut camber must cost the outer wheel a little lateral force'
+  )
+})
+
+test('swapping to the MacPherson archetype at runtime changes the visuals and the physics', () => {
   const swapped = createCatalogCar(STOCK_ID)
   const control = createCatalogCar(STOCK_ID)
 
@@ -500,10 +614,10 @@ test('swapping to the MacPherson archetype at runtime changes the visuals only',
     controlLines.push(traceLine(controlSnapshot))
   }
 
-  assert.equal(
+  assert.notEqual(
     swappedLines.join('\n'),
     controlLines.join('\n'),
-    'the runtime swap must not change the physics'
+    'the runtime swap must change the physics through the camber gain'
   )
 
   assert.ok(

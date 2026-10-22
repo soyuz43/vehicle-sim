@@ -318,17 +318,18 @@ const SUSPENSION_COMPONENTS = Object.freeze({
   },
   'susp-macpherson-strut': {
     id: 'susp-macpherson-strut',
-    label: 'MacPherson Strut (visual only)',
+    label: 'MacPherson Strut (camber gain)',
     description:
       'The front axle uses MacPherson struts; the rear axle stays ' +
       'independent. Physics: the same independent suspension model as ' +
       'stock - this entry changes no spring rate, travel, damping, or ' +
-      'coupling mode. Visual: a coil-over strut per front corner. ' +
-      'Distinguishing features of a MacPherson (high roll center, camber ' +
-      'gain) are not modelled: those need roll-center parameters and a ' +
-      'tire model that accepts camber input. This entry exists to ' +
-      'establish the per-corner visual seam for future archetypes; it ' +
-      'does not currently change handling.',
+      'coupling mode - plus a positive camber gain of +0.0873 rad/m, ' +
+      'which is +0.5 degrees of camber per 100 mm of suspension travel. ' +
+      'A compressed strut wheel gains positive camber, so the tire gives ' +
+      'up a little lateral force in a corner and this entry does change ' +
+      'handling. Visual: a coil-over strut per front corner. The camber ' +
+      'gain is modelled; the high roll center of a real MacPherson strut ' +
+      'is still not modelled, because that needs roll-center parameters.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -341,7 +342,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'macphersonStrut',
       camberStaticRadians: 0,
-      camberGainRadiansPerMeterCompression: 0,
+      camberGainRadiansPerMeterCompression: 0.0873,
     },
   },
 })
