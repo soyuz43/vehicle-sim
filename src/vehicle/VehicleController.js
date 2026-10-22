@@ -126,9 +126,12 @@ import {
     updateWheelTractionControlState,
 } from './dynamics/brakeAndStabilityControlState.js'
 import {
+    clampForwardGearIndex,
     computeClutchEngagement01,
     computeEngineBrakingTorqueNewtonMeters,
+    resolveForwardGearIndex,
     selectForwardGearIndexForSpeed,
+    SHIFT_MODES,
 } from './dynamics/powertrainDynamicsState.js'
 import {
     computeAerodynamicVerticalForceNewtons,
@@ -146,6 +149,7 @@ import {
     createPowertrainSnapshot,
     createStockEngineCatalogTelemetry,
     profileSupportsAutomaticShifting,
+    profileSupportsManualSelection,
     selectEngineProfile,
     selectTransmissionProfile,
 } from './powertrain/createPowertrainSelection.js'
@@ -359,6 +363,13 @@ export class VehicleController {
         engineAngularVelocityRadiansPerSecond: 0,
         clutchEngagement01: 1,
         selectedForwardGearIndex: 0,
+        // Driver-selected forward gear. Null means "no manual selection in
+        // effect". It is stored separately from selectedForwardGearIndex
+        // because the latter is recomputed from wheel speed every step.
+        manualForwardGearIndex: null,
+        shiftMode: resolveShiftMode(transmissionProfile, null),
+        manualShiftCooldownRemainingSeconds: 0,
+        manualShiftOverrideRemainingSeconds: 0,
         engineBrakingTorquePerWheelNewtonMeters: 0,
         activePowertrainDriveTorque,
         totalAxleDriveTorqueNewtonMeters: 0,
@@ -431,6 +442,7 @@ export class VehicleController {
             state.wheelStates
         )
         readInput(input)
+        updateManualShiftTimers(safeDt)
         updateWheelSteeringAngles()
         updateBrakeLightVisuals(brakeLightVisuals, state.brakeInput)
         updateTerrainSupportAndWheelContactState(safeDt, true)
@@ -468,6 +480,11 @@ export class VehicleController {
 
     function reset() {
         state.gear = initialGear
+        state.manualForwardGearIndex = null
+        state.manualShiftCooldownRemainingSeconds = 0
+        state.manualShiftOverrideRemainingSeconds = 0
+        state.selectedForwardGearIndex = 0
+        syncShiftModeState()
         state.speedScalar = 0
         state.throttleInput = 0
         state.brakeInput = 0
@@ -574,6 +591,107 @@ export class VehicleController {
         return getSnapshot()
     }
 
+    // -----------------------------------------------------------------------
+    // Driver-requested forward gear shift.
+    //
+    // A shift request selects a specific FORWARD gear of the selected
+    // transmission profile. It is accepted only when the profile declares
+    // manual gear-selection support (a CVT has no discrete forward gears and
+    // ignores the input) and the shift cooldown has elapsed.
+    //
+    // The selection is stored in state.manualForwardGearIndex and NOT directly
+    // in state.selectedForwardGearIndex: the latter is recomputed from wheel
+    // speed on every step, so a value written there would be overwritten by
+    // the automatic selector on the very next step.
+    // -----------------------------------------------------------------------
+    function requestShiftUp() {
+        return applyManualShiftRequest(1)
+    }
+
+    function requestShiftDown() {
+        return applyManualShiftRequest(-1)
+    }
+
+    function applyManualShiftRequest(direction) {
+        if (spec.manualShiftInputEnabled !== true) return getSnapshot()
+
+        if (!profileSupportsManualSelection(state.transmissionProfile)) {
+            return getSnapshot()
+        }
+
+        if (state.manualShiftCooldownRemainingSeconds > 0) {
+            return getSnapshot()
+        }
+
+        const currentIndex =
+            state.manualForwardGearIndex ?? state.selectedForwardGearIndex ?? 0
+        const nextIndex = clampForwardGearIndex(
+            currentIndex + direction,
+            state.transmissionProfile
+        )
+
+        if (nextIndex === null) return getSnapshot()
+
+        state.manualForwardGearIndex = nextIndex
+        state.selectedForwardGearIndex = nextIndex
+        state.manualShiftCooldownRemainingSeconds = Math.max(
+            0,
+            spec.manualShiftCooldownSeconds ?? 0
+        )
+
+        // A manual selection on a transmission that can also auto-shift is a
+        // temporary override: it expires after
+        // manualShiftOverrideTimeoutSeconds, after which the transmission
+        // returns to automatic selection. A manual gearbox has no automatic
+        // selection to return to, so its selection persists until the driver
+        // changes it or the vehicle is reset.
+        if (profileSupportsAutomaticShifting(state.transmissionProfile)) {
+            state.manualShiftOverrideRemainingSeconds = Math.max(
+                0,
+                spec.manualShiftOverrideTimeoutSeconds ?? 0
+            )
+        } else {
+            state.manualShiftOverrideRemainingSeconds = 0
+        }
+
+        syncShiftModeState()
+
+        return getSnapshot()
+    }
+
+    function syncShiftModeState() {
+        state.shiftMode = resolveShiftMode(
+            state.transmissionProfile,
+            state.manualForwardGearIndex
+        )
+    }
+
+    function updateManualShiftTimers(dt) {
+        const safeDt = Number.isFinite(dt) && dt > 0 ? dt : 0
+
+        if (state.manualShiftCooldownRemainingSeconds > 0) {
+            state.manualShiftCooldownRemainingSeconds = Math.max(
+                0,
+                state.manualShiftCooldownRemainingSeconds - safeDt
+            )
+        }
+
+        if (state.manualShiftOverrideRemainingSeconds > 0) {
+            state.manualShiftOverrideRemainingSeconds = Math.max(
+                0,
+                state.manualShiftOverrideRemainingSeconds - safeDt
+            )
+
+            if (
+                state.manualShiftOverrideRemainingSeconds === 0 &&
+                state.manualForwardGearIndex !== null
+            ) {
+                state.manualForwardGearIndex = null
+                syncShiftModeState()
+            }
+        }
+    }
+
     function setGear(nextGear) {
         state.gear = normalizeGear(nextGear)
 
@@ -649,6 +767,14 @@ export class VehicleController {
             rearDifferentialModeLabel:
                 state.rearDifferentialState.rearDifferentialModeLabel,
             selectedForwardGearIndex: state.selectedForwardGearIndex,
+            forwardGearLabel: resolveForwardGearLabel(
+                state.transmissionProfile,
+                state.gear,
+                state.selectedForwardGearIndex
+            ),
+            shiftMode: state.shiftMode,
+            manualShiftCooldownRemainingSeconds:
+                state.manualShiftCooldownRemainingSeconds,
             effectiveDriveRatio: state.activePowertrainDriveTorque.effectiveDriveRatio,
             clutchEngagement01: state.clutchEngagement01,
             engineAngularVelocityRadiansPerSecond: state.engineAngularVelocityRadiansPerSecond,
@@ -1962,6 +2088,7 @@ export class VehicleController {
         // supportsAutomaticShifting: false and therefore never auto-shifts,
         // even when the global automaticTransmissionEnabled flag is on.
         if (
+          state.manualForwardGearIndex === null &&
           spec.automaticTransmissionEnabled === true &&
           profileSupportsAutomaticShifting(state.transmissionProfile)
         ) {
@@ -1973,7 +2100,16 @@ export class VehicleController {
                 redlineRpm: state.engineProfile?.redlineRpm,
             })
         }
-        state.selectedForwardGearIndex = selectedForwardGearIndex ?? 0
+        // A manual gear selection in effect suspends the automatic selector
+        // entirely. The automatic selector recomputes a gear from wheel speed
+        // on every step, so running it during a manual override would revert
+        // the driver's choice on the very next step.
+        const effectiveForwardGearIndex = resolveForwardGearIndex({
+            transmissionProfile: state.transmissionProfile,
+            automaticGearIndex: selectedForwardGearIndex,
+            manualForwardGearIndex: state.manualForwardGearIndex,
+        })
+        state.selectedForwardGearIndex = effectiveForwardGearIndex
         const requestedAxleDriveTorqueNewtonMeters = updatePowertrainDriveTorqueSource({
             state: state.activePowertrainDriveTorque,
             spec,
@@ -1983,7 +2119,7 @@ export class VehicleController {
             throttleInput: state.throttleInput,
             averageDrivenWheelAngularVelocityRadiansPerSecond,
             speedAlongSelectedGearMetersPerSecond,
-            selectedForwardGearIndex,
+            selectedForwardGearIndex: effectiveForwardGearIndex,
         })
 
         // Honest distinction: the active powertrain source owns the requested
@@ -3106,6 +3242,8 @@ export class VehicleController {
     this.update = update
     this.applyExternalPlanarImpulseNewtonsSecond = applyExternalPlanarImpulseNewtonsSecond
     this.reset = reset
+    this.requestShiftUp = requestShiftUp
+    this.requestShiftDown = requestShiftDown
     this.setGear = setGear
     this.setDynamicsTuning = setDynamicsTuning
     this.resetDynamicsTuning = resetDynamicsTuning
@@ -3222,6 +3360,40 @@ function createEmptyForceSnapshot() {
         isTractionLimited: false,
         tractionLimitedWheelCount: 0,
     }
+}
+
+// Whether the transmission is currently selecting gears automatically.
+//
+// A transmission that cannot auto-shift (a manual gearbox) is always in
+// manual mode, whether or not the driver has made a selection yet: it has no
+// automatic selection to fall back to.
+function resolveShiftMode(transmissionProfile, manualForwardGearIndex) {
+    if (!profileSupportsAutomaticShifting(transmissionProfile)) {
+        return SHIFT_MODES.MANUAL
+    }
+
+    return manualForwardGearIndex === null
+        ? SHIFT_MODES.AUTO
+        : SHIFT_MODES.MANUAL
+}
+
+// Driver-facing label for the currently engaged transmission gear.
+//
+// 'R' / 'N' when the drive selector is in reverse or neutral, 'CVT' for a
+// continuously variable transmission, and the 1-based forward gear number
+// otherwise.
+function resolveForwardGearLabel(transmissionProfile, gear, forwardGearIndex) {
+    if (gear === GEARS.REVERSE) return 'R'
+    if (gear === GEARS.NEUTRAL) return 'N'
+    if (transmissionProfile?.transmissionKind === 'cvt') return 'CVT'
+
+    const ratios = transmissionProfile?.forwardGearRatios
+
+    if (!Array.isArray(ratios) || ratios.length === 0) return '-'
+
+    const index = clampForwardGearIndex(forwardGearIndex, transmissionProfile)
+
+    return String((index ?? 0) + 1)
 }
 
 function normalizeGear(gear) {

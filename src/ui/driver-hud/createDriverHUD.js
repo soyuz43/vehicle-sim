@@ -199,6 +199,34 @@ export function createDriverHUD(config = {}) {
   gearLabel.style.textTransform = 'uppercase';
   gearSection.appendChild(gearLabel);
 
+  // Engaged transmission gear and shift mode.
+  // The R/N/D row below is the drive selector; this is the actual forward
+  // gear of the selected transmission profile.
+  const transmissionRow = createHStack({ gap: 'var(--ui-space-sm)', align: 'center' });
+
+  const forwardGearDisplay = createValueDisplay({
+    id: 'driver-hud-forward-gear',
+    label: 'Gear',
+    value: '--',
+    size: 'lg',
+    align: 'center',
+    monospace: false,
+    format: (v) => (v === null || v === undefined || v === '' ? '--' : String(v)),
+  });
+  transmissionRow.appendChild(forwardGearDisplay.element);
+
+  const shiftModeBadge = createBadge({
+    id: 'driver-hud-shift-mode',
+    variant: 'info',
+    size: 'md',
+    label: 'A',
+    showDot: false,
+    pill: true,
+  });
+  transmissionRow.appendChild(shiftModeBadge.element);
+
+  gearSection.appendChild(transmissionRow);
+
   // Gear selector row
   const gearRow = createHStack({ gap: 'var(--ui-space-sm)', align: 'center' });
   const gearButtons = new Map();
@@ -262,6 +290,12 @@ export function createDriverHUD(config = {}) {
 
     // Gear buttons
     updateGearButtons(activeGear);
+
+    // Engaged transmission gear and shift mode
+    forwardGearDisplay.setValue(snapshot.forwardGearLabel ?? '--');
+    const isManualShiftMode = snapshot.shiftMode === 'manual';
+    shiftModeBadge.setLabel(isManualShiftMode ? 'M' : 'A');
+    shiftModeBadge.setVariant(isManualShiftMode ? 'warning' : 'info');
   }
 
   function updateTractionPatches(wheelStates) {

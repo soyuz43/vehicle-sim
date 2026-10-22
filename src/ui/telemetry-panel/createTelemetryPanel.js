@@ -231,10 +231,19 @@ export function createTelemetryPanel(config = {}) {
     gauges.set('rpm', rpmGauge);
     grid.appendChild(rpmGauge.element);
 
-    // Gear
-    const gearVD = createValueDisplay({ label: 'Gear', value: 1, unit: '', precision: 0, size: 'md', format: (v) => GEAR_LABELS[v] ?? v });
+    // Drive selector (R/N/D)
+    const gearVD = createValueDisplay({ label: 'Drive', value: 1, unit: '', precision: 0, size: 'md', format: (v) => GEAR_LABELS[v] ?? v });
     valueDisplays.set('gear', gearVD);
     grid.appendChild(gearVD.element);
+
+    // Engaged transmission gear and shift mode
+    const forwardGearVD = createValueDisplay({ label: 'Gear', value: '--', unit: '', precision: 0, size: 'md', format: (v) => (v === null || v === undefined ? '--' : String(v)) });
+    valueDisplays.set('forwardGear', forwardGearVD);
+    grid.appendChild(forwardGearVD.element);
+
+    const shiftModeVD = createValueDisplay({ label: 'Shift Mode', value: 'auto', unit: '', precision: 0, size: 'md', format: (v) => (v === null || v === undefined ? '--' : String(v)) });
+    valueDisplays.set('shiftMode', shiftModeVD);
+    grid.appendChild(shiftModeVD.element);
 
     // Throttle / Brake
     const pedalRow = createHStack({ gap: 'var(--ui-space-md)', justify: 'space-between' });
@@ -477,6 +486,8 @@ export function createTelemetryPanel(config = {}) {
     valueDisplays.get('engineRpm')?.setValue(engineRpm);
     gauges.get('rpm')?.setValue(engineRpm);
     valueDisplays.get('gear')?.setValue(vehicle.gear);
+    valueDisplays.get('forwardGear')?.setValue(vehicle.forwardGearLabel);
+    valueDisplays.get('shiftMode')?.setValue(vehicle.shiftMode);
     valueDisplays.get('throttle')?.setValue(vehicle.throttleInput);
     valueDisplays.get('brake')?.setValue(vehicle.brakeInput);
     valueDisplays.get('driveTorque')?.setValue(vehicle.totalAxleDriveTorqueNewtonMeters);

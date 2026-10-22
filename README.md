@@ -18,7 +18,8 @@
 - `S`: Service brake
 - `Space`: Parking brake
 - `A/D`: Steering
-- `[`/`]`: Gear selector (Reverse/Neutral/Drive)
+- `[`/`]`: Shift forward gear (down / up) on the selected transmission
+- Reverse/Neutral/Drive selector: no key binding; set it programmatically with `controller.setGear('reverse' | 'neutral' | 'drive')`
 - `C`: Camera cycle
 - `R`: Reset
 
@@ -78,6 +79,7 @@
 ### Drivetrain Enhancements
 - Engine inertia and RPM integration
 - Automatic transmission shifting (only for transmission profiles that support it; manual gearboxes hold their first gear)
+- Manual gear shifting with the `[`/`]` keys (only for transmission profiles that support manual selection; the CVT ignores it)
 - Clutch modeling
 - Various feature flags control advanced behaviors
 

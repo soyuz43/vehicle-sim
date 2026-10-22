@@ -8,10 +8,12 @@
 // scheduling, torque-converter, or gear-ratio force behavior. Unknown profile
 // ids fall back to safe defaults so the simulation state always stays finite.
 //
-// The one exception is profileSupportsAutomaticShifting() below, a read-only
-// capability query over static profile data. It tells the controller whether
-// the selected transmission is allowed to auto-shift. It adds no drivetrain
-// behavior of its own.
+// The exceptions are the read-only capability queries below
+// (profileSupportsAutomaticShifting(), profileSupportsManualSelection()) and
+// the strict catalog lookup requireTransmissionProfile(). They tell the
+// controller whether the selected transmission is allowed to auto-shift, whether
+// it accepts a driver gear-selection input, and how to resolve a requested
+// transmission id at runtime. They add no drivetrain behavior of their own.
 
 import {
   DEFAULT_ENGINE_ID,
@@ -103,6 +105,19 @@ export function createStockEngineCatalogTelemetry(engineProfile) {
 // an incomplete or hand-made profile cannot silently disable shifting.
 export function profileSupportsAutomaticShifting(transmissionProfile) {
   return transmissionProfile?.supportsAutomaticShifting !== false
+}
+
+// Whether the selected transmission profile accepts a driver gear-selection
+// input.
+//
+// The controller's manual shift path requires this capability: a profile that
+// declares supportsManualSelection: false (the CVT, which has no discrete
+// forward gears) ignores shift input entirely.
+//
+// A profile that does not declare the flag at all is treated as capable, so
+// an incomplete or hand-made profile cannot silently disable manual shifting.
+export function profileSupportsManualSelection(transmissionProfile) {
+  return transmissionProfile?.supportsManualSelection !== false
 }
 
 function createTransmissionSnapshot(transmissionProfile) {
