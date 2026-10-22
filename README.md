@@ -43,9 +43,12 @@
 - **Catalog archetype**: `susp-solid-axle-rear` ("Rear Solid Axle (shared leaf)") selects a coupled rear axle with an independent front axle
 - **Visual**: A coupled axle is drawn as a beam that spans its two wheel centres, with a leaf pack riding on top of it. The beam follows the published wheel positions and rolls with the simulated beam; an independent axle draws no beam at all
 - **Driving effect**: A one-sided bump under one rear wheel lifts that wheel and holds the other one up instead of letting the far wheel stay on its own path, and the rear axle stops contributing a terrain roll moment to the body
+- **Lateral load transfer**: A coupled axle is ONE spring at the axle centre, so it takes no lateral load transfer across its own tires. The whole transfer (m * a * h_cg / track) is carried by the other axle, and the body rolls further because a solid axle cannot contribute roll stiffness
 - **Not modelled**: progressive leaf rates, inter-leaf friction, anti-roll bars, unsprung mass, per-corner spring rates, and a hanging-beam pose for a fully airborne axle
+- **Visual archetype**: `susp-macpherson-strut` ("MacPherson Strut (visual only)") draws a coil-over strut per front corner and leaves the rear axle stock. Its physics are identical to the stock profile - it changes no spring rate, travel, damping, or coupling mode. The catalog entry exists to establish the per-corner visual seam for future archetypes; it does not currently change handling
+- **Not modelled (MacPherson)**: roll-center height, camber gain, strut kinematics, anti-roll bars, and unsprung mass. Those need roll-center parameters and a tire model that accepts camber input
 
-Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')`. The Config Panel dropdown lists the archetype but Apply remains preview-only until Session D wires live vehicle reconfiguration.
+Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` or `__vehicleSim.vehicleController.setSuspension('susp-macpherson-strut')`. The Config Panel dropdown lists the archetypes but Apply remains preview-only until Session D wires live vehicle reconfiguration.
 
 ### Tire Modeling
 - **Longitudinal Force**: Linear stiffness model capped by friction limit (coefficient × normal force)
@@ -72,6 +75,7 @@ Reachable today via the browser console: `__vehicleSim.vehicleController.setSusp
 - Enabled via `verticalDynamicsEnabled` flag (enabled by default)
 - Prior-step acceleration drives pitch/roll and terrain suspension spring force drives heave through `verticalDynamicsForcingEnabled`
 - The same per-corner terrain spring force deviation also drives roll and pitch through each corner's moment arm, so uneven terrain rolls and pitches the body
+- A coupled axle's spring acts at the axle centre, not at the wheel offsets: it contributes no roll stiffness and no roll moment, and its two corners report the same load deviation
 
 ### Combined-Slip Modeling  
 - Brush/Fiala tire model replacing the simple linear approach and friction-circle combined cap
@@ -150,7 +154,7 @@ The same seed and configuration reproduce the same terrain heights, normals, sur
 - Live tuning parameters for drive/brake/tire stiffness multipliers
 - Comprehensive state tracing for debugging
 - Swap transmissions live from the browser console: `__vehicleSim.vehicleController.setTransmission('manual-6')` (also: manual-4, manual-5, manual-6-granny, automatic-6, automatic-8, dct-7, dct-8, cvt).
-- Swap suspension profiles live from the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` (also: susp-stock, susp-lowered, susp-lifted, susp-stiff). The swap replaces the suspension spec fields and keeps the vehicle's position, velocity, gear, and transmission.
+- Swap suspension profiles live from the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` (also: susp-stock, susp-lowered, susp-lifted, susp-stiff, susp-macpherson-strut). The swap replaces the suspension spec fields and keeps the vehicle's position, velocity, gear, and transmission.
 
 ---
 *Last Updated: Wednesday, August 19, 2026*

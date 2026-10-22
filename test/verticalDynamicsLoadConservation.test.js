@@ -36,6 +36,7 @@ const CATALOG_SUSPENSION_COMPONENT_IDS = [
   'susp-lifted',
   'susp-stiff',
   'susp-solid-axle-rear',
+  'susp-macpherson-strut',
 ]
 
 function createController({ spec = {}, engineId, transmissionId } = {}) {

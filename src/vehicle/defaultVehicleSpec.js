@@ -74,6 +74,17 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   frontAxleCoupling: 'independent',
   rearAxleCoupling: 'independent',
 
+  // Suspension visual kind (Session A3). This field selects which VISUAL
+  // archetype the renderer draws for the suspension. It carries no physics:
+  // the vertical dynamics, the suspension forces, and the axle coupling all
+  // read the fields above, never this one.
+  //
+  // 'none' draws no archetype-specific suspension geometry, which is what
+  // every shipped profile uses except the MacPherson strut archetype. That
+  // archetype exists to establish the per-corner visual seam; its physics
+  // are identical to the stock profile.
+  suspensionVisualKind: 'none',
+
   // Chassis terrain following is a bounded quasi-static support-height
   // approximation. It deliberately does not create vertical velocity, heave,
   // pitch, roll, gravity fall, landing impulses, or jump behavior.

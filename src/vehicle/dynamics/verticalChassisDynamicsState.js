@@ -31,6 +31,16 @@
 //     term is a one-step finite difference of compression that spikes at
 //     contact transitions, and body damping is already applied through the
 //     -Chh * heaveRate term of the same ODE row.
+//   - A coupled axle (the axle coupling state's 'rigidAxle' mode) is ONE
+//     spring at the axle centre, not two springs at the wheel offsets. Its
+//     corners therefore contribute no roll stiffness and no roll moment: a
+//     solid axle cannot take lateral load transfer across its own tires, so
+//     the whole transfer has to be taken by the other axle.
+
+import {
+  AXLE_COUPLING_MODES,
+  resolveAxleCouplingMode,
+} from './axleCouplingState.js'
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
 
@@ -64,6 +74,37 @@ function applyCompressionNoiseFloor(deviationMeters) {
   if (magnitude <= HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS) return 0
   return Math.sign(deviationMeters) *
     (magnitude - HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS)
+}
+
+// The lateral offset of each axle's centre: the mean of that axle's wheel
+// lateral offsets.
+//
+// EVERY wheel of the axle counts, grounded or not. A coupled axle's spring
+// acts at the axle's geometric centre, and that centre does not move
+// because one of its corners left the ground. Deriving the centre from the
+// grounded corners only would make it jump to the surviving corner the
+// moment a wheel went airborne, and the axle's roll arm with it.
+function resolveAxleCentreLateralOffsets(wheelStates) {
+  let frontSumMeters = 0
+  let frontWheelCount = 0
+  let rearSumMeters = 0
+  let rearWheelCount = 0
+
+  for (const wheelState of wheelStates) {
+    const lateralMeters = sanitizeNumber(wheelState?.localPosition?.x)
+    if (wheelState?.axle === 'front') {
+      frontSumMeters += lateralMeters
+      frontWheelCount += 1
+    } else if (wheelState?.axle === 'rear') {
+      rearSumMeters += lateralMeters
+      rearWheelCount += 1
+    }
+  }
+
+  return {
+    front: frontWheelCount > 0 ? frontSumMeters / frontWheelCount : 0,
+    rear: rearWheelCount > 0 ? rearSumMeters / rearWheelCount : 0,
+  }
 }
 
 // The compression a wheel carries when it sits at its authored rest length on
@@ -336,6 +377,19 @@ export function updateVerticalChassisDynamics(
   // environment the vehicle is driving through?
   state.heaveForceCouplingActive = planarForceCouplingActive
 
+  // A coupled axle carries ONE shared spring at its centre. The axle centre
+  // is read from the axle coupling mode in the spec, the same way the axle
+  // constraint solve reads it.
+  const axleCentreLateralOffsetMeters = resolveAxleCentreLateralOffsets(
+    safeWheelStates
+  )
+  const coupledAxles = {
+    front:
+      resolveAxleCouplingMode(spec, 'front') === AXLE_COUPLING_MODES.RIGID_AXLE,
+    rear:
+      resolveAxleCouplingMode(spec, 'rear') === AXLE_COUPLING_MODES.RIGID_AXLE,
+  }
+
   // Assemble symmetric stiffness (K) and damping (C) sums over grounded wheels.
   let Khh = 0
   let Khp = 0
@@ -357,6 +411,19 @@ export function updateVerticalChassisDynamics(
     }
     const xMeters = sanitizeNumber(wheelState.localPosition?.x)
     const zMeters = sanitizeNumber(wheelState.localPosition?.z)
+    const axle = wheelState.axle ?? null
+    const isCoupledAxleCorner =
+      axle !== null && coupledAxles[axle] === true
+    // A coupled axle's spring and damper act at the axle centre, so the
+    // corner's ROLL ARM is the axle centre's lateral offset instead of
+    // the corner's own offset. Every lateral term of the stiffness and
+    // damping assembly has to use the same arm: the matrix is the Hessian
+    // of one potential, so a roll arm that appears in the roll stiffness
+    // but not in the heave-roll and pitch-roll cross terms would make the
+    // assembly inconsistent rather than merely different.
+    const rollArmMeters = isCoupledAxleCorner
+      ? axleCentreLateralOffsetMeters[axle]
+      : xMeters
     const springRateNewtonsPerMeter = sanitizePositiveNumber(
       wheelState.suspensionSpringRateNewtonsPerMeter,
       sanitizePositiveNumber(spec.suspensionSpringRateNewtonsPerMeter, 1)
@@ -409,15 +476,16 @@ export function updateVerticalChassisDynamics(
 
     Khh += springRateNewtonsPerMeter
     Khp += springRateNewtonsPerMeter * zMeters
-    Khr += springRateNewtonsPerMeter * xMeters
+    Khr += springRateNewtonsPerMeter * rollArmMeters
     Kpp += springRateNewtonsPerMeter * zMeters * zMeters
-    Krr += springRateNewtonsPerMeter * xMeters * xMeters
-    Kpr += springRateNewtonsPerMeter * xMeters * zMeters
+    Krr += springRateNewtonsPerMeter * rollArmMeters * rollArmMeters
+    Kpr += springRateNewtonsPerMeter * rollArmMeters * zMeters
 
     cornerData.push({
       wheelState,
       xMeters,
       zMeters,
+      rollArmMeters,
       springRateNewtonsPerMeter,
       dampingRateNewtonsPerMeterPerSecond,
       baseNormalForceNewtons,
@@ -434,10 +502,10 @@ export function updateVerticalChassisDynamics(
     const c = corner.dampingRateNewtonsPerMeterPerSecond
     Chh += c
     Chp += c * corner.zMeters
-    Chr += c * corner.xMeters
+    Chr += c * corner.rollArmMeters
     Cpp += c * corner.zMeters * corner.zMeters
-    Crr += c * corner.xMeters * corner.xMeters
-    Cpr += c * corner.xMeters * corner.zMeters
+    Crr += c * corner.rollArmMeters * corner.rollArmMeters
+    Cpr += c * corner.rollArmMeters * corner.zMeters
   }
 
   const heave = state.heaveMeters
@@ -559,14 +627,19 @@ export function updateVerticalChassisDynamics(
   const finalRollRate = state.rollRateRadiansPerSecond
 
   for (const corner of cornerData) {
+    // The corner's vertical displacement of the BODY. A coupled axle's
+    // corner moves with the axle centre, so its roll arm is the axle
+    // centre: both corners of a coupled axle see the SAME displacement
+    // and therefore the SAME load deviation. That is the physically
+    // correct signature of a central leaf on a rigid beam.
     const uMeters =
       finalHeave +
       finalPitch * corner.zMeters +
-      finalRoll * corner.xMeters
+      finalRoll * corner.rollArmMeters
     const uRateMetersPerSecond =
       finalHeaveRate +
       finalPitchRate * corner.zMeters +
-      finalRollRate * corner.xMeters
+      finalRollRate * corner.rollArmMeters
     const loadDeviationNewtons =
       -corner.springRateNewtonsPerMeter * uMeters -
       corner.dampingRateNewtonsPerMeterPerSecond * uRateMetersPerSecond

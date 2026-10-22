@@ -30,6 +30,13 @@ export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
 // A component therefore has to declare every field it owns, including the
 // axle coupling modes, so swapping back to a component that does not use a
 // coupling mode clears a coupling mode a previously selected component set.
+//
+// 'suspensionVisualKind' is the one field in this list that carries NO
+// physics. It selects which archetype-specific geometry the renderer
+// draws for the suspension, and no force model reads it. It is owned by
+// the slot all the same, so swapping back to a component that draws no
+// archetype geometry clears a visual kind a previously selected
+// component set.
 export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'suspensionRestLengthMeters',
   'suspensionMaximumLengthMeters',
@@ -40,6 +47,7 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'chassisTerrainSupportBaselineOffsetMeters',
   'frontAxleCoupling',
   'rearAxleCoupling',
+  'suspensionVisualKind',
 ])
 
 const CHASSIS_COMPONENTS = Object.freeze({
@@ -123,6 +131,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       chassisTerrainSupportBaselineOffsetMeters: 0,
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'none',
     },
   },
   'susp-lowered': {
@@ -142,6 +151,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       chassisTerrainSupportBaselineOffsetMeters: -0.06,
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'none',
     },
   },
   'susp-lifted': {
@@ -161,6 +171,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       chassisTerrainSupportBaselineOffsetMeters: 0.07,
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'none',
     },
   },
   'susp-stiff': {
@@ -180,6 +191,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       chassisTerrainSupportBaselineOffsetMeters: 0,
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'none',
     },
   },
   'susp-solid-axle-rear': {
@@ -202,6 +214,33 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       chassisTerrainSupportBaselineOffsetMeters: 0,
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'rigidAxle',
+      suspensionVisualKind: 'none',
+    },
+  },
+  'susp-macpherson-strut': {
+    id: 'susp-macpherson-strut',
+    label: 'MacPherson Strut (visual only)',
+    description:
+      'The front axle uses MacPherson struts; the rear axle stays ' +
+      'independent. Physics: the same independent suspension model as ' +
+      'stock - this entry changes no spring rate, travel, damping, or ' +
+      'coupling mode. Visual: a coil-over strut per front corner. ' +
+      'Distinguishing features of a MacPherson (high roll center, camber ' +
+      'gain) are not modelled: those need roll-center parameters and a ' +
+      'tire model that accepts camber input. This entry exists to ' +
+      'establish the per-corner visual seam for future archetypes; it ' +
+      'does not currently change handling.',
+    spec: {
+      suspensionRestLengthMeters: 0.35,
+      suspensionMaximumLengthMeters: 0.35,
+      suspensionMinimumLengthMeters: 0.13,
+      suspensionTravelMeters: 0.22,
+      suspensionTargetStaticCompressionRatio01: 0.4,
+      suspensionDampingRatio: 0.35,
+      chassisTerrainSupportBaselineOffsetMeters: 0,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'macphersonStrut',
     },
   },
 })
