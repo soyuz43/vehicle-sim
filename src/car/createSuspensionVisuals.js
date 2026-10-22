@@ -51,6 +51,17 @@ import {
 // coupled and are hidden again when the axle returns to the independent
 // mode. They are never rebuilt, so a runtime suspension swap cannot leak
 // geometry.
+//
+// The MacPherson strut (Session A3) is a PER-CORNER visual. It is not a
+// coupling: a strut carries one corner and couples to nothing, so it is
+// selected by the spec's suspension visual kind rather than by the axle
+// coupling state. The strut is drawn in the vehicle's local frame between
+// the body's strut tower (a fixed point) and the wheel hub (a published
+// wheel position), so it compresses and extends with the suspension
+// travel. Like the leaf pack, its top does NOT follow the rolling body:
+// the visible gap between the strut tower and the body changes with body
+// roll. The MacPherson archetype's physics are identical to the stock
+// profile - the strut is a visual seam, not a force model.
 
 const AXLE_IDS = Object.freeze(['front', 'rear'])
 
@@ -65,8 +76,36 @@ const LEAF_PACK_PLATE_WIDTH_METERS = 0.06
 const LEAF_PACK_PLATE_LENGTH_FRACTIONS = Object.freeze([0.8, 0.66, 0.52])
 const LEAF_PACK_HEIGHT_ABOVE_BEAM_METERS = 0.085
 
+// MacPherson strut geometry (Session A3). All lengths are metres.
+const STRUT_DAMPER_RADIUS_METERS = 0.026
+const STRUT_DAMPER_RADIAL_SEGMENTS = 12
+const STRUT_COIL_RADIUS_METERS = 0.055
+const STRUT_COIL_TUBE_RADIUS_METERS = 0.011
+const STRUT_COIL_TORUS_SEGMENTS = 16
+const STRUT_COIL_COUNT = 6
+// The coil rides on the upper part of the strut; the lower part is the
+// bare damper body.
+const STRUT_COIL_SPAN_FRACTION01 = 0.6
+const STRUT_COIL_TOP_MARGIN_FRACTION01 = 0.08
+// The strut sits inboard of the wheel, clear of the tire's inner face.
+const STRUT_BOTTOM_INBOARD_OFFSET_METERS = 0.26
+const STRUT_TOP_INBOARD_OFFSET_METERS = 0.32
+
+// Which axle a suspension visual kind draws struts on. A visual kind
+// carries no physics: it only selects which archetype geometry is drawn.
+const STRUT_VISUAL_AXLE_BY_KIND = Object.freeze({
+  macphersonStrut: 'front',
+})
+const NO_SUSPENSION_VISUAL_KIND = 'none'
+
 export function createSuspensionVisuals(vehicle) {
   const axleEntries = new Map()
+  const strutEntries = new Map()
+  const strutTopLocal = new THREE.Vector3()
+  const strutBottomLocal = new THREE.Vector3()
+  const strutMidpointLocal = new THREE.Vector3()
+  const strutAxisLocal = new THREE.Vector3()
+  const STRUT_UP_AXIS = new THREE.Vector3(0, 1, 0)
   const beamAxisLocal = new THREE.Vector3()
   const beamStartLocal = new THREE.Vector3()
   const beamEndLocal = new THREE.Vector3()
@@ -81,9 +120,21 @@ export function createSuspensionVisuals(vehicle) {
     metalness: 0.7,
     roughness: 0.45,
   })
+  const strutDamperMaterial = new THREE.MeshStandardMaterial({
+    color: 0x30343a,
+    metalness: 0.8,
+    roughness: 0.4,
+  })
+  const strutCoilMaterial = new THREE.MeshStandardMaterial({
+    color: 0x9aa3ad,
+    metalness: 0.85,
+    roughness: 0.35,
+  })
 
   const snapshot = {
     axles: {},
+    struts: {},
+    suspensionVisualKind: NO_SUSPENSION_VISUAL_KIND,
     isFinite: true,
   }
 
@@ -94,7 +145,11 @@ export function createSuspensionVisuals(vehicle) {
   // Places the beam and the leaf pack of every axle from the published wheel
   // positions. The axle coupling state decides whether an axle is drawn as a
   // rigid beam at all.
-  function updateFromWheelStates(wheelStates = [], axleCouplingState = null) {
+  function updateFromWheelStates(
+    wheelStates = [],
+    axleCouplingState = null,
+    suspensionVisualKind = NO_SUSPENSION_VISUAL_KIND
+  ) {
     const wheelStateList = Array.isArray(wheelStates) ? wheelStates : []
 
     for (const axle of AXLE_IDS) {
@@ -149,9 +204,15 @@ export function createSuspensionVisuals(vehicle) {
       })
     }
 
-    snapshot.isFinite = Object.values(snapshot.axles).every(
-      (axleSnapshot) => axleSnapshot.isFinite
-    )
+    updateStruts(wheelStateList, suspensionVisualKind)
+
+    snapshot.isFinite =
+      Object.values(snapshot.axles).every(
+        (axleSnapshot) => axleSnapshot.isFinite
+      ) &&
+      Object.values(snapshot.struts).every(
+        (strutSnapshot) => strutSnapshot.isFinite
+      )
 
     return snapshot
   }
@@ -162,6 +223,16 @@ export function createSuspensionVisuals(vehicle) {
       updateAxleSnapshot(snapshot.axles[entry.axle], {
         isCoupled: false,
         hasBeamNode: true,
+        isFinite: true,
+      })
+    }
+
+    for (const entry of strutEntries.values()) {
+      hideStrutEntry(entry)
+      updateStrutSnapshot(snapshot.struts[entry.wheelId], {
+        isVisible: false,
+        hasNode: true,
+        lengthMeters: 0,
         isFinite: true,
       })
     }
@@ -278,6 +349,194 @@ export function createSuspensionVisuals(vehicle) {
     entry.leafPackNode.visible = false
   }
 
+  // Places the struts of the axle the current visual kind selects. A wheel
+  // whose axle does not match the kind gets no strut at all.
+  function updateStruts(wheelStateList, suspensionVisualKind) {
+    const visualKind =
+      typeof suspensionVisualKind === 'string'
+        ? suspensionVisualKind
+        : NO_SUSPENSION_VISUAL_KIND
+    snapshot.suspensionVisualKind = visualKind
+    const strutAxle = STRUT_VISUAL_AXLE_BY_KIND[visualKind] ?? null
+
+    for (const wheelState of wheelStateList) {
+      const wheelId = wheelState?.id
+      if (!wheelId) continue
+
+      const entry = strutEntries.get(wheelId) ?? null
+      if (!snapshot.struts[wheelId]) {
+        snapshot.struts[wheelId] = createStrutSnapshot(wheelId)
+      }
+      if (!strutAxle || wheelState.axle !== strutAxle) {
+        if (entry) hideStrutEntry(entry)
+        updateStrutSnapshot(snapshot.struts[wheelId], {
+          wheelId,
+          axle: wheelState.axle ?? null,
+          isVisible: false,
+          hasNode: entry !== null,
+          lengthMeters: 0,
+          isFinite: true,
+        })
+        continue
+      }
+
+      const activeEntry = entry ?? createStrutEntry(wheelId, wheelState.axle)
+      const isPoseFinite = applyStrutPose(activeEntry, wheelState)
+      if (isPoseFinite) {
+        activeEntry.topLocalMeters.copy(strutTopLocal)
+        activeEntry.bottomLocalMeters.copy(strutBottomLocal)
+      }
+      updateStrutSnapshot(snapshot.struts[wheelId], {
+        wheelId,
+        axle: wheelState.axle ?? null,
+        isVisible: isPoseFinite,
+        hasNode: true,
+        lengthMeters: activeEntry.lengthMeters,
+        isFinite: isPoseFinite,
+      })
+      if (isPoseFinite) {
+        snapshot.struts[wheelId].topLocalMeters.copy(strutTopLocal)
+        snapshot.struts[wheelId].bottomLocalMeters.copy(strutBottomLocal)
+      }
+    }
+  }
+
+  function createStrutEntry(wheelId, axle) {
+    const group = new THREE.Group()
+    group.name = wheelId + '-strut-visual'
+    group.visible = false
+
+    const damperMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        STRUT_DAMPER_RADIUS_METERS,
+        STRUT_DAMPER_RADIUS_METERS,
+        1,
+        STRUT_DAMPER_RADIAL_SEGMENTS
+      ),
+      strutDamperMaterial
+    )
+    damperMesh.name = wheelId + '-strut-damper-visual'
+    damperMesh.castShadow = true
+    group.add(damperMesh)
+
+    const coilTori = []
+    for (let index = 0; index < STRUT_COIL_COUNT; index += 1) {
+      const torus = new THREE.Mesh(
+        new THREE.TorusGeometry(
+          STRUT_COIL_RADIUS_METERS,
+          STRUT_COIL_TUBE_RADIUS_METERS,
+          STRUT_COIL_TORUS_SEGMENTS,
+          STRUT_COIL_TORUS_SEGMENTS
+        ),
+        strutCoilMaterial
+      )
+      torus.name = wheelId + '-strut-coil-' + index + '-visual'
+      torus.rotation.x = Math.PI / 2
+      torus.castShadow = true
+      group.add(torus)
+      coilTori.push(torus)
+    }
+
+    vehicle.add(group)
+
+    const entry = {
+      wheelId,
+      axle,
+      group,
+      damperMesh,
+      coilTori,
+      topLocalMeters: new THREE.Vector3(),
+      bottomLocalMeters: new THREE.Vector3(),
+      lengthMeters: 0,
+      isFinite: true,
+    }
+
+    strutEntries.set(wheelId, entry)
+    return entry
+  }
+
+  // Orients the strut from the body's strut tower down to the wheel hub.
+  // The tower is a fixed point in the vehicle's frame, so the strut's
+  // length follows the published wheel position and the strut visibly
+  // compresses with the suspension travel.
+  function applyStrutPose(entry, wheelState) {
+    const mountLocal = wheelState.suspensionMountLocalPosition
+    const wheelCentreLocal = wheelState.wheelCenterLocalPosition
+    const mountXMeters = Number(mountLocal?.x)
+    const mountYMeters = Number(mountLocal?.y)
+    const mountZMeters = Number(mountLocal?.z)
+    const wheelXMeters = Number(wheelCentreLocal?.x)
+    const wheelYMeters = Number(wheelCentreLocal?.y)
+    const wheelZMeters = Number(wheelCentreLocal?.z)
+
+    if (
+      !Number.isFinite(mountXMeters) ||
+      !Number.isFinite(mountYMeters) ||
+      !Number.isFinite(mountZMeters) ||
+      !Number.isFinite(wheelXMeters) ||
+      !Number.isFinite(wheelYMeters) ||
+      !Number.isFinite(wheelZMeters)
+    ) {
+      hideStrutEntry(entry)
+      entry.isFinite = false
+      return false
+    }
+
+    // +X is the car's left side, so the inboard direction is -x for the
+    // left wheel and +x for the right wheel.
+    const inboardSign = wheelXMeters >= 0 ? -1 : 1
+    strutTopLocal.set(
+      mountXMeters + inboardSign * STRUT_TOP_INBOARD_OFFSET_METERS,
+      mountYMeters,
+      mountZMeters
+    )
+    strutBottomLocal.set(
+      wheelXMeters + inboardSign * STRUT_BOTTOM_INBOARD_OFFSET_METERS,
+      wheelYMeters,
+      wheelZMeters
+    )
+
+    strutAxisLocal.subVectors(strutTopLocal, strutBottomLocal)
+    const lengthMeters = strutAxisLocal.length()
+    if (!Number.isFinite(lengthMeters) || lengthMeters < 1e-4) {
+      hideStrutEntry(entry)
+      entry.isFinite = false
+      return false
+    }
+
+    strutAxisLocal.multiplyScalar(1 / lengthMeters)
+    strutMidpointLocal
+      .addVectors(strutTopLocal, strutBottomLocal)
+      .multiplyScalar(0.5)
+
+    entry.group.position.copy(strutMidpointLocal)
+    entry.group.quaternion.setFromUnitVectors(STRUT_UP_AXIS, strutAxisLocal)
+    entry.group.visible = true
+    entry.damperMesh.scale.set(1, lengthMeters, 1)
+
+    // The coil occupies the upper part of the strut. The coil tori are
+    // positioned individually instead of scaling a coil group, so the
+    // wire's thickness stays constant as the strut compresses.
+    const coilSpanMeters = lengthMeters * STRUT_COIL_SPAN_FRACTION01
+    const coilTopMeters =
+      lengthMeters * (0.5 - STRUT_COIL_TOP_MARGIN_FRACTION01)
+    const coilBottomMeters = coilTopMeters - coilSpanMeters
+    const lastIndex = entry.coilTori.length - 1
+    for (let index = 0; index <= lastIndex; index += 1) {
+      const fraction = lastIndex > 0 ? index / lastIndex : 0
+      entry.coilTori[index].position.y =
+        coilBottomMeters + fraction * coilSpanMeters
+    }
+
+    entry.lengthMeters = lengthMeters
+    entry.isFinite = true
+    return true
+  }
+
+  function hideStrutEntry(entry) {
+    entry.group.visible = false
+  }
+
   return {
     updateFromWheelStates,
     reset,
@@ -301,6 +560,28 @@ function createAxleSnapshot(axle) {
     midpointLocalMeters: new THREE.Vector3(),
     isFinite: true,
   }
+}
+
+function createStrutSnapshot(wheelId) {
+  return {
+    wheelId,
+    axle: null,
+    isVisible: false,
+    hasNode: false,
+    lengthMeters: 0,
+    topLocalMeters: new THREE.Vector3(),
+    bottomLocalMeters: new THREE.Vector3(),
+    isFinite: true,
+  }
+}
+
+function updateStrutSnapshot(strutSnapshot, updates) {
+  strutSnapshot.axle = updates.axle ?? strutSnapshot.axle
+  strutSnapshot.isVisible = updates.isVisible
+  strutSnapshot.hasNode = updates.hasNode
+  strutSnapshot.lengthMeters = updates.lengthMeters ?? 0
+  strutSnapshot.isFinite = updates.isFinite
+  return strutSnapshot
 }
 
 function updateAxleSnapshot(axleSnapshot, updates) {
