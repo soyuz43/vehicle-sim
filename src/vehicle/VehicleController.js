@@ -90,6 +90,10 @@ import {
     updateLoadTransferState,
 } from './dynamics/loadTransferState.js'
 import {
+    resetWheelCamberState,
+    updateWheelCamberState,
+} from './dynamics/camberState.js'
+import {
     createSuspensionNormalForceSummary,
     resetSuspensionNormalForceSummary,
     resetWheelSuspensionNormalForceState,
@@ -644,6 +648,7 @@ export class VehicleController {
             resetWheelLongitudinalSlipState(wheelState)
             resetWheelLateralSlipAngleState(wheelState)
             resetWheelLateralTireForceState(wheelState)
+            resetWheelCamberState(wheelState)
             resetWheelLoadTransferState(wheelState)
             wheelState.frictionCoefficient = spec.defaultSurfaceFrictionCoefficient
             wheelState.surfaceKind = 'unavailable'
@@ -2004,6 +2009,13 @@ export class VehicleController {
         )
         updateWheelSuspensionContactLimitStatuses()
         updateWheelLoadTransferState(dtSeconds)
+        // Camber is derived after the suspension travel and the body roll are
+        // known, and before the tire forces read it.
+        updateWheelCamberState(
+            state.wheelStates,
+            spec,
+            state.verticalChassisDynamicsState?.rollRadians ?? 0
+        )
         updateWheelContactPlaneBases()
     }
 
@@ -4146,6 +4158,11 @@ function createWheelRuntimeStates(vehicle, spec) {
             lateralSlipStateReason: 'initial unavailable state',
             isLateralSlipAngleHigh: false,
             lateralSlip: 0,
+            camberRadians: 0,
+            camberRadiansDegrees: 0,
+            camberEffectiveTravelMeters: 0,
+            camberRollInducedTravelMeters: 0,
+            camberThrustForceNewtons: 0,
             uncappedLateralTireForceNewtons: 0,
             linearLateralTireForceNewtons: 0,
             appliedLateralTireForceNewtons: 0,

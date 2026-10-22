@@ -41,6 +41,14 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   maximumSuspensionNormalForceNewtons:
     DEFAULT_VEHICLE_MASS_KG * EARTH_GRAVITY.standardMetersPerSecondSquared,
 
+  // Camber v1: the wheel's inclination relative to the road. The static
+  // camber is zero for every current archetype, and the gain is the
+  // archetype's camber change per meter of suspension travel measured from
+  // the design ride position. Both are zero for the stock setup, so the
+  // stock vehicle keeps its validated baseline behavior exactly.
+  camberStaticRadians: 0,
+  camberGainRadiansPerMeterCompression: 0,
+
   // Vertical chassis dynamics v1 (Phase 0): real 3-DOF sprung-mass heave/pitch/
   // roll solver. It replaces quasi-static load transfer (emergent load transfer
   // from body pitch/roll) and the visual-only chassis attitude with solved ODE
@@ -314,6 +322,13 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // Force is still capped by frictionCoefficient * normalForceNewtons; this is
   // not Pacejka, a professional tire model, or a full combined-slip curve.
   lateralTireStiffnessNewtonsPerRadian: 6000,
+
+  // Camber thrust coefficient: the camber stiffness per unit vertical load.
+  // 0.35 N/rad per N is about 25 N per degree of camber at a 4000 N wheel
+  // load, i.e. about 0.6 % of the friction limit per degree, which is the
+  // measured range for modern passenger radial tires. It only acts on a wheel
+  // that actually has camber, so a zero-camber setup is unaffected.
+  camberStiffnessNewtonsPerRadianPerNewton: 0.35,
 
   // Combined-slip (brush/Fiala) tire model v1 (Phase 1): computes longitudinal
   // and lateral tire forces together from slip ratio and slip angle so the

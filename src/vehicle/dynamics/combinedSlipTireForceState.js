@@ -32,6 +32,7 @@
 //     decays to a bounded, non-zero asymptote).
 //   - Lateral slip angle is clamped before tan() to keep the elastic term finite.
 
+import { computeCamberThrustForceNewtons } from './camberState.js'
 import { getTirePreset, magicFormulaSlideFactor } from './tireModelLibrary.js'
 
 const COMBINED_SLIP_EPSILON_NEWTONS = 1e-9
@@ -107,6 +108,7 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
   )
 
   // Reset/applied telemetry fields so downstream summaries stay consistent.
+  wheelState.camberThrustForceNewtons = 0
   wheelState.uncappedLongitudinalTireForceNewtons = 0
   wheelState.uncappedLateralTireForceNewtons = 0
   wheelState.appliedLongitudinalForceNewtons = 0
@@ -130,8 +132,15 @@ export function updateWheelCombinedSlipTireForce(wheelState, spec = {}) {
   // Elastic (small-slip) force components.
   const elasticLongitudinalForceNewtons =
     longitudinalStiffness * longitudinalSlipRatio
+  // The camber thrust joins the elastic lateral force, so the combined
+  // friction circle below bounds the slip response and the camber thrust
+  // together. A wheel without camber contributes exactly zero.
+  const camberThrustForceNewtons =
+    computeCamberThrustForceNewtons(wheelState, spec)
+  wheelState.camberThrustForceNewtons = camberThrustForceNewtons
   const elasticLateralForceNewtons =
-    -lateralStiffness * Math.tan(lateralSlipAngleRadians)
+    -lateralStiffness * Math.tan(lateralSlipAngleRadians) +
+    camberThrustForceNewtons
   const elasticMagnitudeNewtons = Math.hypot(
     elasticLongitudinalForceNewtons,
     elasticLateralForceNewtons

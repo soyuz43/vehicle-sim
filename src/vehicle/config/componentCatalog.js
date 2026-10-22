@@ -31,6 +31,10 @@ export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
 // axle coupling modes, so swapping back to a component that does not use a
 // coupling mode clears a coupling mode a previously selected component set.
 //
+// The camber fields carry live physics: the static camber and the
+// archetype's camber gain per meter of suspension travel, both read by the
+// camber state and the camber thrust term.
+//
 // 'suspensionVisualKind' is the one field in this list that carries NO
 // physics. It selects which archetype-specific geometry the renderer
 // draws for the suspension, and no force model reads it. It is owned by
@@ -48,6 +52,8 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'frontAxleCoupling',
   'rearAxleCoupling',
   'suspensionVisualKind',
+  'camberStaticRadians',
+  'camberGainRadiansPerMeterCompression',
 ])
 
 // The spec fields the chassis component owns.
@@ -215,6 +221,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-lowered': {
@@ -235,6 +243,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-lifted': {
@@ -255,6 +265,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-stiff': {
@@ -275,6 +287,8 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-solid-axle-rear': {
@@ -298,21 +312,26 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'rigidAxle',
       suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0,
     },
   },
   'susp-macpherson-strut': {
     id: 'susp-macpherson-strut',
-    label: 'MacPherson Strut (visual only)',
+    label: 'MacPherson Strut (camber gain)',
     description:
       'The front axle uses MacPherson struts; the rear axle stays ' +
       'independent. Physics: the same independent suspension model as ' +
       'stock - this entry changes no spring rate, travel, damping, or ' +
-      'coupling mode. Visual: a coil-over strut per front corner. ' +
-      'Distinguishing features of a MacPherson (high roll center, camber ' +
-      'gain) are not modelled: those need roll-center parameters and a ' +
-      'tire model that accepts camber input. This entry exists to ' +
-      'establish the per-corner visual seam for future archetypes; it ' +
-      'does not currently change handling.',
+      'coupling mode - plus a positive camber gain of +0.0873 rad/m, ' +
+      'which is +0.5 degrees of camber per 100 mm of suspension travel. ' +
+      'A compressed strut wheel gains positive camber, so the tire gives ' +
+      'up a little lateral force in a corner and this entry does change ' +
+      'handling. The camber gain applies to every wheel of the archetype: ' +
+      'the camber model has no per-axle camber gain. Visual: a coil-over ' +
+      'strut per front corner. The camber gain is modelled; the high roll ' +
+      'center of a real MacPherson strut is still not modelled, because ' +
+      'that needs roll-center parameters.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -324,6 +343,39 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'macphersonStrut',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: 0.0873,
+    },
+  },
+  'susp-double-wishbone': {
+    id: 'susp-double-wishbone',
+    label: 'Double Wishbone (SLA)',
+    description:
+      'The suspension keeps the stock spring rate, travel, damping and ' +
+      'independent coupling, and adds the double wishbone\'s defining ' +
+      'behavior: a negative camber gain of -0.262 rad/m, which is -1.5 ' +
+      'degrees of camber per 100 mm of suspension travel. A compressed ' +
+      'wishbone wheel gains negative camber, so the tire keeps a little ' +
+      'more lateral force in a corner than the stock setup, and more than ' +
+      'the MacPherson strut, which gains positive camber instead. The ' +
+      'camber gain applies to every wheel of the archetype: the camber ' +
+      'model has no per-axle camber gain. Visual: this entry draws no ' +
+      'archetype geometry yet; the wishbone mesh is a separate seam. The ' +
+      'roll center of a real double wishbone is still not modelled, ' +
+      'because that needs roll-center parameters.',
+    spec: {
+      suspensionRestLengthMeters: 0.35,
+      suspensionMaximumLengthMeters: 0.35,
+      suspensionMinimumLengthMeters: 0.13,
+      suspensionTravelMeters: 0.22,
+      suspensionTargetStaticCompressionRatio01: 0.4,
+      suspensionDampingRatio: 0.35,
+      chassisTerrainSupportBaselineOffsetMeters: 0,
+      frontAxleCoupling: 'independent',
+      rearAxleCoupling: 'independent',
+      suspensionVisualKind: 'none',
+      camberStaticRadians: 0,
+      camberGainRadiansPerMeterCompression: -0.262,
     },
   },
 })
