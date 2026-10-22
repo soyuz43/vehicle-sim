@@ -67,6 +67,15 @@ function applyCompressionNoiseFloor(deviationMeters) {
 // flat ground. The authored suspension mount height and the effective rolling
 // radius fix that value, so referencing it keeps the terrain heave forcing
 // free of a standing offset when tire pressure moves the rolling radius.
+//
+// The chassis terrain support baseline offset raises or lowers the body, and
+// with it the suspension mount, relative to the authored geometry. The
+// reference has to move with it. Leaving the offset out makes the ride-height
+// offset read as a standing terrain compression: the heave forcing integrates
+// it into a constant body heave, and that heave then biases every corner's
+// load by springRate * offset. The resulting static normal-force error is
+// totalSpringRate * offset, so a lowered car ends up carrying only a fraction
+// of its weight.
 function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
   const suspensionTravelMeters = sanitizePositiveNumber(
     spec.suspensionTravelMeters,
@@ -75,6 +84,13 @@ function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
   const nominalStaticCompressionMeters =
     suspensionTravelMeters *
     clamp(sanitizeNumber(spec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
+
+  // A positive offset raises the body, which shortens the geometric
+  // compression the wheel carries at rest.
+  const chassisSupportBaselineOffsetMeters = sanitizeNumber(
+    spec.chassisTerrainSupportBaselineOffsetMeters,
+    0
+  )
 
   const restLengthMeters = sanitizePositiveNumber(
     wheelState.suspensionRestLengthMeters,
@@ -94,11 +110,17 @@ function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
     !Number.isFinite(restLengthMeters) ||
     !Number.isFinite(effectiveRollingRadiusMeters)
   ) {
-    return nominalStaticCompressionMeters
+    return clamp(
+      nominalStaticCompressionMeters - chassisSupportBaselineOffsetMeters,
+      0,
+      suspensionTravelMeters
+    )
   }
 
   const geometricStaticCompressionMeters =
-    restLengthMeters - (suspensionMountHeightMeters - effectiveRollingRadiusMeters)
+    restLengthMeters -
+    (suspensionMountHeightMeters - effectiveRollingRadiusMeters) -
+    chassisSupportBaselineOffsetMeters
 
   return clamp(geometricStaticCompressionMeters, 0, suspensionTravelMeters)
 }
