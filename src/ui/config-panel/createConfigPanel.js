@@ -51,7 +51,6 @@ const DEFAULT_CONFIG = {
   initiallyCollapsed: false,
   zIndex: null,
   onPositionChange: null,
-  onTerrainChange: null,
   onVehicleChange: null,
   onApply: null,
   onReset: null,

@@ -6,7 +6,6 @@ import { createSimulation } from './createSimulation.js'
 import { runSimulationFrame } from './runSimulationFrame.js'
 import { runRenderFrame } from './runRenderFrame.js'
 import {
-  areVehicleConfigurationsEqual,
   cloneVehicleConfiguration,
   createDefaultVehicleConfiguration,
 } from './vehicle/config/createVehicleConfiguration.js'
@@ -14,12 +13,8 @@ import { createDriverHUD } from './ui/driver-hud/createDriverHUD.js'
 import { createTelemetryPanel } from './ui/telemetry-panel/createTelemetryPanel.js'
 import { createControlPanel } from './ui/control-panel/createControlPanel.js'
 import { createConfigPanel } from './ui/config-panel/createConfigPanel.js'
-import { applyVehicleConfigurationToSession } from './vehicle/config/applyVehicleConfigurationToSession.js'
-import {
-  resolveInitialVehicleConfiguration,
-  writeStoredVehicleConfiguration,
-} from './vehicle/config/vehicleConfigurationStorage.js'
-import { describeVehicleApplyWarning } from './vehicle/config/describeVehicleApplyWarning.js'
+import { applySessionConfiguration } from './vehicle/config/applySessionConfiguration.js'
+import { resolveInitialVehicleConfiguration } from './vehicle/config/vehicleConfigurationStorage.js'
 import { initTheme } from './ui/design-system/theme.js'
 import { initResponsive } from './ui/design-system/layout/Responsive.js'
 
@@ -96,28 +91,14 @@ let configPanel
 configPanel = createConfigPanel({
   anchor: 'bottom-left', initiallyCollapsed: false,
   initialTerrain: terrainSelection.name, initialVehicleConfig,
-  onTerrainChange: (terrainName) => {
-    const params = new URLSearchParams(typeof globalThis.location?.search === 'string' ? globalThis.location.search : '')
-    params.set('terrain', terrainName)
-    if (globalThis.location) globalThis.location.search = params.toString()
-  },
   onApply: ({ terrain, vehicleConfig }) => {
-    if (terrain !== terrainSelection.name) {
-      const params = new URLSearchParams(typeof globalThis.location?.search === 'string' ? globalThis.location.search : '')
-      params.set('terrain', terrain)
-      if (globalThis.location) globalThis.location.search = params.toString()
-      // The session URL is now the committed terrain, and the document is
-      // being replaced. The panel is told that the terrain it staged is
-      // running, so it does not keep reporting it as pending on the way out.
-      configPanel.markTerrainApplied(terrain)
-    }
-    applyVehicleConfigurationToController(vehicleConfig)
+    applySessionConfigurationToController({ vehicleConfig, terrain })
   },
   onReset: () => {
     // Reset Vehicle restores the vehicle setup only. The terrain is not
     // touched: a terrain selection is applied by reloading the session.
     const stockVehicleConfig = createDefaultVehicleConfiguration()
-    applyVehicleConfigurationToController(stockVehicleConfig)
+    applySessionConfigurationToController({ vehicleConfig: stockVehicleConfig })
   },
 })
 
@@ -133,36 +114,27 @@ vehicleController.onConfigurationChanged((activeVehicleConfig) => {
 // step with the vehicle instead of assuming the initial selection.
 configPanel.applyExternalVehicleConfig(vehicleController.getVehicleConfiguration())
 
-// Apply a vehicle configuration to the running controller.
+// Apply the staged session configuration to the running controller.
 //
 // The controller object never changes: the configuration is swapped in place,
 // so every holder of a controller reference (the camera, the panels, the
 // obstacle interaction, the console hook) keeps working. A failed apply
 // leaves the controller untouched and reports the failure to the panel.
-function applyVehicleConfigurationToController(vehicleConfig) {
-  // The panel has no controller reference and no snapshot access, so the
-  // speed is read here and the consequence is described here. The apply
-  // always proceeds: the warning reports what already happened.
-  const warning = describeVehicleApplyWarning({
-    pendingVehicleConfig: vehicleConfig,
-    appliedVehicleConfig: lastAppliedVehicleConfig,
-    speedMetersPerSecond:
-      vehicleController.getSnapshot().worldSpeedMetersPerSecond,
-  })
-
-  if (areVehicleConfigurationsEqual(vehicleConfig, lastAppliedVehicleConfig)) {
-    // Nothing changed on the vehicle, but the session record is refreshed
-    // so it always describes the setup the vehicle is running.
-    writeStoredVehicleConfiguration(lastAppliedVehicleConfig)
-    configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig, warning })
-    return
-  }
-
-  applyVehicleConfigurationToSession({
+//
+// The vehicle setup is applied and recorded BEFORE the terrain is
+// committed. A terrain change reloads the session, and the recorded setup
+// is what the next session restores, so the record has to be in place
+// first. That is what makes a combined apply land both changes.
+function applySessionConfigurationToController({ vehicleConfig, terrain = null }) {
+  return applySessionConfiguration({
     vehicleController,
     vehicleConfig,
-    onApplied: () => {
-      lastAppliedVehicleConfig = cloneVehicleConfiguration(vehicleConfig)
+    lastAppliedVehicleConfig,
+    terrain,
+    runningTerrain: terrainSelection.name,
+    commitTerrain: commitTerrainSelection,
+    onApplied: ({ vehicleConfig: appliedConfig, warning }) => {
+      lastAppliedVehicleConfig = cloneVehicleConfiguration(appliedConfig)
       configPanel.markApplied({ vehicleConfig: lastAppliedVehicleConfig, warning })
     },
     onError: (error) => {
@@ -170,6 +142,19 @@ function applyVehicleConfigurationToController(vehicleConfig) {
       configPanel.setApplyError(error)
     },
   })
+}
+
+// Commit a terrain selection.
+//
+// A terrain change is applied by reloading the session: the terrain is
+// built when the page starts, so the new session URL is the whole change.
+// The panel is told that the terrain it staged is now the running one, so
+// it does not keep reporting it as pending on the way out.
+function commitTerrainSelection(terrain) {
+  const params = new URLSearchParams(typeof globalThis.location?.search === 'string' ? globalThis.location.search : '')
+  params.set('terrain', terrain)
+  if (globalThis.location) globalThis.location.search = params.toString()
+  configPanel.markTerrainApplied(terrain)
 }
 
 const panels = { driverHUD, telemetryPanel, controlPanel }

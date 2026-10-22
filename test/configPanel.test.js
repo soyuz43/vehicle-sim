@@ -182,17 +182,16 @@ test('changing terrain selector updates terrain', async () => {
     '../src/vehicle/config/createVehicleConfiguration.js'
   )
 
-  let terrainChanged = null
   const ui = createConfigPanel({
     initialTerrain: 'proving-ground',
     initialVehicleConfig: createDefaultVehicleConfiguration(),
-    onTerrainChange: (terrain) => { terrainChanged = terrain; },
   })
 
-  // Test public API for terrain change
+  // The terrain selection is STAGED. The host applies it, and the running
+  // terrain is reported back through markTerrainApplied().
   ui.setTerrain('offroad')
   assert.equal(ui.getTerrain(), 'offroad')
-  // onTerrainChange callback is called on URL change in real usage, not on setTerrain
+  assert.equal(ui.isDirty(), true, 'the staged terrain is pending')
 })
 
 test('changing vehicle slot updates configuration', async () => {
