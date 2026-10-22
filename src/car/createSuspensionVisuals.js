@@ -144,6 +144,7 @@ export function createSuspensionVisuals(vehicle) {
         hasBeamNode: true,
         beamLengthMeters: activeEntry.beamLengthMeters,
         beamRollRadians: activeEntry.beamRollRadians,
+        beamMidpointLocalMeters: activeEntry.beamMidpointLocalMeters,
         isFinite: activeEntry.isFinite,
       })
     }
@@ -215,6 +216,7 @@ export function createSuspensionVisuals(vehicle) {
       kinematics: createSegmentBetweenPointsState(),
       beamLengthMeters: 0,
       beamRollRadians: 0,
+      beamMidpointLocalMeters: new THREE.Vector3(),
       isFinite: true,
     }
 
@@ -256,6 +258,7 @@ export function createSuspensionVisuals(vehicle) {
 
     entry.beamLengthMeters = entry.kinematics.lengthMeters
     entry.beamRollRadians = beamRollRadians
+    entry.beamMidpointLocalMeters.copy(beamMidpointLocal)
     entry.isFinite = entry.kinematics.isFinite && isNodeTransformFinite
 
     // The leaf pack is scaled along the beam so its plates span the same
@@ -305,6 +308,9 @@ function updateAxleSnapshot(axleSnapshot, updates) {
   axleSnapshot.hasBeamNode = updates.hasBeamNode
   axleSnapshot.beamLengthMeters = updates.beamLengthMeters ?? 0
   axleSnapshot.beamRollRadians = updates.beamRollRadians ?? 0
+  if (updates.beamMidpointLocalMeters) {
+    axleSnapshot.midpointLocalMeters.copy(updates.beamMidpointLocalMeters)
+  }
   axleSnapshot.isFinite = updates.isFinite
   return axleSnapshot
 }

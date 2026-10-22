@@ -103,6 +103,7 @@ window.addEventListener('resize', () => {
 })
 // DEV ONLY — expose simulation internals for browser-console testing.
 // Example: __vehicleSim.vehicleController.setTransmission('manual-6')
+// Example: __vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')
 window.__vehicleSim = { vehicleController, simulation, camera, renderer, cameraManager, panels }
 
 const clock = new THREE.Clock()
