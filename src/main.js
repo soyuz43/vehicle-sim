@@ -51,8 +51,8 @@ const inputKeys = new Map([
 window.addEventListener('keydown', (event) => {
   const control = inputKeys.get(event.key)
   if (control) keyState[control] = true
-  else if (event.key === '[') vehicleController.shiftDown()
-  else if (event.key === ']') vehicleController.shiftUp()
+  else if (event.key === '[') vehicleController.requestShiftDown()
+  else if (event.key === ']') vehicleController.requestShiftUp()
   else if (event.key === 'c' || event.key === 'C') cameraManager.cycleMode()
   else if (event.key === 'r' || event.key === 'R') vehicleController.reset()
 })
@@ -101,6 +101,10 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
 })
+// DEV ONLY — expose simulation internals for browser-console testing.
+// Example: __vehicleSim.vehicleController.setTransmission('manual-6')
+window.__vehicleSim = { vehicleController, simulation, camera, renderer, cameraManager, panels }
+
 const clock = new THREE.Clock()
 function animate() {
   requestAnimationFrame(animate)

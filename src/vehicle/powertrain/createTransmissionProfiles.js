@@ -12,14 +12,18 @@
 //   selection gate requires it, so a profile that declares it false (every
 //   manual gearbox) never auto-shifts, even when the global
 //   automaticTransmissionEnabled spec flag is enabled.
-// - hasClutchPedal, hasTorqueConverter, and supportsManualSelection are NOT
-//   consumed by physics. They are carried as metadata for telemetry and as
-//   future-work signals. Wiring them would require, respectively, a clutch
-//   pedal input path, a torque-converter model, and a per-gear manual shift
-//   input. None of those exist in the current simulation.
+// - supportsManualSelection IS consumed. The controller's manual shift gate
+//   requires it, so a profile that declares it false (the CVT, which has no
+//   discrete forward gears) ignores driver shift input entirely.
+// - hasClutchPedal and hasTorqueConverter are NOT consumed by physics. They
+//   are carried as metadata for telemetry and as future-work signals. Wiring
+//   them would require, respectively, a clutch pedal input path and a
+//   torque-converter model. Neither exists in the current simulation.
 //
-// The profiles do NOT drive clutch slip, torque-converter behavior, or manual
-// gear selection in the current simulation.
+// The profiles do NOT drive clutch slip or torque-converter behavior in the
+// current simulation. A manual gear selection changes the applied gear ratio
+// immediately: there is no shift-time torque interruption, no clutch
+// disengagement, and no over-rev protection.
 //
 // Scope (v1): manual-4, manual-5, manual-6, manual-6-granny, automatic-6,
 // automatic-8, dct-7, dct-8, cvt. All static data profiles only.
@@ -59,9 +63,10 @@ function defineTransmission(raw) {
     forwardGearRatios: freezeForwardGearRatios(raw.forwardGearRatios),
     reverseGearRatio: raw.reverseGearRatio,
     finalDriveRatio: raw.finalDriveRatio,
-    // supportsAutomaticShifting is read by the controller's auto-shift gate.
-    // The other three are telemetry-only metadata until the clutch pedal,
-    // torque-converter, and per-gear manual shift inputs exist.
+    // supportsAutomaticShifting is read by the controller's auto-shift gate
+    // and supportsManualSelection is read by its manual shift gate. The other
+    // two are telemetry-only metadata until the clutch pedal and
+    // torque-converter models exist.
     hasClutchPedal: raw.hasClutchPedal,
     hasTorqueConverter: raw.hasTorqueConverter,
     supportsAutomaticShifting: raw.supportsAutomaticShifting,
@@ -201,7 +206,7 @@ export const TRANSMISSION_PROFILE_BY_ID = Object.freeze(
 )
 
 // Default selection: a modern-ish 6-speed automatic, which fits the current
-// Reverse / Neutral / Drive selector model (no manual shift controls yet).
+// Reverse / Neutral / Drive selector model.
 export const DEFAULT_TRANSMISSION_ID = 'automatic-6'
 
 export const TRANSMISSION_PROFILE_KINDS = TRANSMISSION_KINDS

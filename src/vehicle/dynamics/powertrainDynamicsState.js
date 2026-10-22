@@ -74,6 +74,86 @@ export function selectForwardGearIndexForSpeed({
   return ratios.length - 1 // At high speed: stay in top gear
 }
 
+// ---------------------------------------------------------------------------
+// Manual gear selection: the driver-facing shift seam.
+//
+// A manual shift is a request for a specific FORWARD gear index of the
+// selected transmission profile. It is deliberately limited to the forward
+// gear range: the R/N/D drive selector is a separate, coarser concept owned
+// by the controller's setGear() and is not part of this seam.
+//
+// The helpers below are pure: they hold no state and are given everything
+// they need by the caller.
+// ---------------------------------------------------------------------------
+
+export const SHIFT_MODES = Object.freeze({
+  AUTO: 'auto',
+  MANUAL: 'manual',
+})
+
+// Clamp a requested forward gear index into the profile's forward gear range.
+//
+// A profile with no discrete forward gears (the CVT) has no valid index and
+// returns null, so a caller cannot accidentally select a gear on a
+// continuously variable transmission.
+export function clampForwardGearIndex(gearIndex, transmissionProfile) {
+  const ratios = transmissionProfile?.forwardGearRatios
+
+  if (!Array.isArray(ratios) || ratios.length === 0) return null
+
+  const requested = Number(gearIndex)
+
+  if (!Number.isFinite(requested)) return 0
+
+  const truncated = Math.trunc(requested)
+
+  return Math.max(0, Math.min(truncated, ratios.length - 1))
+}
+
+// Resolve the effective forward gear index for the current step.
+//
+// Precedence:
+// 1. A manual selection wins outright. While a manual selection is in effect
+//    the automatic selector must not run, otherwise it would immediately
+//    overwrite the driver's choice on the very next step.
+// 2. Otherwise the automatic selection (already computed by the caller from
+//    wheel speed) is used when the profile is allowed to auto-shift.
+// 3. Otherwise the first forward gear is used.
+//
+// The returned index is always a valid index for the profile, or 0 for a
+// profile with no discrete forward gears.
+export function resolveForwardGearIndex({
+  transmissionProfile,
+  automaticGearIndex = null,
+  manualForwardGearIndex = null,
+}) {
+  if (
+    manualForwardGearIndex !== null &&
+    manualForwardGearIndex !== undefined
+  ) {
+    const clampedManual = clampForwardGearIndex(
+      manualForwardGearIndex,
+      transmissionProfile
+    )
+
+    if (clampedManual !== null) return clampedManual
+  }
+
+  if (
+    automaticGearIndex !== null &&
+    automaticGearIndex !== undefined
+  ) {
+    const clampedAutomatic = clampForwardGearIndex(
+      automaticGearIndex,
+      transmissionProfile
+    )
+
+    if (clampedAutomatic !== null) return clampedAutomatic
+  }
+
+  return 0
+}
+
 export function computeSelectedGearForwardRatio(transmissionProfile, gearIndex = 0) {
   const ratios = transmissionProfile?.forwardGearRatios
   if (!Array.isArray(ratios) || ratios.length === 0) return 1

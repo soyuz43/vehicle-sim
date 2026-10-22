@@ -18,6 +18,8 @@ const REQUIRED_TELEMETRY_FIELDS = [
   'chassisMassProperties.massKilograms',
   'powertrainKinematics.estimatedEngineRpm',
   'gear',
+  'forwardGearLabel',
+  'shiftMode',
   'throttleInput',
   'brakeInput',
   'totalAxleDriveTorqueNewtonMeters',

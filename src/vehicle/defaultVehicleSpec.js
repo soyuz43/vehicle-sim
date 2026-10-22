@@ -138,6 +138,19 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // the baseline automatic-6 transmission profile.
   automaticTransmissionEnabled: true,
   automaticTransmissionDownshiftRpm: 1500,
+  // Manual gear shift input (the [ and ] keys). A driver-requested forward
+  // gear shift is accepted only by transmission profiles that declare
+  // supportsManualSelection; the CVT ignores it because it has no discrete
+  // forward gears. A transmission that cannot auto-shift (a manual gearbox)
+  // uses the selected gear directly and never selects one on its own.
+  manualShiftInputEnabled: true,
+  // Minimum simulation time between two accepted shifts. Without it, key
+  // auto-repeat would sweep through every gear within a single frame.
+  manualShiftCooldownSeconds: 0.1,
+  // How long a manual gear selection holds on a transmission that can also
+  // auto-shift, before the transmission returns to automatic selection. A
+  // manual gearbox has no automatic selection and ignores this timeout.
+  manualShiftOverrideTimeoutSeconds: 3,
   // Clutch engagement models a scalar coupling factor [0,1] between engine and
   // wheels (launch/shift slip). When disabled the clutch is treated as always
   // engaged (factor 1).

@@ -18,7 +18,8 @@
 - `S`: Service brake
 - `Space`: Parking brake
 - `A/D`: Steering
-- `[`/`]`: Gear selector (Reverse/Neutral/Drive)
+- `[`/`]`: Shift forward gear (down / up) on the selected transmission
+- Reverse/Neutral/Drive selector: no key binding; set it programmatically with `controller.setGear('reverse' | 'neutral' | 'drive')`
 - `C`: Camera cycle
 - `R`: Reset
 
@@ -78,6 +79,7 @@
 ### Drivetrain Enhancements
 - Engine inertia and RPM integration
 - Automatic transmission shifting (only for transmission profiles that support it; manual gearboxes hold their first gear)
+- Manual gear shifting with the `[`/`]` keys (only for transmission profiles that support manual selection; the CVT ignores it)
 - Clutch modeling
 - Various feature flags control advanced behaviors
 
@@ -136,6 +138,7 @@ The same seed and configuration reproduce the same terrain heights, normals, sur
 - Real-time telemetry HUD showing forces, slip, loads, and dynamics
 - Live tuning parameters for drive/brake/tire stiffness multipliers
 - Comprehensive state tracing for debugging
+- Swap transmissions live from the browser console: `__vehicleSim.vehicleController.setTransmission('manual-6')` (also: manual-4, manual-5, manual-6-granny, automatic-6, automatic-8, dct-7, dct-8, cvt).
 
 ---
 *Last Updated: Wednesday, August 19, 2026*
