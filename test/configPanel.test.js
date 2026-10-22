@@ -182,17 +182,16 @@ test('changing terrain selector updates terrain', async () => {
     '../src/vehicle/config/createVehicleConfiguration.js'
   )
 
-  let terrainChanged = null
   const ui = createConfigPanel({
     initialTerrain: 'proving-ground',
     initialVehicleConfig: createDefaultVehicleConfiguration(),
-    onTerrainChange: (terrain) => { terrainChanged = terrain; },
   })
 
-  // Test public API for terrain change
+  // The terrain selection is STAGED. The host applies it, and the running
+  // terrain is reported back through markTerrainApplied().
   ui.setTerrain('offroad')
   assert.equal(ui.getTerrain(), 'offroad')
-  // onTerrainChange callback is called on URL change in real usage, not on setTerrain
+  assert.equal(ui.isDirty(), true, 'the staged terrain is pending')
 })
 
 test('changing vehicle slot updates configuration', async () => {
@@ -406,7 +405,7 @@ test('a failed apply keeps the panel dirty and reports the error', async () => {
   assert.equal(applyButton.element?.disabled ?? applyButton.disabled, false)
 })
 
-test('Reset All restores the stock configuration and applies it', async () => {
+test('Reset Vehicle restores the stock configuration and applies it', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
   const { createDefaultVehicleConfiguration } = await import(
@@ -445,9 +444,9 @@ test('Reset All restores the stock configuration and applies it', async () => {
   const resetButton = findElement(
     ui.element,
     (element) => element.tagName === 'button' &&
-      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset All') !== null
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
   )
-  assert.ok(resetButton, 'the panel must expose a Reset All button')
+  assert.ok(resetButton, 'the panel must expose a Reset Vehicle button')
   resetButton.dispatchEvent({ type: 'click' })
 
   assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-hatchback')
@@ -530,7 +529,7 @@ test('the Apply button applies the staged setup to a running controller', async 
   assert.equal(ui.isDirty(), false)
 })
 
-test('Reset All applies the stock setup to a running controller', async () => {
+test('Reset Vehicle applies the stock setup to a running controller', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
   const { createDefaultVehicleConfiguration } = await import(
@@ -593,16 +592,456 @@ test('Reset All applies the stock setup to a running controller', async () => {
   const resetButton = findElement(
     ui.element,
     (element) => element.tagName === 'button' &&
-      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset All') !== null
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
   )
   resetButton.dispatchEvent({ type: 'click' })
 
   assert.equal(
     controller.getSnapshot().chassisMassProperties.massKg,
     1400,
-    'Reset All restores the stock setup on the running controller'
+    'Reset Vehicle restores the stock setup on the running controller'
   )
   assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-hatchback')
+})
+
+test('Reset Vehicle does not change the terrain selection', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'offroad',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onReset: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
+  )
+  assert.ok(resetButton, 'the panel must expose a Reset Vehicle button')
+  resetButton.dispatchEvent({ type: 'click' })
+
+  assert.equal(
+    ui.getTerrain(),
+    'offroad',
+    'Reset Vehicle leaves the running terrain selection alone'
+  )
+  assert.equal(ui.isDirty(), false)
+})
+
+test('staging a terrain change, then clicking Reset Vehicle, leaves the panel dirty and keeps the terrain staged', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onReset: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  const terrainSelect = findById(ui.element, 'config-terrain-select')
+  terrainSelect.value = 'offroad'
+  terrainSelect.dispatchEvent({ type: 'change', target: terrainSelect })
+  assert.equal(ui.getTerrain(), 'offroad', 'the terrain selection is staged')
+  assert.equal(ui.isDirty(), true, 'a staged terrain selection is pending')
+
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  assert.equal(ui.getVehicleConfig().slots.chassis, 'chassis-suv')
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
+  )
+  resetButton.dispatchEvent({ type: 'click' })
+
+  assert.equal(
+    ui.getTerrain(),
+    'offroad',
+    'Reset Vehicle does not clear the staged terrain selection'
+  )
+  assert.equal(
+    ui.getVehicleConfig().slots.chassis,
+    'chassis-hatchback',
+    'the vehicle setup is back to the stock configuration'
+  )
+  assert.equal(
+    ui.isDirty(),
+    true,
+    'the staged terrain selection keeps the panel dirty after the vehicle reset'
+  )
+})
+
+test('the dirty state is derived from the staged and the running selection', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onApply: () => { ui.markApplied(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  assert.equal(ui.isDirty(), false, 'a fresh panel is clean')
+
+  // Staging the terrain the session is already running is not a change.
+  ui.setTerrain('proving-ground')
+  assert.equal(ui.isDirty(), false, 're-staging the running terrain is not a change')
+
+  // A staged terrain selection that is not the running one is pending.
+  ui.setTerrain('offroad')
+  assert.equal(ui.isDirty(), true, 'a staged terrain selection is pending')
+
+  // The host reports that the staged terrain is now the running one, so
+  // the selection is no longer pending.
+  ui.markTerrainApplied('offroad')
+  assert.equal(ui.isDirty(), false, 'the committed terrain is the running terrain')
+})
+
+test('the panel reflects a console swap', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+  })
+  controller.onConfigurationChanged((activeConfig) => {
+    ui.applyExternalVehicleConfig(activeConfig)
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  const suspensionSelect = findById(ui.element, 'config-suspension-select')
+  assert.equal(
+    ui.getVehicleConfig().slots.suspension,
+    'susp-stock',
+    'the panel starts in step with the vehicle'
+  )
+
+  controller.setSuspension('susp-solid-axle-rear')
+
+  assert.equal(
+    suspensionSelect.value,
+    'susp-solid-axle-rear',
+    'the panel follows the console swap'
+  )
+  assert.equal(ui.getVehicleConfig().slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(ui.isDirty(), false, 'a console swap is not a staged change')
+
+  const status = findById(ui.element, 'config-vehicle-preview')
+  assert.match(status.textContent, /Suspension: Rear Solid Axle/)
+})
+
+test('console setTransmission on the stock drivetrain shows a modified select without dirtying the panel', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+  })
+  controller.onConfigurationChanged((activeConfig) => {
+    ui.applyExternalVehicleConfig(activeConfig)
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  const drivetrainSelect = findById(ui.element, 'config-drivetrain-select')
+  assert.equal(
+    ui.getVehicleConfig().slots.drivetrain,
+    'drivetrain-stock',
+    'the panel starts in step with the vehicle'
+  )
+
+  controller.setTransmission('manual-6')
+
+  assert.equal(
+    drivetrainSelect.value,
+    '__modified_outside_catalog__',
+    'the select reports that the running drivetrain is not a catalog component'
+  )
+  assert.deepEqual(ui.getModifiedSlots(), ['drivetrain'])
+
+  const markerOption = (drivetrainSelect.children ?? []).find(
+    (child) => child.value === '__modified_outside_catalog__'
+  )
+  assert.ok(markerOption, 'the select carries a visible modified marker')
+  assert.equal(markerOption.textContent, 'Modified outside catalog')
+
+  const status = findById(ui.element, 'config-vehicle-preview')
+  assert.match(status.textContent, /Drivetrain: modified outside catalog/)
+
+  assert.equal(
+    ui.isDirty(),
+    false,
+    'a console swap is not a staged change, so the panel stays clean'
+  )
+})
+
+test('an external change to one slot keeps the staged change in another slot', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+  })
+  controller.onConfigurationChanged((activeConfig) => {
+    ui.applyExternalVehicleConfig(activeConfig)
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+
+  const brakesSelect = findById(ui.element, 'config-brakes-select')
+  brakesSelect.value = 'brakes-sport'
+  brakesSelect.dispatchEvent({ type: 'change', target: brakesSelect })
+  assert.equal(ui.isDirty(), true, 'the staged brake change is pending')
+
+  controller.setSuspension('susp-solid-axle-rear')
+
+  assert.equal(
+    ui.getVehicleConfig().slots.brakes,
+    'brakes-sport',
+    'the staged brake change survives a change in another slot'
+  )
+  assert.equal(ui.getVehicleConfig().slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(ui.isDirty(), true, 'the staged brake change is still pending')
+})
+
+test('applying a chassis change at 120 km/h warns about the dropped vertical state', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+  const { describeVehicleApplyWarning } = await import(
+    '../src/vehicle/config/describeVehicleApplyWarning.js'
+  )
+  const { createCar } = await import('../src/car/createCar.js')
+  const { createVehicleController } = await import(
+    '../src/vehicle/createVehicleController.js'
+  )
+  const THREE = await import('three')
+
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    startPosition: new THREE.Vector3(0, 0, 0),
+  })
+  for (let step = 0; step < 1200; step += 1) {
+    controller.update(1 / 60, { throttle: true })
+  }
+
+  const speedMetersPerSecond = controller.getSnapshot().worldSpeedMetersPerSecond
+  assert.ok(
+    speedMetersPerSecond > 30 / 3.6,
+    'the test vehicle is above the warning threshold'
+  )
+
+  let lastAppliedVehicleConfig = createDefaultVehicleConfiguration()
+
+  // The host does what main.js does: read the speed, describe the
+  // consequence, apply, and report the outcome to the panel.
+  function applyToController(vehicleConfig) {
+    const warning = describeVehicleApplyWarning({
+      pendingVehicleConfig: vehicleConfig,
+      appliedVehicleConfig: lastAppliedVehicleConfig,
+      speedMetersPerSecond: controller.getSnapshot().worldSpeedMetersPerSecond,
+    })
+
+    controller.setVehicleConfiguration(vehicleConfig)
+    lastAppliedVehicleConfig = vehicleConfig
+    ui.markApplied({ vehicleConfig, warning })
+  }
+
+  let ui
+  ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: lastAppliedVehicleConfig,
+    onApply: ({ vehicleConfig }) => {
+      applyToController(vehicleConfig)
+    },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+  const applyButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Apply') !== null
+  )
+  const status = findById(ui.element, 'config-vehicle-preview')
+
+  // A chassis change at speed drops the vertical dynamics state.
+  const chassisSelect = findById(ui.element, 'config-chassis-select')
+  chassisSelect.value = 'chassis-suv'
+  chassisSelect.dispatchEvent({ type: 'change', target: chassisSelect })
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.match(
+    status.textContent,
+    /heave, pitch, and roll state was dropped/,
+    'the status line reports the dropped vertical dynamics state'
+  )
+  assert.match(status.textContent, /km\/h/, 'the status line reports the speed')
+  assert.match(status.textContent, /Applied at \d{2}:\d{2}:\d{2}/)
+
+  // An aero change at speed drops no vertical dynamics state.
+  const aeroSelect = findById(ui.element, 'config-aero-select')
+  aeroSelect.value = 'aero-slippery'
+  aeroSelect.dispatchEvent({ type: 'change', target: aeroSelect })
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.doesNotMatch(
+    status.textContent,
+    /heave, pitch, and roll state was dropped/,
+    'an aero change at speed reports nothing'
+  )
+
+  // Re-applying the chassis the vehicle already has changes nothing.
+  const terrainSelect = findById(ui.element, 'config-terrain-select')
+  terrainSelect.value = 'offroad'
+  terrainSelect.dispatchEvent({ type: 'change', target: terrainSelect })
+  applyButton.dispatchEvent({ type: 'click' })
+
+  assert.doesNotMatch(
+    status.textContent,
+    /heave, pitch, and roll state was dropped/,
+    'an unchanged chassis at speed reports nothing'
+  )
 })
 
 test('ConfigPanel destroy cleans up', async () => {
