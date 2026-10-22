@@ -62,6 +62,18 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // outright rather than kept as an alias.
   verticalDynamicsForcingEnabled: true,
 
+  // Axle coupling v1 (Session A1) lets one axle be modelled as a rigid
+  // beam that carries both of its wheels on one shared leaf spring
+  // ('rigidAxle') instead of two wheels that each resolve their own vertical
+  // position against the terrain ('independent').
+  //
+  // This session only adds the capability and the measurement of it. The
+  // archetype catalog entries that will set these fields - a solid-axle
+  // leaf-spring profile, for example - are Session A2 work, so no catalog
+  // entry sets them yet and the shipped default stays fully independent.
+  frontAxleCoupling: 'independent',
+  rearAxleCoupling: 'independent',
+
   // Chassis terrain following is a bounded quasi-static support-height
   // approximation. It deliberately does not create vertical velocity, heave,
   // pitch, roll, gravity fall, landing impulses, or jump behavior.
