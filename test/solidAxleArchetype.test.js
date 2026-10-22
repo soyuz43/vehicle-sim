@@ -40,6 +40,7 @@ const SETTLE_STEPS = 300
 const STEP_HEIGHT_METERS = 0.08
 const ARCHETYPE_ID = 'susp-solid-axle-rear'
 const STOCK_ID = 'susp-stock'
+const HEAVY_TRUCK_CHASSIS_ID = 'chassis-heavytruck'
 
 // +X is the car's LEFT side and +Z is forward (src/car/createCar.js).
 const REAR_LEFT_WHEEL_XZ = Object.freeze({ x: 1.25, z: -1.45 })
@@ -102,6 +103,67 @@ function createRaisedStepQuery(targetWheelXZ, stepHeightMeters = STEP_HEIGHT_MET
   }
 }
 
+function smoothstep01(value) {
+  const clamped = Math.min(1, Math.max(0, value))
+  return clamped * clamped * (3 - 2 * clamped)
+}
+
+function plateau01(value, low, high, margin) {
+  if (value <= low || value >= high) return 0
+  if (value < low + margin) return smoothstep01((value - low) / margin)
+  if (value > high - margin) return smoothstep01((high - value) / margin)
+  return 1
+}
+
+function createOneSidedBumpQuery() {
+  const heightAt = (worldXMeters, worldZMeters) =>
+    STEP_HEIGHT_METERS *
+    plateau01(worldXMeters, 0.8, 1.7, 0.25) *
+    plateau01(worldZMeters, 12, 18, 0.6)
+
+  return createHeightfieldTerrainContactQuery({
+    surfaceProfile: {
+      profileName: 'heavy-truck-one-sided-bump',
+      surfaceKind: 'test-asphalt',
+      frictionCoefficient: 1,
+      querySurfaceAtWorldPosition(worldXMeters, worldZMeters, target = {}) {
+        const sampleSpacingMeters = 0.02
+        const slopeXMetersPerMeter =
+          (heightAt(worldXMeters + sampleSpacingMeters, worldZMeters) -
+            heightAt(worldXMeters - sampleSpacingMeters, worldZMeters)) /
+          (2 * sampleSpacingMeters)
+        const slopeZMetersPerMeter =
+          (heightAt(worldXMeters, worldZMeters + sampleSpacingMeters) -
+            heightAt(worldXMeters, worldZMeters - sampleSpacingMeters)) /
+          (2 * sampleSpacingMeters)
+        const normal = new THREE.Vector3(
+          -slopeXMetersPerMeter,
+          1,
+          -slopeZMetersPerMeter
+        ).normalize()
+
+        target.isWithinBounds = true
+        target.isInsideTerrainBounds = true
+        target.profileName = 'heavy-truck-one-sided-bump'
+        target.surfaceKind = 'test-asphalt'
+        target.frictionCoefficient = 1
+        target.terrainHeightMeters = heightAt(worldXMeters, worldZMeters)
+        target.groundHeightMeters = target.terrainHeightMeters
+        target.normalWorld = target.normalWorld ?? {}
+        target.normalWorld.x = normal.x
+        target.normalWorld.y = normal.y
+        target.normalWorld.z = normal.z
+        target.slopeRadians = Math.atan(
+          Math.hypot(slopeXMetersPerMeter, slopeZMetersPerMeter)
+        )
+        target.slopeDegrees = (target.slopeRadians * 180) / Math.PI
+        target.status = 'surface-available'
+        return target
+      },
+    },
+  })
+}
+
 function createController({ spec = {}, terrainContactQuery } = {}) {
   return createVehicleController({
     vehicle: createCar(),
@@ -111,13 +173,24 @@ function createController({ spec = {}, terrainContactQuery } = {}) {
   })
 }
 
-function createCatalogCar(suspensionComponentId, terrainContactQuery) {
+function createCatalogCar(
+  suspensionComponentId,
+  terrainContactQuery,
+  chassisComponentId = null
+) {
   const car = createCar()
-  const configuration = setVehicleConfigurationSlot(
+  let configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
     'suspension',
     suspensionComponentId
   )
+  if (chassisComponentId) {
+    configuration = setVehicleConfigurationSlot(
+      configuration,
+      'chassis',
+      chassisComponentId
+    )
+  }
   const applied = applyVehicleConfiguration(configuration)
 
   const controller = createVehicleController({
@@ -373,6 +446,89 @@ test('the axle beam tracks the wheel positions it spans', () => {
   assert.ok(
     Math.abs(beamNode.scale.y - leftCenter.distanceTo(rightCenter)) < 1e-6,
     'the beam must be stretched to the distance between the wheel centres'
+  )
+})
+
+test('the heavy truck stays stable over a one-sided bump at speed', () => {
+  const { controller } = createCatalogCar(
+    ARCHETYPE_ID,
+    createOneSidedBumpQuery(),
+    HEAVY_TRUCK_CHASSIS_ID
+  )
+  let previousBeamRollRadians = null
+  let previousBodyRollRadians = null
+  let maximumBeamRollStepRadians = 0
+  let maximumBodyRollStepRadians = 0
+  let maximumAbsoluteBodyRollRadians = 0
+  let maximumSpeedAtBumpMetersPerSecond = 0
+  let maximumBumpContactHeightMeters = 0
+
+  for (let step = 0; step < 900; step += 1) {
+    const snapshot = controller.update(DT_SECONDS, { throttle: true })
+    const rearAxle = snapshot.axleCoupling.axles.rear
+    const beamRollRadians = rearAxle.beamRollRadians
+    const bodyRollRadians = snapshot.verticalDynamics.rollRadians
+    const rearLeftWheel = wheelState(snapshot, 'rear-left')
+    const rearRightWheel = wheelState(snapshot, 'rear-right')
+    const bumpContactHeightMeters = Math.max(
+      rearLeftWheel.contactPointWorldPosition.y,
+      rearRightWheel.contactPointWorldPosition.y
+    )
+
+    assert.equal(rearAxle.isCoupled, true)
+    assert.ok(Number.isFinite(snapshot.position.z))
+    assert.ok(Number.isFinite(snapshot.speedMetersPerSecond))
+    assert.ok(Number.isFinite(beamRollRadians))
+    assert.ok(Number.isFinite(bodyRollRadians))
+
+    if (bumpContactHeightMeters > 0.04) {
+      maximumBumpContactHeightMeters = Math.max(
+        maximumBumpContactHeightMeters,
+        bumpContactHeightMeters
+      )
+      maximumSpeedAtBumpMetersPerSecond = Math.max(
+        maximumSpeedAtBumpMetersPerSecond,
+        snapshot.speedMetersPerSecond
+      )
+    }
+
+    maximumAbsoluteBodyRollRadians = Math.max(
+      maximumAbsoluteBodyRollRadians,
+      Math.abs(bodyRollRadians)
+    )
+    if (previousBeamRollRadians !== null) {
+      maximumBeamRollStepRadians = Math.max(
+        maximumBeamRollStepRadians,
+        Math.abs(beamRollRadians - previousBeamRollRadians)
+      )
+      maximumBodyRollStepRadians = Math.max(
+        maximumBodyRollStepRadians,
+        Math.abs(bodyRollRadians - previousBodyRollRadians)
+      )
+    }
+    previousBeamRollRadians = beamRollRadians
+    previousBodyRollRadians = bodyRollRadians
+  }
+
+  assert.ok(
+    maximumBumpContactHeightMeters > 0.06,
+    'the rear axle must cross the one-sided terrain bump'
+  )
+  assert.ok(
+    maximumSpeedAtBumpMetersPerSecond > 2,
+    'the truck must cross the bump while moving at speed'
+  )
+  assert.ok(
+    maximumAbsoluteBodyRollRadians < 0.2,
+    'the body roll must remain bounded rather than oscillating or diverging'
+  )
+  assert.ok(
+    maximumBeamRollStepRadians < 0.1,
+    'the beam roll must change continuously without frame-to-frame jitter'
+  )
+  assert.ok(
+    maximumBodyRollStepRadians < 0.05,
+    'the body roll must change continuously without frame-to-frame jitter'
   )
 })
 

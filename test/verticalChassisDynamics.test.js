@@ -17,6 +17,7 @@ function makeWheelState({ x, z, axle }) {
   return {
     isGrounded: true,
     axle,
+    side: x > 0 ? 'left' : 'right',
     localPosition: { x, y: 0, z },
     suspensionSpringRateNewtonsPerMeter: SPRING_RATE,
     suspensionCompressionDampingNewtonsPerMeterPerSecond: DAMPING,
@@ -83,16 +84,16 @@ test('pitch (nose up) transfers load rearward and conserves total', () => {
   )
 })
 
-test('roll (right side up) transfers load to the left wheels', () => {
+test('roll (left side up) transfers load to the right wheels', () => {
   const wheelStates = makeSymmetricWheelStates()
   const state = createVerticalChassisDynamicsState(makeSpec())
   state.rollRadians = 0.05
   updateVerticalChassisDynamics(state, wheelStates, makeSpec(), 0)
-  const right = wheelStates.filter((w) => w.localPosition.x > 0)
-  const left = wheelStates.filter((w) => w.localPosition.x < 0)
-  const rightLoad = right.reduce((s, w) => s + w.normalForceNewtons, 0)
-  const leftLoad = left.reduce((s, w) => s + w.normalForceNewtons, 0)
-  assert.ok(rightLoad < leftLoad, 'right (raised) side must carry less load')
+  const left = wheelStates.filter((wheelState) => wheelState.localPosition.x > 0)
+  const right = wheelStates.filter((wheelState) => wheelState.localPosition.x < 0)
+  const leftLoad = left.reduce((total, wheelState) => total + wheelState.normalForceNewtons, 0)
+  const rightLoad = right.reduce((total, wheelState) => total + wheelState.normalForceNewtons, 0)
+  assert.ok(leftLoad < rightLoad, 'left (raised) side must carry less load')
 })
 
 test('free vertical bounce is stable and decays to equilibrium', () => {
