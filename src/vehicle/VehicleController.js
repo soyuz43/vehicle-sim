@@ -145,6 +145,7 @@ import {
 import {
     createPowertrainSnapshot,
     createStockEngineCatalogTelemetry,
+    profileSupportsAutomaticShifting,
     selectEngineProfile,
     selectTransmissionProfile,
 } from './powertrain/createPowertrainSelection.js'
@@ -1979,7 +1980,14 @@ export class VehicleController {
         // (positive drive, negative reverse, zero neutral). The predictive
         // redline cap applied below turns this into the applied axle torque.
         let selectedForwardGearIndex = null
-        if (spec.automaticTransmissionEnabled === true) {
+        // Automatic gear selection needs BOTH the global spec flag and the
+        // selected profile's own capability. A manual profile declares
+        // supportsAutomaticShifting: false and therefore never auto-shifts,
+        // even when the global automaticTransmissionEnabled flag is on.
+        if (
+          spec.automaticTransmissionEnabled === true &&
+          profileSupportsAutomaticShifting(state.transmissionProfile)
+        ) {
             selectedForwardGearIndex = selectForwardGearIndexForSpeed({
                 wheelAngularVelocityRadiansPerSecond:
                     averageDrivenWheelAngularVelocityRadiansPerSecond,
