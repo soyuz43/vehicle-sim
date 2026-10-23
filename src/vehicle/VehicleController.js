@@ -3679,7 +3679,8 @@ export class VehicleController {
         suspensionVisuals?.updateFromWheelStates(
             state.wheelStates,
             state.axleCouplingState,
-            spec.suspensionVisualKind
+            spec.suspensionVisualKind,
+            spec.suspensionLinkage
         )
     }
 

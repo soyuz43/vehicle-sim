@@ -68,6 +68,9 @@ export function resetWheelCamberState(wheelState) {
   wheelState.camberThrustForceNewtons = 0
   wheelState.camberGainSource = 'coefficient'
   wheelState.camberStaticCompressionReferenceMeters = null
+  if (wheelState.wishboneKinematics) {
+    wheelState.wishboneKinematics = undefined
+  }
 
   return wheelState
 }
@@ -152,6 +155,18 @@ export function updateWheelCamberState(
       staticCompressionReferenceMeters +
       rollInducedTravelMeters
     const linkageSpec = spec.suspensionLinkage
+    const wishboneKinematics =
+      linkageSpec?.kind === DOUBLE_WISHBONE_KIND
+        ? ensureWishboneKinematics(wheelState)
+        : null
+    if (wishboneKinematics) {
+      wishboneKinematics.upperOuterJoint.xMeters = Number.NaN
+      wishboneKinematics.upperOuterJoint.yMeters = Number.NaN
+      wishboneKinematics.lowerOuterJoint.xMeters = Number.NaN
+      wishboneKinematics.lowerOuterJoint.yMeters = Number.NaN
+    } else if (wheelState.wishboneKinematics) {
+      wheelState.wishboneKinematics = undefined
+    }
     let camberRadians
     let camberGainSource
 
@@ -160,6 +175,7 @@ export function updateWheelCamberState(
         wheelTravelMeters: effectiveTravelMeters,
         linkageSpec,
         staticCamberRadians: camberStaticRadians,
+        outJoints: wishboneKinematics,
       })
       camberGainSource = 'linkage'
     } else {
@@ -177,6 +193,16 @@ export function updateWheelCamberState(
   }
 
   return wheelStates
+}
+
+function ensureWishboneKinematics(wheelState) {
+  if (wheelState.wishboneKinematics) return wheelState.wishboneKinematics
+
+  wheelState.wishboneKinematics = {
+    upperOuterJoint: { xMeters: Number.NaN, yMeters: Number.NaN },
+    lowerOuterJoint: { xMeters: Number.NaN, yMeters: Number.NaN },
+  }
+  return wheelState.wishboneKinematics
 }
 
 function isLinkageCamberEnabled(linkageSpec) {

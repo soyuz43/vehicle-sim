@@ -97,10 +97,27 @@ const STRUT_VISUAL_AXLE_BY_KIND = Object.freeze({
   macphersonStrut: 'front',
 })
 const NO_SUSPENSION_VISUAL_KIND = 'none'
+const WISHBONE_VISUAL_KIND = 'doubleWishbone'
+const WISHBONE_LINKAGE_KIND = 'double-wishbone'
+// Visual approximation only: the 2D linkage has no fore-aft dimension.
+const WISHBONE_INNER_PIVOT_HALF_SPAN_METERS = 0.15
+const WISHBONE_ARM_RADIUS_METERS = 0.021
+const WISHBONE_CARRIER_RADIUS_METERS = 0.035
+const WISHBONE_RADIAL_SEGMENTS = 12
+const WISHBONE_SEGMENT_DEFINITIONS = Object.freeze([
+  'upper-arm-front-link',
+  'upper-arm-rear-link',
+  'upper-arm-crossbar',
+  'lower-arm-front-link',
+  'lower-arm-rear-link',
+  'lower-arm-crossbar',
+  'hub-carrier',
+])
 
 export function createSuspensionVisuals(vehicle) {
   const axleEntries = new Map()
   const strutEntries = new Map()
+  const wishboneEntries = new Map()
   const strutTopLocal = new THREE.Vector3()
   const strutBottomLocal = new THREE.Vector3()
   const strutMidpointLocal = new THREE.Vector3()
@@ -130,6 +147,10 @@ export function createSuspensionVisuals(vehicle) {
     metalness: 0.85,
     roughness: 0.35,
   })
+  let wishboneArmGeometry = null
+  let wishboneCarrierGeometry = null
+  let wishboneArmMaterial = null
+  let wishboneCarrierMaterial = null
 
   const snapshot = {
     axles: {},
@@ -148,7 +169,8 @@ export function createSuspensionVisuals(vehicle) {
   function updateFromWheelStates(
     wheelStates = [],
     axleCouplingState = null,
-    suspensionVisualKind = NO_SUSPENSION_VISUAL_KIND
+    suspensionVisualKind = NO_SUSPENSION_VISUAL_KIND,
+    suspensionLinkage = null
   ) {
     const wheelStateList = Array.isArray(wheelStates) ? wheelStates : []
 
@@ -205,6 +227,7 @@ export function createSuspensionVisuals(vehicle) {
     }
 
     updateStruts(wheelStateList, suspensionVisualKind)
+    updateWishbones(wheelStateList, suspensionVisualKind, suspensionLinkage)
 
     snapshot.isFinite =
       Object.values(snapshot.axles).every(
@@ -212,7 +235,8 @@ export function createSuspensionVisuals(vehicle) {
       ) &&
       Object.values(snapshot.struts).every(
         (strutSnapshot) => strutSnapshot.isFinite
-      )
+      ) &&
+      areWishboneEntriesFinite()
 
     return snapshot
   }
@@ -235,6 +259,11 @@ export function createSuspensionVisuals(vehicle) {
         lengthMeters: 0,
         isFinite: true,
       })
+    }
+
+    for (const entry of wishboneEntries.values()) {
+      hideWishboneEntry(entry)
+      entry.isFinite = true
     }
 
     return snapshot
@@ -401,6 +430,256 @@ export function createSuspensionVisuals(vehicle) {
     }
   }
 
+  function updateWishbones(wheelStateList, suspensionVisualKind, linkageSpec) {
+    const isWishboneActive =
+      suspensionVisualKind === WISHBONE_VISUAL_KIND &&
+      linkageSpec?.kind === WISHBONE_LINKAGE_KIND &&
+      linkageSpec.leftSide
+
+    if (!isWishboneActive) {
+      for (const entry of wishboneEntries.values()) {
+        hideWishboneEntry(entry)
+        entry.isFinite = true
+      }
+      return
+    }
+
+    for (const wheelState of wheelStateList) {
+      const wheelId = wheelState?.id
+      if (!wheelId || (wheelState.axle !== 'front' && wheelState.axle !== 'rear')) continue
+      if (wheelState.side !== 'left' && wheelState.side !== 'right') continue
+
+      const entry = wishboneEntries.get(wheelId) ?? createWishboneEntry(wheelId)
+      entry.isFinite = applyWishbonePose(entry, wheelState, linkageSpec)
+      if (!entry.isFinite) hideWishboneEntry(entry)
+    }
+
+    for (const entry of wishboneEntries.values()) {
+      if (!findWheelStateById(wheelStateList, entry.wheelId)) {
+        hideWishboneEntry(entry)
+        entry.isFinite = true
+      }
+    }
+  }
+
+  function createWishboneEntry(wheelId) {
+    if (!wishboneArmGeometry) {
+      wishboneArmGeometry = new THREE.CylinderGeometry(
+        WISHBONE_ARM_RADIUS_METERS,
+        WISHBONE_ARM_RADIUS_METERS,
+        1,
+        WISHBONE_RADIAL_SEGMENTS
+      )
+      wishboneCarrierGeometry = new THREE.CylinderGeometry(
+        WISHBONE_CARRIER_RADIUS_METERS,
+        WISHBONE_CARRIER_RADIUS_METERS,
+        1,
+        WISHBONE_RADIAL_SEGMENTS
+      )
+      wishboneArmMaterial = new THREE.MeshStandardMaterial({
+        color: 0x454b52,
+        metalness: 0.78,
+        roughness: 0.38,
+      })
+      wishboneCarrierMaterial = new THREE.MeshStandardMaterial({
+        color: 0x8a929a,
+        metalness: 0.82,
+        roughness: 0.32,
+      })
+    }
+
+    const group = new THREE.Group()
+    group.name = wheelId + '-wishbone-visual'
+    group.visible = false
+    const segments = new Map()
+
+    for (const segmentName of WISHBONE_SEGMENT_DEFINITIONS) {
+      const isCarrier = segmentName === 'hub-carrier'
+      const node = new THREE.Mesh(
+        isCarrier ? wishboneCarrierGeometry : wishboneArmGeometry,
+        isCarrier ? wishboneCarrierMaterial : wishboneArmMaterial
+      )
+      node.name = `wishbone-${wheelId}-${segmentName}-segment-visual`
+      node.castShadow = true
+      node.visible = false
+      group.add(node)
+      segments.set(segmentName, {
+        node,
+        kinematics: createSegmentBetweenPointsState(),
+      })
+    }
+
+    vehicle.add(group)
+
+    const entry = {
+      wheelId,
+      group,
+      segments,
+      points: {
+        upperInnerFront: new THREE.Vector3(),
+        upperInnerRear: new THREE.Vector3(),
+        upperOuter: new THREE.Vector3(),
+        lowerInnerFront: new THREE.Vector3(),
+        lowerInnerRear: new THREE.Vector3(),
+        lowerOuter: new THREE.Vector3(),
+        outerMidpoint: new THREE.Vector3(),
+        wheelCenter: new THREE.Vector3(),
+      },
+      isFinite: true,
+    }
+    wishboneEntries.set(wheelId, entry)
+    return entry
+  }
+
+  function applyWishbonePose(entry, wheelState, linkageSpec) {
+    const leftSide = linkageSpec.leftSide
+    const upperInner = leftSide.upperArm?.innerPivot
+    const lowerInner = leftSide.lowerArm?.innerPivot
+    const kinematics = wheelState.wishboneKinematics
+    const upperJoint = kinematics?.upperOuterJoint
+    const lowerJoint = kinematics?.lowerOuterJoint
+    const wheelCenter = wheelState.wheelCenterLocalPosition
+    const axlePosition = wheelState.localPosition
+    const sideSign = wheelState.side === 'right' ? -1 : 1
+    const axleZMeters = Number(axlePosition?.z ?? wheelCenter?.z)
+    const frontPivotZMeters =
+      axleZMeters + WISHBONE_INNER_PIVOT_HALF_SPAN_METERS
+    const rearPivotZMeters =
+      axleZMeters - WISHBONE_INNER_PIVOT_HALF_SPAN_METERS
+    const points = entry.points
+
+    points.upperInnerFront.set(
+      sideSign * Number(upperInner?.xMeters),
+      Number(upperInner?.yMeters),
+      frontPivotZMeters
+    )
+    points.upperInnerRear.set(
+      sideSign * Number(upperInner?.xMeters),
+      Number(upperInner?.yMeters),
+      rearPivotZMeters
+    )
+    points.upperOuter.set(
+      sideSign * Number(upperJoint?.xMeters),
+      Number(upperJoint?.yMeters),
+      axleZMeters
+    )
+    points.lowerInnerFront.set(
+      sideSign * Number(lowerInner?.xMeters),
+      Number(lowerInner?.yMeters),
+      frontPivotZMeters
+    )
+    points.lowerInnerRear.set(
+      sideSign * Number(lowerInner?.xMeters),
+      Number(lowerInner?.yMeters),
+      rearPivotZMeters
+    )
+    points.lowerOuter.set(
+      sideSign * Number(lowerJoint?.xMeters),
+      Number(lowerJoint?.yMeters),
+      axleZMeters
+    )
+    points.outerMidpoint
+      .copy(points.upperOuter)
+      .add(points.lowerOuter)
+      .multiplyScalar(0.5)
+    points.wheelCenter.set(
+      Number(wheelCenter?.x),
+      Number(wheelCenter?.y),
+      Number(wheelCenter?.z)
+    )
+
+    if (
+      !isFiniteVector3(points.upperInnerFront) ||
+      !isFiniteVector3(points.upperInnerRear) ||
+      !isFiniteVector3(points.upperOuter) ||
+      !isFiniteVector3(points.lowerInnerFront) ||
+      !isFiniteVector3(points.lowerInnerRear) ||
+      !isFiniteVector3(points.lowerOuter) ||
+      !isFiniteVector3(points.outerMidpoint) ||
+      !isFiniteVector3(points.wheelCenter)
+    ) {
+      return false
+    }
+
+    if (
+      !applyWishboneSegment(
+        entry,
+        'upper-arm-front-link',
+        points.upperInnerFront,
+        points.upperOuter
+      ) ||
+      !applyWishboneSegment(
+        entry,
+        'upper-arm-rear-link',
+        points.upperInnerRear,
+        points.upperOuter
+      ) ||
+      !applyWishboneSegment(
+        entry,
+        'upper-arm-crossbar',
+        points.upperInnerFront,
+        points.upperInnerRear
+      ) ||
+      !applyWishboneSegment(
+        entry,
+        'lower-arm-front-link',
+        points.lowerInnerFront,
+        points.lowerOuter
+      ) ||
+      !applyWishboneSegment(
+        entry,
+        'lower-arm-rear-link',
+        points.lowerInnerRear,
+        points.lowerOuter
+      ) ||
+      !applyWishboneSegment(
+        entry,
+        'lower-arm-crossbar',
+        points.lowerInnerFront,
+        points.lowerInnerRear
+      ) ||
+      !applyWishboneSegment(
+        entry,
+        'hub-carrier',
+        points.outerMidpoint,
+        points.wheelCenter
+      )
+    ) {
+      return false
+    }
+
+    entry.group.visible = true
+    return true
+  }
+
+  function applyWishboneSegment(entry, name, startLocalMeters, endLocalMeters) {
+    const segment = entry.segments.get(name)
+    updateSegmentBetweenPointsState(
+      segment.kinematics,
+      startLocalMeters,
+      endLocalMeters
+    )
+    if (!applySegmentBetweenPointsState(segment.node, segment.kinematics)) {
+      return false
+    }
+    segment.node.visible = true
+    return true
+  }
+
+  function hideWishboneEntry(entry) {
+    entry.group.visible = false
+    for (const segment of entry.segments.values()) {
+      segment.node.visible = false
+    }
+  }
+
+  function areWishboneEntriesFinite() {
+    for (const entry of wishboneEntries.values()) {
+      if (!entry.isFinite) return false
+    }
+    return true
+  }
+
   function createStrutEntry(wheelId, axle) {
     const group = new THREE.Group()
     group.name = wheelId + '-strut-visual'
@@ -537,6 +816,15 @@ export function createSuspensionVisuals(vehicle) {
     entry.group.visible = false
   }
 
+  function isFiniteVector3(vector) {
+    return (
+      vector?.isVector3 === true &&
+      Number.isFinite(vector.x) &&
+      Number.isFinite(vector.y) &&
+      Number.isFinite(vector.z)
+    )
+  }
+
   return {
     updateFromWheelStates,
     reset,
@@ -599,6 +887,13 @@ function updateAxleSnapshot(axleSnapshot, updates) {
 function findWheelState(wheelStates, axle, side) {
   for (const wheelState of wheelStates) {
     if (wheelState?.axle === axle && wheelState?.side === side) return wheelState
+  }
+  return null
+}
+
+function findWheelStateById(wheelStates, wheelId) {
+  for (const wheelState of wheelStates) {
+    if (wheelState?.id === wheelId) return wheelState
   }
   return null
 }
