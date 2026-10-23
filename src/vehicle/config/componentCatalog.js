@@ -54,6 +54,7 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'suspensionVisualKind',
   'camberStaticRadians',
   'camberGainRadiansPerMeterCompression',
+  'suspensionLinkage',
 ])
 
 // The spec fields the chassis component owns.
@@ -323,8 +324,10 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       'The front axle uses MacPherson struts; the rear axle stays ' +
       'independent. Physics: the same independent suspension model as ' +
       'stock - this entry changes no spring rate, travel, damping, or ' +
-      'coupling mode - plus a positive camber gain of +0.0873 rad/m, ' +
-      'which is +0.5 degrees of camber per 100 mm of suspension travel. ' +
+      'coupling mode - plus a positive camber gain derived from the ' +
+      'front-view strut linkage, about +0.52 deg per 100 mm of wheel ' +
+      'travel. The linear camber-gain coefficient is zeroed so the ' +
+      'geometry owns the camber curve. ' +
       'A compressed strut wheel gains positive camber, so the tire gives ' +
       'up a little lateral force in a corner and this entry does change ' +
       'handling. The camber gain applies to every wheel of the archetype: ' +
@@ -344,7 +347,19 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'macphersonStrut',
       camberStaticRadians: 0,
-      camberGainRadiansPerMeterCompression: 0.0873,
+      camberGainRadiansPerMeterCompression: 0,
+      suspensionLinkage: {
+        kind: 'macpherson-strut',
+        leftSide: {
+          strut: {
+            upperMount: { xMeters: 0.71, yMeters: 0.945 },
+          },
+          lowerArm: {
+            innerPivot: { xMeters: 0.05, yMeters: 0.18 },
+            outerJoint: { xMeters: 0.7, yMeters: 0.1 },
+          },
+        },
+      },
     },
   },
   'susp-double-wishbone': {
@@ -353,16 +368,17 @@ const SUSPENSION_COMPONENTS = Object.freeze({
     description:
       'The suspension keeps the stock spring rate, travel, damping and ' +
       'independent coupling, and adds the double wishbone\'s defining ' +
-      'behavior: a negative camber gain of -0.262 rad/m, which is -1.5 ' +
-      'degrees of camber per 100 mm of suspension travel. A compressed ' +
+      'behavior: a negative camber gain derived from the front-view A-arm ' +
+      'linkage, about -1.64 deg per 100 mm of wheel travel. A compressed ' +
       'wishbone wheel gains negative camber, so the tire keeps a little ' +
       'more lateral force in a corner than the stock setup, and more than ' +
       'the MacPherson strut, which gains positive camber instead. The ' +
-      'camber gain applies to every wheel of the archetype: the camber ' +
-      'model has no per-axle camber gain. Visual: this entry draws no ' +
-      'archetype geometry yet; the wishbone mesh is a separate seam. The ' +
-      'roll center of a real double wishbone is still not modelled, ' +
-      'because that needs roll-center parameters.',
+      'camber comes from the linkage solver, not a tuned coefficient: the ' +
+      'linear camber-gain coefficient is zeroed so the geometry owns the ' +
+      'camber curve. Visual: this entry draws no archetype geometry yet; ' +
+      'the wishbone mesh is a separate seam. The roll center of a real ' +
+      'double wishbone is still not modelled, because that needs ' +
+      'roll-center parameters.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -375,7 +391,20 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       rearAxleCoupling: 'independent',
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
-      camberGainRadiansPerMeterCompression: -0.262,
+      camberGainRadiansPerMeterCompression: 0,
+      suspensionLinkage: {
+        kind: 'double-wishbone',
+        leftSide: {
+          upperArm: {
+            innerPivot: { xMeters: 0.18, yMeters: 0.45 },
+            outerJoint: { xMeters: 0.65, yMeters: 0.46 },
+          },
+          lowerArm: {
+            innerPivot: { xMeters: 0.21, yMeters: 0.2 },
+            outerJoint: { xMeters: 0.7, yMeters: 0.17 },
+          },
+        },
+      },
     },
   },
 })

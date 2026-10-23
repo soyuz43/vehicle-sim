@@ -300,7 +300,9 @@ test('every suspension component declares every field the suspension slot owns',
 
   for (const componentId of Object.keys(suspensionComponents)) {
     const component = suspensionComponents[componentId]
-    for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+    for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
+      (field) => field !== 'suspensionLinkage'
+    )) {
       assert.ok(
         Object.hasOwn(component.spec, field),
         componentId + ' must declare ' + field
@@ -593,5 +595,26 @@ test('a reset keeps the archetype and its beam', () => {
       readBeamRollRadians(beamNode) -
         snapshot.axleCoupling.axles.rear.beamRollRadians
     ) < 1e-6
+  )
+})
+
+
+test('only the linkage archetypes declare suspensionLinkage', () => {
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const linkageOwners = Object.keys(suspensionComponents).filter((componentId) =>
+    Object.hasOwn(suspensionComponents[componentId].spec, 'suspensionLinkage')
+  )
+
+  assert.deepEqual(
+    linkageOwners.sort(),
+    ['susp-double-wishbone', 'susp-macpherson-strut'].sort(),
+    'only the wishbone and MacPherson archetypes declare a linkage'
+  )
+
+  // The coefficient-fallback archetypes must not declare a linkage so they keep
+  // using the linear coefficient camber path (byte-identical to before).
+  assert.ok(!Object.hasOwn(suspensionComponents['susp-stock'].spec, 'suspensionLinkage'))
+  assert.ok(
+    !Object.hasOwn(suspensionComponents['susp-solid-axle-rear'].spec, 'suspensionLinkage')
   )
 })

@@ -27,6 +27,7 @@ import {
   VEHICLE_COMPONENT_CATALOG,
   getComponent,
 } from '../src/vehicle/config/componentCatalog.js'
+import { solveLinkageCamber } from '../src/vehicle/dynamics/linkageCamberSolver.js'
 
 const DT_SECONDS = 1 / 60
 const TRACE_STEPS = 900
@@ -112,7 +113,9 @@ test('the catalog exposes exactly one double wishbone archetype', () => {
 test('the wishbone archetype declares every field the suspension slot owns', () => {
   const component = getComponent('suspension', ARCHETYPE_ID)
 
-  for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+  for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
+    (field) => field !== 'suspensionLinkage'
+  )) {
     assert.ok(
       Object.hasOwn(component.spec, field),
       ARCHETYPE_ID + ' must declare ' + field
@@ -120,22 +123,26 @@ test('the wishbone archetype declares every field the suspension slot owns', () 
   }
 })
 
-test('the wishbone archetype differs from the stock preset only in its camber gain', () => {
+test('the wishbone archetype differs from the stock preset only in its camber gain and linkage', () => {
   const archetype = getComponent('suspension', ARCHETYPE_ID)
   const stock = getComponent('suspension', STOCK_ID)
 
-  assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, -0.262)
+  // The linear coefficient is zeroed so the linkage solver owns the camber
+  // curve; the linkage geometry is the only other field that departs from stock.
+  assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, 0)
   assert.equal(stock.spec.camberGainRadiansPerMeterCompression, 0)
-  assert.ok(archetype.spec.camberGainRadiansPerMeterCompression < 0)
+  assert.ok(Object.hasOwn(archetype.spec, 'suspensionLinkage'))
+  assert.ok(!Object.hasOwn(stock.spec, 'suspensionLinkage'))
   assert.equal(archetype.spec.frontAxleCoupling, 'independent')
   assert.equal(archetype.spec.rearAxleCoupling, 'independent')
 
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'camberGainRadiansPerMeterCompression') continue
+    if (field === 'suspensionLinkage') continue
     assert.equal(
       archetype.spec[field],
       stock.spec[field],
-      field + ' must match the stock preset so the camber gain is the only difference'
+      field + ' must match the stock preset so the linkage is the only difference'
     )
   }
 })
@@ -145,7 +152,7 @@ test('the wishbone archetype describes the camber gain it models', () => {
 
   assert.match(component.description, /wishbone/i)
   assert.match(component.description, /negative camber gain/i)
-  assert.match(component.description, /-0\.262 rad\/m/)
+  assert.match(component.description, /-1\.64 deg/)
   assert.match(component.description, /roll-center parameters/i)
   assert.match(component.description, /not modelled/i)
 })
@@ -269,3 +276,45 @@ function buildLateralForceRows(controller, steps = TRACE_STEPS) {
 
   return rows
 }
+
+test('the wishbone archetype uses the linkage solver and reports camberGainSource linkage', () => {
+  const { controller } = createCatalogCar(ARCHETYPE_ID)
+  // Settle the static reference before measuring camber.
+  for (let step = 0; step < 120; step += 1) {
+    controller.update(DT_SECONDS, {})
+  }
+  const snapshot = controller.update(DT_SECONDS, { throttle: true })
+
+  for (const wheelState of snapshot.wheelStates) {
+    assert.equal(wheelState.camberGainSource, 'linkage')
+  }
+})
+
+test('the wishbone camber curve matches the probe slope at +/-25mm and +/-50mm', () => {
+  const archetype = getComponent('suspension', ARCHETYPE_ID)
+  const linkage = archetype.spec.suspensionLinkage
+  assert.equal(linkage.kind, 'double-wishbone')
+
+  const slopeDegreesPer100mm = (travelMeters) => {
+    const staticCamber = solveLinkageCamber({ wheelTravelMeters: 0, linkageSpec: linkage })
+    const displacedCamber = solveLinkageCamber({ wheelTravelMeters: travelMeters, linkageSpec: linkage })
+    return ((displacedCamber - staticCamber) * 180) / Math.PI / (Math.abs(travelMeters) * 10)
+  }
+
+  assert.ok(
+    Math.abs(slopeDegreesPer100mm(0.05) + 1.64) <= 1.64 * 0.05,
+    'bump slope must be ~ -1.64 deg/100mm, got ' + slopeDegreesPer100mm(0.05)
+  )
+  assert.ok(
+    Math.abs(slopeDegreesPer100mm(-0.05) - 1.64) <= 1.64 * 0.05,
+    'rebound slope must be ~ +1.64 deg/100mm, got ' + slopeDegreesPer100mm(-0.05)
+  )
+  assert.ok(
+    Math.abs(slopeDegreesPer100mm(0.025) + 1.64) <= 1.64 * 0.05,
+    'bump slope at 25mm must be ~ -1.64 deg/100mm, got ' + slopeDegreesPer100mm(0.025)
+  )
+  assert.ok(
+    Math.abs(slopeDegreesPer100mm(-0.025) - 1.64) <= 1.64 * 0.05,
+    'rebound slope at 25mm must be ~ +1.64 deg/100mm, got ' + slopeDegreesPer100mm(-0.025)
+  )
+})

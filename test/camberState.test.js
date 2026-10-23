@@ -14,6 +14,7 @@ import {
 } from '../src/vehicle/dynamics/camberState.js'
 import { updateWheelLateralTireForceState } from '../src/vehicle/dynamics/lateralTireForceState.js'
 import { updateWheelCombinedSlipTireForce } from '../src/vehicle/dynamics/combinedSlipTireForceState.js'
+import { solveLinkageCamber } from '../src/vehicle/dynamics/linkageCamberSolver.js'
 
 const DT_SECONDS = 1 / 60
 const DESIGN_COMPRESSION_METERS = 0.22 * 0.4
@@ -65,6 +66,20 @@ const CAMBER_SPEC = {
   camberStaticRadians: 0,
   camberGainRadiansPerMeterCompression: -0.262,
   camberStiffnessNewtonsPerRadianPerNewton: 0.35,
+}
+
+const WISHBONE_LINKAGE = {
+  kind: 'double-wishbone',
+  leftSide: {
+    upperArm: {
+      innerPivot: { xMeters: 0.18, yMeters: 0.45 },
+      outerJoint: { xMeters: 0.65, yMeters: 0.46 },
+    },
+    lowerArm: {
+      innerPivot: { xMeters: 0.21, yMeters: 0.2 },
+      outerJoint: { xMeters: 0.7, yMeters: 0.17 },
+    },
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -466,5 +481,101 @@ test('a suspension change re-captures the static reference after the vehicle set
       Math.abs(wheelState.camberEffectiveTravelMeters) < 1e-12,
       'settled effective travel must return to zero'
     )
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Linkage camber (L3-minimal): the solver replaces the coefficient path.
+// ---------------------------------------------------------------------------
+
+test('a spec without suspensionLinkage uses the coefficient camber path', () => {
+  const wheel = makeWheel({ suspensionCompressionMeters: DESIGN_COMPRESSION_METERS + 0.05 })
+  updateWheelCamberState([wheel], CAMBER_SPEC, 0)
+
+  assert.equal(wheel.camberGainSource, 'coefficient')
+  assert.ok(Math.abs(wheel.camberRadians + 0.262 * 0.05) < 1e-12)
+})
+
+test('a spec with a wishbone linkage uses the linkage solver path', () => {
+  const wheel = makeWheel({ suspensionCompressionMeters: DESIGN_COMPRESSION_METERS + 0.05 })
+  const spec = { ...CAMBER_SPEC, suspensionLinkage: WISHBONE_LINKAGE }
+  updateWheelCamberState([wheel], spec, 0)
+
+  assert.equal(wheel.camberGainSource, 'linkage')
+
+  const expectedCamberRadians = solveLinkageCamber({
+    wheelTravelMeters: 0.05,
+    linkageSpec: WISHBONE_LINKAGE,
+    staticCamberRadians: 0,
+  })
+  assert.ok(
+    Math.abs(wheel.camberRadians - expectedCamberRadians) < 1e-12,
+    'the linkage path must return the solver output'
+  )
+})
+
+test('an unknown linkage kind falls back to the coefficient path', () => {
+  const wheel = makeWheel({ suspensionCompressionMeters: DESIGN_COMPRESSION_METERS + 0.05 })
+  const spec = {
+    ...CAMBER_SPEC,
+    suspensionLinkage: { kind: 'solid-axle', leftSide: {} },
+  }
+  updateWheelCamberState([wheel], spec, 0)
+
+  assert.equal(wheel.camberGainSource, 'coefficient')
+  assert.ok(Math.abs(wheel.camberRadians + 0.262 * 0.05) < 1e-12)
+})
+
+// A canonical text trace of a long drive, focused on the camber fields, so the
+// coefficient path can be shown byte-identical and deterministic for archetypes
+// that do not declare a linkage.
+function buildCamberTrace(spec) {
+  const controller = createVehicleController({ vehicle: createCar(), spec })
+  const lines = []
+
+  for (let step = 0; step < 5400; step += 1) {
+    const input = step < 3600 ? { throttle: true } : { brake: true }
+    const snapshot = controller.update(DT_SECONDS, input)
+    const fields = []
+    for (const wheelState of snapshot.wheelStates) {
+      fields.push(
+        wheelState.id,
+        wheelState.camberGainSource,
+        wheelState.camberRadians.toFixed(12),
+        wheelState.camberEffectiveTravelMeters.toFixed(12),
+        wheelState.camberThrustForceNewtons.toFixed(12)
+      )
+    }
+    lines.push(fields.join('|'))
+  }
+
+  return lines.join('\n')
+}
+
+test('the stock hatchback keeps the coefficient camber path over a 5400-step trace', () => {
+  const traceA = buildCamberTrace({})
+  const traceB = buildCamberTrace({})
+
+  assert.equal(traceA, traceB, 'the stock trace must be deterministic')
+  assert.ok(traceA.length > 0)
+
+  for (const line of traceA.split('\n')) {
+    const parts = line.split('|')
+    // [0]=id, [1]=camberGainSource, [2]=camberRadians, [3]=effectiveTravel, [4]=thrust
+    assert.equal(parts[1], 'coefficient')
+    assert.equal(Number(parts[2]), 0, 'stock coefficient camber must stay zero')
+  }
+})
+
+test('the rear solid axle keeps the coefficient camber path over a 5400-step trace', () => {
+  const traceA = buildCamberTrace({ rearAxleCoupling: 'rigidAxle' })
+  const traceB = buildCamberTrace({ rearAxleCoupling: 'rigidAxle' })
+
+  assert.equal(traceA, traceB, 'the solid-axle trace must be deterministic')
+
+  for (const line of traceA.split('\n')) {
+    const parts = line.split('|')
+    assert.equal(parts[1], 'coefficient')
+    assert.equal(Number(parts[2]), 0, 'solid-axle coefficient camber must stay zero')
   }
 })
