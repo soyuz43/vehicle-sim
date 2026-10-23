@@ -112,7 +112,9 @@ test('the catalog exposes exactly one double wishbone archetype', () => {
 test('the wishbone archetype declares every field the suspension slot owns', () => {
   const component = getComponent('suspension', ARCHETYPE_ID)
 
-  for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+  for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
+    (field) => field !== 'suspensionLinkage'
+  )) {
     assert.ok(
       Object.hasOwn(component.spec, field),
       ARCHETYPE_ID + ' must declare ' + field

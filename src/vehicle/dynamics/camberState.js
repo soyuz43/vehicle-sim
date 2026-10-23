@@ -1,4 +1,5 @@
 // src/vehicle/dynamics/camberState.js
+import { solveLinkageCamber, DOUBLE_WISHBONE_KIND, MACPHERSON_KIND } from './linkageCamberSolver.js'
 //
 // Wheel camber state and camber thrust.
 //
@@ -65,6 +66,7 @@ export function resetWheelCamberState(wheelState) {
   wheelState.camberEffectiveTravelMeters = 0
   wheelState.camberRollInducedTravelMeters = 0
   wheelState.camberThrustForceNewtons = 0
+  wheelState.camberGainSource = 'coefficient'
   wheelState.camberStaticCompressionReferenceMeters = null
 
   return wheelState
@@ -149,17 +151,41 @@ export function updateWheelCamberState(
       sanitizeNumber(wheelState.suspensionCompressionMeters) -
       staticCompressionReferenceMeters +
       rollInducedTravelMeters
-    const camberRadians =
-      camberStaticRadians +
-      camberGainRadiansPerMeterCompression * effectiveTravelMeters
+    const linkageSpec = spec.suspensionLinkage
+    let camberRadians
+    let camberGainSource
+
+    if (isLinkageCamberEnabled(linkageSpec)) {
+      camberRadians = solveLinkageCamber({
+        wheelTravelMeters: effectiveTravelMeters,
+        linkageSpec,
+        staticCamberRadians: camberStaticRadians,
+      })
+      camberGainSource = 'linkage'
+    } else {
+      camberRadians =
+        camberStaticRadians +
+        camberGainRadiansPerMeterCompression * effectiveTravelMeters
+      camberGainSource = 'coefficient'
+    }
 
     wheelState.camberRadians = camberRadians
     wheelState.camberRadiansDegrees = camberRadians * RADIANS_TO_DEGREES
     wheelState.camberEffectiveTravelMeters = effectiveTravelMeters
     wheelState.camberRollInducedTravelMeters = rollInducedTravelMeters
+    wheelState.camberGainSource = camberGainSource
   }
 
   return wheelStates
+}
+
+function isLinkageCamberEnabled(linkageSpec) {
+  if (!linkageSpec || typeof linkageSpec !== 'object') return false
+
+  return (
+    linkageSpec.kind === DOUBLE_WISHBONE_KIND ||
+    linkageSpec.kind === MACPHERSON_KIND
+  )
 }
 
 function resolveStaticCompressionReferenceMeters(

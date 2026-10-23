@@ -54,6 +54,7 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'suspensionVisualKind',
   'camberStaticRadians',
   'camberGainRadiansPerMeterCompression',
+  'suspensionLinkage',
 ])
 
 // The spec fields the chassis component owns.

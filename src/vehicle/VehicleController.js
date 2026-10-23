@@ -4193,6 +4193,7 @@ function createWheelRuntimeStates(vehicle, spec) {
             camberEffectiveTravelMeters: 0,
             camberRollInducedTravelMeters: 0,
             camberThrustForceNewtons: 0,
+            camberGainSource: 'coefficient',
             camberStaticCompressionReferenceMeters: null,
             uncappedLateralTireForceNewtons: 0,
             linearLateralTireForceNewtons: 0,

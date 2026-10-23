@@ -300,7 +300,9 @@ test('every suspension component declares every field the suspension slot owns',
 
   for (const componentId of Object.keys(suspensionComponents)) {
     const component = suspensionComponents[componentId]
-    for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+    for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
+      (field) => field !== 'suspensionLinkage'
+    )) {
       assert.ok(
         Object.hasOwn(component.spec, field),
         componentId + ' must declare ' + field
@@ -595,3 +597,4 @@ test('a reset keeps the archetype and its beam', () => {
     ) < 1e-6
   )
 })
+

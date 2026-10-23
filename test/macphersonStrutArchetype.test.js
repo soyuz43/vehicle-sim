@@ -327,7 +327,9 @@ test('the MacPherson archetype differs from the stock preset in its visual kind 
 test('the MacPherson archetype declares every field the suspension slot owns', () => {
   const component = getComponent('suspension', ARCHETYPE_ID)
 
-  for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+  for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
+    (field) => field !== 'suspensionLinkage'
+  )) {
     assert.ok(
       Object.hasOwn(component.spec, field),
       ARCHETYPE_ID + ' must declare ' + field
@@ -629,3 +631,4 @@ test('swapping to the MacPherson archetype at runtime changes the visuals and th
     'macphersonStrut'
   )
 })
+

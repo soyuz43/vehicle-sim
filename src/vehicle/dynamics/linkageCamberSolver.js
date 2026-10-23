@@ -29,8 +29,8 @@
 // Only the camber angle is consumed by the caller. Any lateral wheel motion
 // (scrub) that falls out of the linkage solve is intentionally discarded.
 
-const MACPHERSON_KIND = 'macpherson-strut'
-const DOUBLE_WISHBONE_KIND = 'double-wishbone'
+export const MACPHERSON_KIND = 'macpherson-strut'
+export const DOUBLE_WISHBONE_KIND = 'double-wishbone'
 
 export function solveLinkageCamber(solverInput = {}) {
   const wheelTravelMeters = solverInput.wheelTravelMeters
