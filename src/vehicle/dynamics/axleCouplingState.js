@@ -122,8 +122,10 @@ export function applyAxleCouplingConstraints({
     axleCouplingState,
     wheelStates = [],
     spec = {},
-    suspensionMinimumLengthMeters = 0,
-    suspensionMaximumLengthMeters = 0,
+    suspensionLimits = {
+        front: { minimumLengthMeters: 0, maximumLengthMeters: 0 },
+        rear: { minimumLengthMeters: 0, maximumLengthMeters: 0 },
+    },
 } = {}) {
     if (!axleCouplingState) return axleCouplingState
 
@@ -172,9 +174,13 @@ export function applyAxleCouplingConstraints({
         }
 
         record.isCoupled = true
+        const axleLimits = suspensionLimits?.[axle] ?? {
+            minimumLengthMeters: 0,
+            maximumLengthMeters: 0,
+        }
         solveRigidAxleBeam(record, wheelState, partnerWheelState, {
-            minimumLengthMeters: suspensionMinimumLengthMeters,
-            maximumLengthMeters: suspensionMaximumLengthMeters,
+            minimumLengthMeters: axleLimits.minimumLengthMeters,
+            maximumLengthMeters: axleLimits.maximumLengthMeters,
             wheelLateralArmMeters,
             partnerLateralArmMeters,
         })

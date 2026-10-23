@@ -14,9 +14,11 @@
  */
 
 import {
+  SUSPENSION_OWNED_SPEC_FIELDS,
   VEHICLE_COMPONENT_SLOTS,
   getComponent,
 } from './componentCatalog.js'
+import { DEFAULT_VEHICLE_SPEC } from '../defaultVehicleSpec.js'
 import { validateVehicleConfiguration } from './createVehicleConfiguration.js'
 
 function mergeComponentSpec(target, component) {
@@ -25,9 +27,10 @@ function mergeComponentSpec(target, component) {
   if (!specContribution || typeof specContribution !== 'object') return
 
   for (const key of Object.keys(specContribution)) {
-    // 'axleCoupling' is a component-declared archetype value, not a spec
-    // field. The slot selection derives 'frontAxleCoupling' and
-    // 'rearAxleCoupling' from it below.
+    // 'axleCoupling' is a component-declared archetype value, not a flat
+    // runtime field. The slot selection derives 'frontAxleCoupling' and
+    // 'rearAxleCoupling' from it below, while the nested slot spec keeps
+    // the declaration for Phase B.1 consumers.
     if (key === 'axleCoupling') continue
 
     const value = specContribution[key]
@@ -36,6 +39,30 @@ function mergeComponentSpec(target, component) {
       target[key] = value
     }
   }
+}
+
+// Phase B.1 nested suspension shape.
+//
+// Each slot owns a complete suspension spec object. A component declares
+// every field it uses, but the effective runtime shape must be complete: a
+// field the component does not declare falls back to DEFAULT_VEHICLE_SPEC,
+// exactly like the flat apply path. The declared 'axleCoupling' is preserved
+// because it is the component's archetype declaration; the flat runtime spec
+// keeps the derived 'frontAxleCoupling'/'rearAxleCoupling' fields.
+export function buildSuspensionSlotSpec(component) {
+  const specContribution = component?.spec ?? {}
+  const nested = {}
+
+  for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
+    const value = specContribution[field]
+    nested[field] = value === undefined || value === null
+      ? DEFAULT_VEHICLE_SPEC[field]
+      : value
+  }
+
+  nested.axleCoupling = specContribution.axleCoupling ?? 'independent'
+
+  return nested
 }
 
 export function applyVehicleConfiguration(configuration, options = {}) {
@@ -47,6 +74,8 @@ export function applyVehicleConfiguration(configuration, options = {}) {
   const specOverride = {}
   let engineId = options?.defaultEngineId ?? null
   let transmissionId = options?.defaultTransmissionId ?? null
+  let suspensionFrontComponent = null
+  let suspensionRearComponent = null
 
   for (const slot of VEHICLE_COMPONENT_SLOTS) {
     const componentId = configuration.slots?.[slot]
@@ -54,9 +83,16 @@ export function applyVehicleConfiguration(configuration, options = {}) {
 
     if (!component) continue
 
+    if (slot === 'suspensionFront') {
+      suspensionFrontComponent = component
+    } else if (slot === 'suspensionRear') {
+      suspensionRearComponent = component
+    }
+
     // Phase A limitation: the flat physical suspension fields are owned by
     // the front slot, so the rear slot merges no physical fields until
-    // per-axle consumption lands.
+    // per-axle consumption lands. The nested slot specs below carry each
+    // slot's full archetype so Session 2 can consume them per axle.
     if (slot !== 'suspensionRear') {
       mergeComponentSpec(specOverride, component)
     }
@@ -72,21 +108,20 @@ export function applyVehicleConfiguration(configuration, options = {}) {
   }
 
   // The axle coupling modes are derived from the archetype each slot
-  // selected. 'axleCoupling' itself never reaches the spec: the runtime
-  // spec keeps the two derived per-axle fields the axle coupling state
-  // has always read.
-  const suspensionFrontComponent = getComponent(
-    'suspensionFront',
-    configuration.slots?.suspensionFront
-  )
-  const suspensionRearComponent = getComponent(
-    'suspensionRear',
-    configuration.slots?.suspensionRear
-  )
+  // selected. The flat runtime spec keeps the two derived per-axle fields
+  // the axle coupling state has always read.
   specOverride.frontAxleCoupling =
     suspensionFrontComponent?.spec?.axleCoupling ?? 'independent'
   specOverride.rearAxleCoupling =
     suspensionRearComponent?.spec?.axleCoupling ?? 'independent'
+
+  // Phase B.1 nested suspension specs. Each slot owns its full archetype,
+  // while the flat physical fields above remain aliases to the front slot
+  // until the physics consumers migrate.
+  specOverride.suspensionFront =
+    buildSuspensionSlotSpec(suspensionFrontComponent)
+  specOverride.suspensionRear =
+    buildSuspensionSlotSpec(suspensionRearComponent)
 
   // The leaf-pack roll-center height belongs to the axle that is actually
   // coupled: a rigid front slot contributes the front archetype's height, a

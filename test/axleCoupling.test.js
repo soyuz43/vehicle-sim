@@ -442,8 +442,10 @@ test('coupled axle roll and wheel offsets use spec track arms', () => {
             axleCouplingState,
             wheelStates: [leftWheelState, rightWheelState],
             spec: scenario.spec,
-            suspensionMinimumLengthMeters: 0.1,
-            suspensionMaximumLengthMeters: 1,
+            suspensionLimits: {
+                front: { minimumLengthMeters: 0.1, maximumLengthMeters: 1 },
+                rear: { minimumLengthMeters: 0.1, maximumLengthMeters: 1 },
+            },
         })
 
         const axleRecord = axleCouplingState.axles.rear

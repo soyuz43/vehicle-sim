@@ -26,6 +26,7 @@ import {
     migrateVehicleConfiguration,
     validateVehicleConfiguration,
 } from './config/createVehicleConfiguration.js'
+import { buildSuspensionSlotSpec } from './config/applyVehicleConfiguration.js'
 import { deriveActiveVehicleConfiguration } from './config/deriveActiveVehicleConfiguration.js'
 import {
     createAerodynamicDragState,
@@ -890,6 +891,14 @@ export class VehicleController {
     // swap contributes only its coupling mode until per-axle consumption
     // lands.
     function applySuspensionSlotComponent(slotKey, component) {
+        // Phase B.1 nested suspension spec. The selected component replaces
+        // the nested slot spec wholesale, while the flat physical fields
+        // remain aliases to the front slot until Session 2 migrates the
+        // physics consumers.
+        if (component) {
+            spec[slotKey] = buildSuspensionSlotSpec(component)
+        }
+
         if (slotKey === 'suspensionFront') {
             const suspensionSpecChanged = applySuspensionSpec(component.spec)
             const couplingChanged = applySuspensionCouplingMode(
@@ -2256,10 +2265,16 @@ export class VehicleController {
             axleCouplingState: state.axleCouplingState,
             wheelStates: state.wheelStates,
             spec,
-            suspensionMinimumLengthMeters:
-                resolveSuspensionMinimumLengthMeters(),
-            suspensionMaximumLengthMeters:
-                resolveSuspensionMaximumLengthMeters(),
+            suspensionLimits: {
+                front: {
+                    minimumLengthMeters: resolveSuspensionMinimumLengthMeters('front'),
+                    maximumLengthMeters: resolveSuspensionMaximumLengthMeters('front'),
+                },
+                rear: {
+                    minimumLengthMeters: resolveSuspensionMinimumLengthMeters('rear'),
+                    maximumLengthMeters: resolveSuspensionMaximumLengthMeters('rear'),
+                },
+            },
         })
     }
 
@@ -2618,27 +2633,33 @@ export class VehicleController {
         )
     }
 
-    function resolveSuspensionMaximumLengthMeters() {
-        const restLengthMeters = Number.isFinite(spec.suspensionRestLengthMeters) &&
-            spec.suspensionRestLengthMeters > 0
-            ? spec.suspensionRestLengthMeters
+    function resolveSuspensionMaximumLengthMeters(axle = 'front') {
+        const axleSpec = axle === 'rear' && spec.suspensionRear
+            ? spec.suspensionRear
+            : spec
+        const restLengthMeters = Number.isFinite(axleSpec.suspensionRestLengthMeters) &&
+            axleSpec.suspensionRestLengthMeters > 0
+            ? axleSpec.suspensionRestLengthMeters
             : 0.35
-        return Number.isFinite(spec.suspensionMaximumLengthMeters) &&
-            spec.suspensionMaximumLengthMeters > 0
-            ? spec.suspensionMaximumLengthMeters
+        return Number.isFinite(axleSpec.suspensionMaximumLengthMeters) &&
+            axleSpec.suspensionMaximumLengthMeters > 0
+            ? axleSpec.suspensionMaximumLengthMeters
             : restLengthMeters
     }
 
-    function resolveSuspensionMinimumLengthMeters() {
-        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters()
-        const travelMeters = Number.isFinite(spec.suspensionTravelMeters) &&
-            spec.suspensionTravelMeters > 0
-            ? spec.suspensionTravelMeters
+    function resolveSuspensionMinimumLengthMeters(axle = 'front') {
+        const axleSpec = axle === 'rear' && spec.suspensionRear
+            ? spec.suspensionRear
+            : spec
+        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters(axle)
+        const travelMeters = Number.isFinite(axleSpec.suspensionTravelMeters) &&
+            axleSpec.suspensionTravelMeters > 0
+            ? axleSpec.suspensionTravelMeters
             : 0.22
         const configuredMinimumLengthMeters = Number.isFinite(
-            spec.suspensionMinimumLengthMeters
-        ) && spec.suspensionMinimumLengthMeters > 0
-            ? spec.suspensionMinimumLengthMeters
+            axleSpec.suspensionMinimumLengthMeters
+        ) && axleSpec.suspensionMinimumLengthMeters > 0
+            ? axleSpec.suspensionMinimumLengthMeters
             : maximumLengthMeters - travelMeters
 
         return THREE.MathUtils.clamp(

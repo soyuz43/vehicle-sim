@@ -128,18 +128,22 @@ export function updateWheelCamberState(
 ) {
   if (!Array.isArray(wheelStates)) return wheelStates
 
-  const camberStaticRadians = sanitizeNumber(
-    spec.camberStaticRadians,
-    DEFAULT_CAMBER_SPEC.camberStaticRadians
-  )
-  const camberGainRadiansPerMeterCompression = sanitizeNumber(
-    spec.camberGainRadiansPerMeterCompression,
-    DEFAULT_CAMBER_SPEC.camberGainRadiansPerMeterCompression
-  )
-  const designCompressionMeters = resolveDesignCompressionMeters(spec)
   const safeBodyRollRadians = sanitizeNumber(bodyRollRadians)
 
   for (const wheelState of wheelStates) {
+    // Phase B.1: suspension is consumed per axle. A wheel reads its own
+    // slot spec when the runtime spec declares one, and falls back to the
+    // flat legacy spec otherwise.
+    const axleSpec = resolveAxleCamberSpec(wheelState, spec)
+    const camberStaticRadians = sanitizeNumber(
+      axleSpec.camberStaticRadians,
+      DEFAULT_CAMBER_SPEC.camberStaticRadians
+    )
+    const camberGainRadiansPerMeterCompression = sanitizeNumber(
+      axleSpec.camberGainRadiansPerMeterCompression,
+      DEFAULT_CAMBER_SPEC.camberGainRadiansPerMeterCompression
+    )
+    const designCompressionMeters = resolveDesignCompressionMeters(axleSpec)
     const wheelLocalXMeters = sanitizeNumber(wheelState.localPosition?.x)
     // Positive body roll lifts the +X (left) side, so a wheel on that side
     // extends and its compression drops.
@@ -154,7 +158,7 @@ export function updateWheelCamberState(
       sanitizeNumber(wheelState.suspensionCompressionMeters) -
       staticCompressionReferenceMeters +
       rollInducedTravelMeters
-    const linkageSpec = spec.suspensionLinkage
+    const linkageSpec = axleSpec.suspensionLinkage
     const wishboneKinematics =
       linkageSpec?.kind === DOUBLE_WISHBONE_KIND
         ? ensureWishboneKinematics(wheelState)
@@ -193,6 +197,20 @@ export function updateWheelCamberState(
   }
 
   return wheelStates
+}
+
+// Phase B.1: the camber solver is per-axle. Front wheels read the front slot,
+// rear wheels read the rear slot, and a runtime spec without the Phase B.1
+// nested shape still uses the flat legacy fields for both axles.
+function resolveAxleCamberSpec(wheelState, spec) {
+  const axle = wheelState?.axle
+  const nestedSpec = axle === 'front'
+    ? spec.suspensionFront
+    : axle === 'rear'
+      ? spec.suspensionRear
+      : undefined
+
+  return nestedSpec ?? spec
 }
 
 function ensureWishboneKinematics(wheelState) {
