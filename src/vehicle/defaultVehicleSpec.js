@@ -17,6 +17,7 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   wheelbaseMeters: 2.9,
   frontTrackWidthMeters: 2.5,
   rearTrackWidthMeters: 2.5,
+  bodyVisualKind: 'hatchback',
   minimumNormalForceNewtons: 0,
   loadTransferEnabled: true,
 
@@ -102,7 +103,7 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   // every shipped profile uses except the MacPherson strut archetype. That
   // archetype exists to establish the per-corner visual seam; its physics
   // are identical to the stock profile.
-  suspensionVisualKind: 'none',
+  suspensionVisualKind: 'independent',
 
   // Chassis terrain following is a bounded quasi-static support-height
   // approximation. It deliberately does not create vertical velocity, heave,

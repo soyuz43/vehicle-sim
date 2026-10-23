@@ -291,6 +291,7 @@ test('the solid axle archetype differs from the stock preset in the coupling mod
 
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'solidAxleRollCenterHeightMeters') continue
+    if (field === 'suspensionVisualKind') continue
     assert.equal(
       archetype.spec[field],
       stock.spec[field],

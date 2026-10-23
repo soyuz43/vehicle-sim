@@ -132,7 +132,7 @@ test('the wishbone archetype differs from the stock preset only in camber, linka
   assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, 0)
   assert.equal(stock.spec.camberGainRadiansPerMeterCompression, 0)
   assert.equal(archetype.spec.suspensionVisualKind, 'doubleWishbone')
-  assert.equal(stock.spec.suspensionVisualKind, 'none')
+  assert.equal(stock.spec.suspensionVisualKind, 'independent')
   assert.ok(Object.hasOwn(archetype.spec, 'suspensionLinkage'))
   assert.ok(!Object.hasOwn(stock.spec, 'suspensionLinkage'))
   assert.equal(archetype.spec.axleCoupling, 'independent')

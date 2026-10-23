@@ -89,10 +89,9 @@ export function applyVehicleConfiguration(configuration, options = {}) {
       suspensionRearComponent = component
     }
 
-    // Phase A limitation: the flat physical suspension fields are owned by
-    // the front slot, so the rear slot merges no physical fields until
-    // per-axle consumption lands. The nested slot specs below carry each
-    // slot's full archetype so Session 2 can consume them per axle.
+    // The front slot still supplies flat compatibility aliases. Each
+    // axle's complete physical suspension spec is applied below in its
+    // nested slot object.
     if (slot !== 'suspensionRear') {
       mergeComponentSpec(specOverride, component)
     }
@@ -115,9 +114,8 @@ export function applyVehicleConfiguration(configuration, options = {}) {
   specOverride.rearAxleCoupling =
     suspensionRearComponent?.spec?.axleCoupling ?? 'independent'
 
-  // Phase B.1 nested suspension specs. Each slot owns its full archetype,
-  // while the flat physical fields above remain aliases to the front slot
-  // until the physics consumers migrate.
+  // Each nested suspension spec is consumed by its axle. The flat physical
+  // fields above remain aliases to the front slot for legacy consumers.
   specOverride.suspensionFront =
     buildSuspensionSlotSpec(suspensionFrontComponent)
   specOverride.suspensionRear =

@@ -24,14 +24,9 @@
  * combination the catalog does not describe, for example a manual gearbox
  * on the stock inline-4.
  *
- * Phase A limitation: the flat physical suspension fields are owned by the
- * suspensionFront slot (they are the spec the physics actually reads). The
- * suspensionRear slot is matched on the same physical fields plus the rear
- * coupling mode, so it reports the mechanism the rear axle is effectively
- * running. When the two slots select different physical archetypes, the
- * rear slot reports the front's physical archetype with the rear's
- * coupling mode — the honest description of what the flat spec carries
- * until per-axle consumption lands.
+ * Each suspension slot is matched against its own nested per-axle physical
+ * spec and coupling mode. The flat physical fields are front-slot aliases
+ * for legacy consumers and do not determine the rear selection.
  */
 
 import {
@@ -139,7 +134,7 @@ function componentMatchesEffectiveState(slot, component, effectiveState) {
 
     const expected = resolveDeclaredSpecValue(slot, field, component)
 
-    if (effectiveSpecValue(field, effectiveState) !== expected) {
+    if (effectiveSpecValue(field, effectiveState, slot) !== expected) {
       return false
     }
   }
@@ -159,12 +154,24 @@ function componentMatchesEffectiveState(slot, component, effectiveState) {
 // The rear differential is the exception: the differential state wins for
 // the physics, so the state value is the effective one and the spec field
 // is only a shadow kept for the snapshot.
-function effectiveSpecValue(field, effectiveState) {
+function effectiveSpecValue(field, effectiveState, slot) {
   if (field === 'rearDifferentialType') {
     return (
       effectiveState.rearDifferentialType ??
       effectiveState.spec.rearDifferentialType
     )
+  }
+
+  if (field === 'frontAxleCoupling' || field === 'rearAxleCoupling') {
+    return effectiveState.spec[field]
+  }
+
+  if (slot === 'suspensionFront' && effectiveState.spec.suspensionFront) {
+    return effectiveState.spec.suspensionFront[field]
+  }
+
+  if (slot === 'suspensionRear' && effectiveState.spec.suspensionRear) {
+    return effectiveState.spec.suspensionRear[field]
   }
 
   return effectiveState.spec[field]

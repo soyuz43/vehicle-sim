@@ -263,6 +263,7 @@ export class VehicleController {
         ...DEFAULT_VEHICLE_SPEC,
         ...(this.config.spec ?? {}),
     }
+    vehicle.userData.vehicle?.updateBodyVisuals?.(spec)
 
     const params = {
         ...DEFAULT_CONTROLLER_PARAMS,
@@ -884,17 +885,12 @@ export class VehicleController {
         )
     }
 
-    // Applies one suspension slot to the running spec.
-    //
-    // Phase A limitation: the flat physical suspension fields are owned by
-    // the front slot, so only a front-slot swap replaces them. A rear-slot
-    // swap contributes only its coupling mode until per-axle consumption
-    // lands.
+    // Applies one axle's suspension component. Its nested spec drives that
+    // axle; the flat physical fields remain front-slot aliases for legacy
+    // readers.
     function applySuspensionSlotComponent(slotKey, component) {
-        // Phase B.1 nested suspension spec. The selected component replaces
-        // the nested slot spec wholesale, while the flat physical fields
-        // remain aliases to the front slot until Session 2 migrates the
-        // physics consumers.
+        // Keep the full archetype in the nested per-axle runtime spec. Only
+        // the front slot also refreshes the flat compatibility aliases.
         if (component) {
             spec[slotKey] = buildSuspensionSlotSpec(component)
         }
@@ -1011,9 +1007,8 @@ export class VehicleController {
         const components = {}
 
         // --- Suspension slots --------------------------------------------
-        // The two suspension slots own the archetype per axle: the front
-        // slot owns the flat physical spec fields (the Phase A limitation),
-        // and each slot derives its own axle coupling mode.
+        // Each slot owns the full nested spec for its axle and derives that
+        // axle's coupling mode. Flat physical fields remain front aliases.
         const suspensionFrontComponent = requireSlotComponent(
             'suspensionFront',
             vehicleConfiguration.slots.suspensionFront
@@ -1083,6 +1078,15 @@ export class VehicleController {
         )
         if (chassisChanged) {
             zeroVerticalChassisDynamicsState()
+            vehicle.userData.vehicle?.updateBodyVisuals?.(spec)
+            const visualBodyCenterYMeters =
+                vehicle.userData.vehicle?.body?.centerY
+            if (Number.isFinite(visualBodyCenterYMeters)) {
+                spec.chassisAttitudeVisualBodyHeightMeters =
+                    visualBodyCenterYMeters
+                chassisAttitudeSpecOverride.chassisAttitudeVisualBodyHeightMeters =
+                    visualBodyCenterYMeters
+            }
         }
         components.chassis = chassisComponent
 

@@ -103,10 +103,11 @@ function createNestedSuspensionSpec(frontId, rearId) {
   }
 }
 
-test('case 1: stock suspension creates no archetype-specific visual nodes', () => {
+test('case 1: stock suspension creates independent visual nodes', () => {
   const { car, controller } = createController()
   controller.update(DT_SECONDS, {})
-  assert.equal(countNamedNodes(car), 0)
+  assertCornerVisibility(car, 'front', 'strut', true)
+  assertCornerVisibility(car, 'rear', 'strut', true)
 })
 
 test('case 2: both MacPherson slots draw struts on all four corners', () => {
@@ -117,19 +118,19 @@ test('case 2: both MacPherson slots draw struts on all four corners', () => {
   assertCornerVisibility(car, 'rear', 'strut', true)
 })
 
-test('case 3: front MacPherson and rear stock draw only front struts', () => {
+test('case 3: front MacPherson and rear stock draw struts on all corners', () => {
   const { car, controller } = createController()
   selectBothAndUpdate(controller, MACPHERSON_ID, STOCK_ID)
-  assert.equal(countNamedNodesMatching(car, /strut/i), 16)
+  assert.equal(countNamedNodesMatching(car, /strut/i), 32)
   assertCornerVisibility(car, 'front', 'strut', true)
-  assertCornerVisibility(car, 'rear', 'strut', false)
+  assertCornerVisibility(car, 'rear', 'strut', true)
 })
 
-test('case 4: rear MacPherson and front stock draw only rear struts', () => {
+test('case 4: rear MacPherson and front stock draw struts on all corners', () => {
   const { car, controller } = createController()
   selectBothAndUpdate(controller, STOCK_ID, MACPHERSON_ID)
-  assert.equal(countNamedNodesMatching(car, /strut/i), 16)
-  assertCornerVisibility(car, 'front', 'strut', false)
+  assert.equal(countNamedNodesMatching(car, /strut/i), 32)
+  assertCornerVisibility(car, 'front', 'strut', true)
   assertCornerVisibility(car, 'rear', 'strut', true)
 })
 
@@ -242,10 +243,13 @@ test('case 12: ten independent axle swaps keep archetype node count stable', () 
 test('case 13: REGRESSION rear MacPherson draws rear struts with front stock', () => {
   const { car, controller } = createController()
   const snapshot = selectBothAndUpdate(controller, STOCK_ID, MACPHERSON_ID)
-  assert.equal(countNamedNodesMatching(car, /strut/i), 16)
-  assertCornerVisibility(car, 'front', 'strut', false)
+  assert.equal(countNamedNodesMatching(car, /strut/i), 32)
+  assertCornerVisibility(car, 'front', 'strut', true)
   assertCornerVisibility(car, 'rear', 'strut', true)
-  assert.equal(snapshot.suspensionVisuals.frontSuspensionVisualKind, 'none')
+  assert.equal(
+    snapshot.suspensionVisuals.frontSuspensionVisualKind,
+    'independent'
+  )
   assert.equal(
     snapshot.suspensionVisuals.rearSuspensionVisualKind,
     'macphersonStrut'
