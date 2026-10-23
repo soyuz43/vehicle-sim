@@ -82,7 +82,8 @@ test('setVehicleConfigurationSlot returns a new configuration with one slot chan
   assert.notEqual(updated, base)
   assert.equal(base.slots.chassis, 'chassis-hatchback')
   assert.equal(updated.slots.chassis, 'chassis-heavytruck')
-  assert.equal(updated.slots.suspension, base.slots.suspension)
+  assert.equal(updated.slots.suspensionFront, base.slots.suspensionFront)
+  assert.equal(updated.slots.suspensionRear, base.slots.suspensionRear)
   assert.ok(getComponent('chassis', 'chassis-heavytruck') != null)
 })
 

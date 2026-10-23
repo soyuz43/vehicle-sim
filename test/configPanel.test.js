@@ -138,7 +138,8 @@ test('ConfigPanel builds terrain selector and vehicle slot selects', async () =>
   // Check vehicle config - use actual default component IDs
   const vehicleConfig = ui.getVehicleConfig()
   assert.equal(vehicleConfig.slots.chassis, 'chassis-hatchback')
-  assert.equal(vehicleConfig.slots.suspension, 'susp-stock')
+  assert.equal(vehicleConfig.slots.suspensionFront, 'susp-stock')
+  assert.equal(vehicleConfig.slots.suspensionRear, 'susp-stock')
   assert.equal(vehicleConfig.slots.wheels, 'tires-stock')
   assert.equal(vehicleConfig.slots.drivetrain, 'drivetrain-stock')
   assert.equal(vehicleConfig.slots.brakes, 'brakes-stock')
@@ -166,7 +167,7 @@ test('ConfigPanel builds terrain selector and vehicle slot selects', async () =>
     }
     return null
   }
-  for (const slot of ['chassis', 'suspension', 'wheels', 'drivetrain', 'brakes', 'aero']) {
+  for (const slot of ['chassis', 'suspensionFront', 'suspensionRear', 'wheels', 'drivetrain', 'brakes', 'aero']) {
     const select = findElement(ui.element, (element) => element.id === 'config-' + slot + '-select')
     const label = findElement(ui.element, (element) => element.tagName === 'label' && element.htmlFor === select.id)
     assert.ok(label, slot + " select has an associated label")
@@ -788,25 +789,25 @@ test('the panel reflects a console swap', async () => {
     return null
   }
 
-  const suspensionSelect = findById(ui.element, 'config-suspension-select')
+  const suspensionSelect = findById(ui.element, 'config-suspensionRear-select')
   assert.equal(
-    ui.getVehicleConfig().slots.suspension,
+    ui.getVehicleConfig().slots.suspensionRear,
     'susp-stock',
     'the panel starts in step with the vehicle'
   )
 
-  controller.setSuspension('susp-solid-axle-rear')
+  controller.setSuspension('rear', 'susp-solid-axle')
 
   assert.equal(
     suspensionSelect.value,
-    'susp-solid-axle-rear',
+    'susp-solid-axle',
     'the panel follows the console swap'
   )
-  assert.equal(ui.getVehicleConfig().slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(ui.getVehicleConfig().slots.suspensionRear, 'susp-solid-axle')
   assert.equal(ui.isDirty(), false, 'a console swap is not a staged change')
 
   const status = findById(ui.element, 'config-vehicle-preview')
-  assert.match(status.textContent, /Suspension: Rear Solid Axle/)
+  assert.match(status.textContent, /Rear Suspension: Solid Axle/)
 })
 
 test('console setTransmission on the stock drivetrain shows a modified select without dirtying the panel', async () => {
@@ -916,14 +917,14 @@ test('an external change to one slot keeps the staged change in another slot', a
   brakesSelect.dispatchEvent({ type: 'change', target: brakesSelect })
   assert.equal(ui.isDirty(), true, 'the staged brake change is pending')
 
-  controller.setSuspension('susp-solid-axle-rear')
+  controller.setSuspension('rear', 'susp-solid-axle')
 
   assert.equal(
     ui.getVehicleConfig().slots.brakes,
     'brakes-sport',
     'the staged brake change survives a change in another slot'
   )
-  assert.equal(ui.getVehicleConfig().slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(ui.getVehicleConfig().slots.suspensionRear, 'susp-solid-axle')
   assert.equal(ui.isDirty(), true, 'the staged brake change is still pending')
 })
 

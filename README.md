@@ -38,19 +38,19 @@
 - **Slip**: Longitudinal slip ratio calculated from wheel surface vs ground speed
 
 ### Suspension Archetypes
-- **Axle coupling mode per axle**: `frontAxleCoupling` and `rearAxleCoupling` select `independent` (each wheel resolves its own vertical position) or `rigidAxle` (one rigid beam carries both wheels of the axle)
+- **Axle coupling mode per axle**: each suspension archetype declares `axleCoupling` as `independent` (each wheel resolves its own vertical position) or `rigidAxle` (one rigid beam carries both wheels of the axle); the front and rear slot selections derive the runtime `frontAxleCoupling`/`rearAxleCoupling` fields
 - **Rigid beam**: A coupled axle has one shared leaf, so both of its wheels report the same suspension length, and the axle carries one roll angle about its longitudinal axis
-- **Catalog archetype**: `susp-solid-axle-rear` ("Rear Solid Axle (shared leaf)") selects a coupled rear axle with an independent front axle
+- **Catalog archetype**: `susp-solid-axle` ("Solid Axle (shared leaf)") is slot-agnostic: selecting it for the rear slot couples the rear axle, selecting it for the front slot couples the front axle, and the other axle stays independent
 - **Visual**: A coupled axle is drawn as a beam that spans its two wheel centres, with a leaf pack riding on top of it. The beam follows the published wheel positions and rolls with the simulated beam; an independent axle draws no beam at all
 - **Driving effect**: A one-sided bump under one rear wheel lifts that wheel and holds the other one up instead of letting the far wheel stay on its own path, and the rear axle stops contributing a terrain roll moment to the body
 - **Lateral load transfer**: A coupled axle is ONE spring at the axle centre, so it takes no lateral load transfer across its own tires. The whole transfer (m * a * h_cg / track) is carried by the other axle, and the body rolls further because a solid axle cannot contribute roll stiffness
-- **Roll center of a coupled axle**: `susp-solid-axle-rear` declares a 0.25 m roll-center height for its leaf pack (`solidAxleRollCenterHeightMeters`). The height lifts the roll axis above the ground, so the elastic roll arm is shorter and the body rolls less. The coupled axle still takes no lateral transfer of its own: the beam articulation and the leaf torsional stiffness that would produce it are not modelled
+- **Roll center of a coupled axle**: `susp-solid-axle` declares a 0.25 m roll-center height for its leaf pack (`solidAxleRollCenterHeightMeters`). The height lifts the roll axis above the ground, so the elastic roll arm is shorter and the body rolls less. The coupled axle still takes no lateral transfer of its own: the beam articulation and the leaf torsional stiffness that would produce it are not modelled
 - **Not modelled**: progressive leaf rates, inter-leaf friction, anti-roll bars, unsprung mass, per-corner spring rates, and a hanging-beam pose for a fully airborne axle
 - **Archetype**: `susp-macpherson-strut` ("MacPherson Strut (camber gain)") draws a coil-over strut per front corner and leaves the rear axle stock. It keeps the stock spring rate, travel, damping, and coupling modes, and it changes handling through two linkage-derived terms: the positive camber gain and the roll-center height
 - **Roll-center height**: The linkage archetypes derive a roll-center height from the front-view linkage geometry: the instant center of the arms, the line from the tire contact patch to it, and the height where that line crosses the vehicle centerline. The double wishbone derives 0.0766 m and the MacPherson strut 0.0954 m. The height shortens the elastic roll arm, so the body rolls less, and the part of the lateral load transfer the links carry directly lands on the tire loads without passing through a spring
 - **Not modelled (MacPherson)**: full strut kinematics (scrub, anti-dive/squat), anti-roll bars, and unsprung mass. Both the camber gain and the roll-center height are derived from the front-view linkage solver for the wishbone and the MacPherson archetypes, so the "needs a tire model that accepts camber input" caveat no longer applies to camber itself
 
-Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` or `__vehicleSim.vehicleController.setSuspension('susp-macpherson-strut')`. The Config Panel dropdown lists the archetypes, and its Apply button now applies the selected setup to the running vehicle live.
+Reachable today via the browser console: `__vehicleSim.vehicleController.setSuspension('rear', 'susp-solid-axle')` or `__vehicleSim.vehicleController.setSuspension('front', 'susp-macpherson-strut')`. The Config Panel lists a Front Suspension and a Rear Suspension dropdown, and its Apply button applies the selected setup to the running vehicle live.
 
 ### Tire Modeling
 - **Longitudinal Force**: Linear stiffness model capped by friction limit (coefficient × normal force)
@@ -170,7 +170,7 @@ The same seed and configuration reproduce the same terrain heights, normals, sur
 - Live tuning parameters for drive/brake/tire stiffness multipliers
 - Comprehensive state tracing for debugging
 - Swap transmissions live from the browser console: `__vehicleSim.vehicleController.setTransmission('manual-6')` (also: manual-4, manual-5, manual-6-granny, automatic-6, automatic-8, dct-7, dct-8, cvt).
-- Swap suspension profiles live from the browser console: `__vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')` (also: susp-stock, susp-lowered, susp-lifted, susp-stiff, susp-macpherson-strut). The swap replaces the suspension spec fields and keeps the vehicle's position, velocity, gear, and transmission.
+- Swap suspension profiles live from the browser console: `__vehicleSim.vehicleController.setSuspension('rear', 'susp-solid-axle')` (front or rear slot; also: susp-stock, susp-lowered, susp-lifted, susp-stiff, susp-macpherson-strut, susp-double-wishbone). A front-slot swap replaces the flat suspension spec fields; a rear-slot swap currently changes only the rear coupling mode (per-axle consumption is a follow-up). The swap keeps the vehicle's position, velocity, gear, and transmission.
 
 ---
 *Last Updated: Wednesday, August 19, 2026*

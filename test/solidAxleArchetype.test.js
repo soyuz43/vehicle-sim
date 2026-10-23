@@ -38,7 +38,7 @@ import { DEFAULT_VEHICLE_SPEC } from '../src/vehicle/defaultVehicleSpec.js'
 const DT_SECONDS = 1 / 60
 const SETTLE_STEPS = 300
 const STEP_HEIGHT_METERS = 0.08
-const ARCHETYPE_ID = 'susp-solid-axle-rear'
+const ARCHETYPE_ID = 'susp-solid-axle'
 const STOCK_ID = 'susp-stock'
 const HEAVY_TRUCK_CHASSIS_ID = 'chassis-heavytruck'
 
@@ -181,7 +181,7 @@ function createCatalogCar(
   const car = createCar()
   let configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
-    'suspension',
+    'suspensionRear',
     suspensionComponentId
   )
   if (chassisComponentId) {
@@ -247,17 +247,17 @@ function wheelState(snapshot, wheelId) {
 }
 
 test('the catalog exposes exactly one solid axle archetype', () => {
-  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspensionFront.components
   const solidAxleIds = Object.keys(suspensionComponents).filter((componentId) =>
     componentId.includes('solid-axle')
   )
 
   assert.deepEqual(solidAxleIds, [ARCHETYPE_ID])
-  assert.equal(VEHICLE_COMPONENT_CATALOG.suspension.defaultComponentId, STOCK_ID)
+  assert.equal(VEHICLE_COMPONENT_CATALOG.suspensionFront.defaultComponentId, STOCK_ID)
 })
 
 test('the solid axle archetype describes what it actually models', () => {
-  const component = getComponent('suspension', ARCHETYPE_ID)
+  const component = getComponent('suspensionFront', ARCHETYPE_ID)
 
   assert.equal(component.id, ARCHETYPE_ID)
   assert.equal(typeof component.label, 'string')
@@ -276,14 +276,12 @@ test('the solid axle archetype describes what it actually models', () => {
   assert.doesNotMatch(component.description, /leaf spring rate/i)
 })
 
-test('the solid axle archetype differs from the stock preset in the rear coupling mode and the roll-center height', () => {
-  const archetype = getComponent('suspension', ARCHETYPE_ID)
-  const stock = getComponent('suspension', STOCK_ID)
+test('the solid axle archetype differs from the stock preset in the coupling mode and the roll-center height', () => {
+  const archetype = getComponent('suspensionFront', ARCHETYPE_ID)
+  const stock = getComponent('suspensionFront', STOCK_ID)
 
-  assert.equal(archetype.spec.frontAxleCoupling, 'independent')
-  assert.equal(archetype.spec.rearAxleCoupling, 'rigidAxle')
-  assert.equal(stock.spec.frontAxleCoupling, 'independent')
-  assert.equal(stock.spec.rearAxleCoupling, 'independent')
+  assert.equal(archetype.spec.axleCoupling, 'rigidAxle')
+  assert.equal(stock.spec.axleCoupling, 'independent')
 
   // The leaf pack gives the coupled axle a roll center above the ground.
   // It is the second difference from the stock preset: the coupling mode and
@@ -292,7 +290,6 @@ test('the solid axle archetype differs from the stock preset in the rear couplin
   assert.equal(stock.spec.solidAxleRollCenterHeightMeters, 0)
 
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
-    if (field === 'rearAxleCoupling') continue
     if (field === 'solidAxleRollCenterHeightMeters') continue
     assert.equal(
       archetype.spec[field],
@@ -303,7 +300,7 @@ test('the solid axle archetype differs from the stock preset in the rear couplin
 })
 
 test('every suspension component declares every field the suspension slot owns', () => {
-  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspensionFront.components
 
   for (const componentId of Object.keys(suspensionComponents)) {
     const component = suspensionComponents[componentId]
@@ -607,7 +604,7 @@ test('a reset keeps the archetype and its beam', () => {
 
 
 test('only the linkage archetypes declare suspensionLinkage', () => {
-  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspensionFront.components
   const linkageOwners = Object.keys(suspensionComponents).filter((componentId) =>
     Object.hasOwn(suspensionComponents[componentId].spec, 'suspensionLinkage')
   )
@@ -622,6 +619,6 @@ test('only the linkage archetypes declare suspensionLinkage', () => {
   // using the linear coefficient camber path (byte-identical to before).
   assert.ok(!Object.hasOwn(suspensionComponents['susp-stock'].spec, 'suspensionLinkage'))
   assert.ok(
-    !Object.hasOwn(suspensionComponents['susp-solid-axle-rear'].spec, 'suspensionLinkage')
+    !Object.hasOwn(suspensionComponents['susp-solid-axle'].spec, 'suspensionLinkage')
   )
 })

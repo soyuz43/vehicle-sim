@@ -35,7 +35,7 @@ const CATALOG_SUSPENSION_COMPONENT_IDS = [
   'susp-lowered',
   'susp-lifted',
   'susp-stiff',
-  'susp-solid-axle-rear',
+  'susp-solid-axle',
   'susp-macpherson-strut',
 ]
 
@@ -52,7 +52,7 @@ function createController({ spec = {}, engineId, transmissionId } = {}) {
 function createCatalogController(suspensionComponentId) {
   const configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
-    'suspension',
+    'suspensionFront',
     suspensionComponentId
   )
   const applied = applyVehicleConfiguration(configuration)

@@ -39,7 +39,8 @@ const MODIFIED_OPTION_VALUE = '__modified_outside_catalog__';
 
 const SLOT_LABELS = {
   chassis: 'Chassis',
-  suspension: 'Suspension',
+  suspensionFront: 'Front Suspension',
+  suspensionRear: 'Rear Suspension',
   wheels: 'Wheels',
   drivetrain: 'Drivetrain',
   brakes: 'Brakes',

@@ -13,7 +13,7 @@ const DT_SECONDS = 1 / 60
 const WISHBONE_ID = 'susp-double-wishbone'
 const STOCK_ID = 'susp-stock'
 const MACPHERSON_ID = 'susp-macpherson-strut'
-const SOLID_AXLE_ID = 'susp-solid-axle-rear'
+const SOLID_AXLE_ID = 'susp-solid-axle'
 
 function createController() {
   const car = createCar()
@@ -24,8 +24,8 @@ function createController() {
   return { car, controller }
 }
 
-function selectAndUpdate(controller, componentId) {
-  controller.setSuspension(componentId)
+function selectAndUpdate(controller, axle, componentId) {
+  controller.setSuspension(axle, componentId)
   return controller.update(DT_SECONDS, {})
 }
 
@@ -72,7 +72,7 @@ function assertVectorClose(actual, expected, epsilonMeters = 1e-9) {
 
 test('wishbone selection creates seven visible segments on all four corners', () => {
   const { car, controller } = createController()
-  const snapshot = selectAndUpdate(controller, WISHBONE_ID)
+  const snapshot = selectAndUpdate(controller, 'front', WISHBONE_ID)
 
   assert.equal(wishboneGroups(car).length, 4)
   assert.equal(wishboneSegments(car).length, 28)
@@ -103,13 +103,13 @@ test('stock starts without wishbone nodes and hides cached nodes after swap-back
   assert.equal(car.getObjectByName('front-left-wishbone-visual'), undefined)
   assert.equal(wishboneSegments(car).length, 0)
 
-  selectAndUpdate(controller, WISHBONE_ID)
+  selectAndUpdate(controller, 'front', WISHBONE_ID)
   const cachedGroups = wishboneGroups(car)
   const cachedSegments = wishboneSegments(car)
   assert.equal(cachedGroups.length, 4)
   assert.equal(cachedSegments.length, 28)
 
-  selectAndUpdate(controller, STOCK_ID)
+  selectAndUpdate(controller, 'front', STOCK_ID)
   assert.ok(cachedGroups.every((group) => group.visible === false))
   assert.ok(cachedSegments.every((segment) => segment.visible === false))
 })
@@ -122,7 +122,7 @@ test('A-arm outer endpoints track linkage output while inner pivots stay fixed',
       surfaceProfile: createTerrainSurfaceProfile(),
     }),
   })
-  controller.setSuspension(WISHBONE_ID)
+  controller.setSuspension('front', WISHBONE_ID)
   let snapshot = controller.update(DT_SECONDS, {})
   let wheelState = snapshot.wheelStates.find(
     (state) => state.id === 'front-left'
@@ -184,7 +184,7 @@ test('A-arm outer endpoints track linkage output while inner pivots stay fixed',
 
 test('hub carrier joins the outer-joint midpoint to the wheel center', () => {
   const { car, controller } = createController()
-  const snapshot = selectAndUpdate(controller, WISHBONE_ID)
+  const snapshot = selectAndUpdate(controller, 'front', WISHBONE_ID)
   const wheelState = snapshot.wheelStates.find(
     (state) => state.id === 'front-left'
   )
@@ -206,14 +206,14 @@ test('hub carrier joins the outer-joint midpoint to the wheel center', () => {
 
 test('repeated archetype swaps reuse the same wishbone nodes', () => {
   const { car, controller } = createController()
-  selectAndUpdate(controller, WISHBONE_ID)
+  selectAndUpdate(controller, 'front', WISHBONE_ID)
   const stableNodeCount = wishboneGroups(car).length + wishboneSegments(car).length
 
   for (let index = 0; index < 10; index += 1) {
-    selectAndUpdate(controller, MACPHERSON_ID)
-    selectAndUpdate(controller, WISHBONE_ID)
-    selectAndUpdate(controller, STOCK_ID)
-    selectAndUpdate(controller, WISHBONE_ID)
+    selectAndUpdate(controller, 'front', MACPHERSON_ID)
+    selectAndUpdate(controller, 'front', WISHBONE_ID)
+    selectAndUpdate(controller, 'front', STOCK_ID)
+    selectAndUpdate(controller, 'front', WISHBONE_ID)
     assert.equal(
       wishboneGroups(car).length + wishboneSegments(car).length,
       stableNodeCount
@@ -224,13 +224,13 @@ test('repeated archetype swaps reuse the same wishbone nodes', () => {
 test('MacPherson struts and solid axle beam remain archetype-specific', () => {
   const { car, controller } = createController()
 
-  selectAndUpdate(controller, MACPHERSON_ID)
+  selectAndUpdate(controller, 'front', MACPHERSON_ID)
   assert.equal(car.getObjectByName('front-left-strut-visual').visible, true)
   assert.equal(car.getObjectByName('front-right-strut-visual').visible, true)
   assert.equal(car.getObjectByName('rear-left-strut-visual'), undefined)
   assert.equal(wishboneGroups(car).length, 0)
 
-  selectAndUpdate(controller, SOLID_AXLE_ID)
+  selectAndUpdate(controller, 'rear', SOLID_AXLE_ID)
   assert.equal(car.getObjectByName('rear-axle-beam-visual').visible, true)
   assert.equal(car.getObjectByName('rear-axle-leaf-pack-visual').visible, true)
   assert.equal(wishboneGroups(car).length, 0)

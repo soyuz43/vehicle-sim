@@ -62,10 +62,10 @@ const ROLL_STIFFNESS_NEWTON_METERS_PER_RADIAN =
   4 * SPRING_RATE_NEWTONS_PER_METER * HALF_TRACK_METERS * HALF_TRACK_METERS
 
 const WISHBONE_LINKAGE =
-  VEHICLE_COMPONENT_CATALOG.suspension.components['susp-double-wishbone']
+  VEHICLE_COMPONENT_CATALOG.suspensionFront.components['susp-double-wishbone']
     .spec.suspensionLinkage
 const MACPHERSON_LINKAGE =
-  VEHICLE_COMPONENT_CATALOG.suspension.components['susp-macpherson-strut']
+  VEHICLE_COMPONENT_CATALOG.suspensionFront.components['susp-macpherson-strut']
     .spec.suspensionLinkage
 const SOLID_AXLE_ROLL_CENTER_HEIGHT_METERS = 0.25
 

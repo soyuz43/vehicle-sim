@@ -1,16 +1,17 @@
 // test/suspensionSwap.test.js
 
-// Runtime suspension swapping via setSuspension().
+// Runtime suspension swapping via setSuspension(slot, id).
 //
 // The A1 session made the rigid axle real but unreachable. This session adds
 // the catalog entry, the visual, and this API, so a driver can select a
-// suspension archetype in the running browser:
+// suspension archetype per axle in the running browser:
 //
-//   __vehicleSim.vehicleController.setSuspension('susp-solid-axle-rear')
+//   __vehicleSim.vehicleController.setSuspension('rear', 'susp-solid-axle')
+//   __vehicleSim.vehicleController.setSuspension('front', 'susp-double-wishbone')
 //
-// The swap replaces the suspension-owned spec fields, re-syncs the axle
-// coupling state, and leaves the vehicle where it is. It is a setup change,
-// not a reset.
+// The swap replaces the suspension-owned spec fields (front slot) or the
+// slot's coupling mode (rear slot), re-syncs the axle coupling state, and
+// leaves the vehicle where it is. It is a setup change, not a reset.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -20,7 +21,7 @@ import { createCar } from '../src/car/createCar.js'
 import { createVehicleController } from '../src/vehicle/createVehicleController.js'
 
 const DT_SECONDS = 1 / 60
-const ARCHETYPE_ID = 'susp-solid-axle-rear'
+const ARCHETYPE_ID = 'susp-solid-axle'
 const STOCK_ID = 'susp-stock'
 const LOWERED_ID = 'susp-lowered'
 
@@ -59,7 +60,7 @@ test('the controller exposes a runtime suspension swap', () => {
 test('setSuspension returns the selected catalog component', () => {
   const { controller } = createController()
 
-  const component = controller.setSuspension(ARCHETYPE_ID)
+  const component = controller.setSuspension('rear', ARCHETYPE_ID)
 
   assert.equal(component.id, ARCHETYPE_ID)
   assert.equal(typeof component.label, 'string')
@@ -71,7 +72,7 @@ test('setSuspension couples the rear axle of the running vehicle', () => {
 
   assert.equal(controller.getSnapshot().axleCoupling.axles.rear.isCoupled, false)
 
-  controller.setSuspension(ARCHETYPE_ID)
+  controller.setSuspension('rear', ARCHETYPE_ID)
   const snapshot = controller.update(DT_SECONDS, { throttle: true })
 
   assert.equal(snapshot.axleCoupling.axles.rear.isCoupled, true)
@@ -83,11 +84,55 @@ test('setSuspension couples the rear axle of the running vehicle', () => {
   assert.equal(beamNode.visible, true)
 })
 
+test('setSuspension couples the front axle of the running vehicle', () => {
+  const { car, controller } = createController()
+  drive(controller, 60)
+
+  controller.setSuspension('front', ARCHETYPE_ID)
+  const snapshot = controller.update(DT_SECONDS, { throttle: true })
+
+  assert.equal(snapshot.axleCoupling.axles.front.isCoupled, true)
+  assert.equal(snapshot.axleCoupling.axles.front.couplingMode, 'rigidAxle')
+  assert.equal(snapshot.axleCoupling.axles.rear.isCoupled, false)
+  assert.equal(snapshot.spec.frontAxleCoupling, 'rigidAxle')
+  assert.equal(snapshot.spec.rearAxleCoupling, 'independent')
+
+  const beamNode = car.getObjectByName('front-axle-beam-visual')
+  assert.ok(beamNode, 'the front swap must draw the axle beam')
+  assert.equal(beamNode.visible, true)
+  assert.equal(car.getObjectByName('rear-axle-beam-visual'), undefined)
+})
+
+test('mixed front wishbone and rear solid axle is expressible', () => {
+  const { car, controller } = createController()
+  drive(controller, 60)
+
+  controller.setSuspension('front', 'susp-double-wishbone')
+  controller.setSuspension('rear', ARCHETYPE_ID)
+  const snapshot = controller.update(DT_SECONDS, { throttle: true })
+
+  assert.equal(snapshot.axleCoupling.axles.rear.couplingMode, 'rigidAxle')
+  assert.equal(snapshot.axleCoupling.axles.front.couplingMode, 'independent')
+  assert.ok(
+    snapshot.spec.suspensionLinkage,
+    'the wishbone linkage reaches the flat spec'
+  )
+  assert.ok(
+    car.getObjectByName('rear-axle-beam-visual'),
+    'the coupled rear axle draws its beam'
+  )
+  assert.equal(
+    car.getObjectByName('front-axle-beam-visual'),
+    undefined,
+    'the independent front axle draws no beam'
+  )
+})
+
 test('a suspension swap preserves position, velocity, gear, and transmission', () => {
   const { controller } = createController()
   const before = drive(controller, 120)
 
-  controller.setSuspension(ARCHETYPE_ID)
+  controller.setSuspension('rear', ARCHETYPE_ID)
   const after = controller.getSnapshot()
 
   assert.equal(after.position.x, before.position.x)
@@ -112,11 +157,11 @@ test('swapping back to the stock profile restores the independent mode', () => {
   const { car, controller } = createController()
   drive(controller, 60)
 
-  controller.setSuspension(ARCHETYPE_ID)
+  controller.setSuspension('rear', ARCHETYPE_ID)
   drive(controller, 30)
   assert.equal(controller.getSnapshot().axleCoupling.axles.rear.isCoupled, true)
 
-  controller.setSuspension(STOCK_ID)
+  controller.setSuspension('rear', STOCK_ID)
   const snapshot = controller.update(DT_SECONDS, { throttle: true })
 
   assert.equal(snapshot.axleCoupling.axles.rear.isCoupled, false)
@@ -133,7 +178,7 @@ test('the snapshot reports the new coupling mode immediately after the swap', ()
   const { controller } = createController()
   drive(controller, 60)
 
-  controller.setSuspension(ARCHETYPE_ID)
+  controller.setSuspension('rear', ARCHETYPE_ID)
   const afterSwap = controller.getSnapshot()
 
   assert.equal(afterSwap.axleCoupling.axles.rear.couplingMode, 'rigidAxle')
@@ -145,18 +190,19 @@ test('the snapshot reports the new coupling mode immediately after the swap', ()
   assert.equal(afterSwap.spec.rearAxleCoupling, 'rigidAxle')
 })
 
-test('a suspension swap replaces the suspension-owned spec fields', () => {
+test('a front suspension swap replaces the suspension-owned spec fields', () => {
   const { controller } = createController()
 
-  controller.setSuspension(LOWERED_ID)
+  controller.setSuspension('front', LOWERED_ID)
   const lowered = controller.getSnapshot()
   assert.equal(lowered.spec.suspensionRestLengthMeters, 0.3)
   assert.equal(lowered.spec.chassisTerrainSupportBaselineOffsetMeters, -0.06)
 
-  controller.setSuspension(STOCK_ID)
+  controller.setSuspension('front', STOCK_ID)
   const stock = controller.getSnapshot()
   assert.equal(stock.spec.suspensionRestLengthMeters, 0.35)
   assert.equal(stock.spec.chassisTerrainSupportBaselineOffsetMeters, 0)
+  assert.equal(stock.spec.frontAxleCoupling, 'independent')
   assert.equal(stock.spec.rearAxleCoupling, 'independent')
 })
 
@@ -164,8 +210,17 @@ test('setSuspension rejects an unknown suspension id', () => {
   const { controller } = createController()
 
   assert.throws(
-    () => controller.setSuspension('not-a-suspension'),
-    /Unknown suspension id/
+    () => controller.setSuspension('rear', 'not-a-suspension'),
+    /Unknown suspension/
+  )
+})
+
+test('setSuspension rejects an unknown suspension slot', () => {
+  const { controller } = createController()
+
+  assert.throws(
+    () => controller.setSuspension('middle', STOCK_ID),
+    /Unknown suspension slot/
   )
 })
 
@@ -176,17 +231,17 @@ test('repeated suspension swaps do not leak visual geometry', () => {
   // The beam and the leaf pack are created the first time their axle is
   // coupled and are kept (hidden) afterwards, so the node count has to
   // stabilise rather than grow with every swap.
-  controller.setSuspension(ARCHETYPE_ID)
+  controller.setSuspension('rear', ARCHETYPE_ID)
   controller.update(DT_SECONDS, { throttle: true })
-  controller.setSuspension(STOCK_ID)
+  controller.setSuspension('rear', STOCK_ID)
   controller.update(DT_SECONDS, { throttle: true })
 
   const nodeCountAfterFirstSwap = countNodes(car)
 
   for (let index = 0; index < 10; index += 1) {
-    controller.setSuspension(ARCHETYPE_ID)
+    controller.setSuspension('rear', ARCHETYPE_ID)
     controller.update(DT_SECONDS, { throttle: true })
-    controller.setSuspension(STOCK_ID)
+    controller.setSuspension('rear', STOCK_ID)
     controller.update(DT_SECONDS, { throttle: true })
   }
 
@@ -203,7 +258,7 @@ test('a suspension swap does not produce a damper spike on the next step', () =>
 
   // The lowered profile has a different rest length, so the suspension
   // compression changes at the swap.
-  controller.setSuspension(LOWERED_ID)
+  controller.setSuspension('front', LOWERED_ID)
   const snapshot = controller.update(DT_SECONDS, { throttle: true })
 
   for (const wheelState of snapshot.wheelStates) {

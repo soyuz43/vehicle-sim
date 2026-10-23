@@ -21,7 +21,10 @@ import {
   getDefaultComponentId,
 } from './componentCatalog.js'
 
-export const VEHICLE_CONFIGURATION_VERSION = 1
+// Version 2 splits the single suspension slot into suspensionFront and
+// suspensionRear. Version 1 stored one 'suspension' slot; read migration
+// maps that selection onto both new slots (see migrateVehicleConfiguration).
+export const VEHICLE_CONFIGURATION_VERSION = 2
 
 export function createDefaultVehicleConfiguration() {
   const slots = {}
@@ -82,6 +85,37 @@ export function validateVehicleConfiguration(configuration) {
   return {
     valid: errors.length === 0,
     errors,
+  }
+}
+
+// Migrate a configuration from an earlier schema version.
+//
+// Version 1 stored a single 'suspension' slot. Version 2 splits it into
+// 'suspensionFront' and 'suspensionRear'; a legacy selection is the same
+// mechanism on both axles, so the legacy id fills both slots. The legacy
+// key is removed so validation sees a well-formed version 2 shape.
+//
+// Returns null when the input is not a configuration object; the caller
+// decides what that means (storage falls back to the stock setup).
+export function migrateVehicleConfiguration(configuration) {
+  if (!configuration || typeof configuration !== 'object') return null
+
+  const slots = { ...(configuration.slots ?? {}) }
+
+  if (Object.hasOwn(slots, 'suspension')) {
+    const legacySuspensionId = slots.suspension
+    delete slots.suspension
+    if (!Object.hasOwn(slots, 'suspensionFront')) {
+      slots.suspensionFront = legacySuspensionId
+    }
+    if (!Object.hasOwn(slots, 'suspensionRear')) {
+      slots.suspensionRear = legacySuspensionId
+    }
+  }
+
+  return {
+    version: VEHICLE_CONFIGURATION_VERSION,
+    slots,
   }
 }
 

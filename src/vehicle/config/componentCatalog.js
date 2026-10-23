@@ -17,19 +17,29 @@
 
 export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
   'chassis',
-  'suspension',
+  'suspensionFront',
+  'suspensionRear',
   'wheels',
   'drivetrain',
   'brakes',
   'aero',
 ])
 
-// The spec fields a suspension component owns.
+// The spec fields a suspension component owns on the vehicle spec.
 //
-// Selecting a suspension component REPLACES these fields on the vehicle spec.
-// A component therefore has to declare every field it owns, including the
-// axle coupling modes, so swapping back to a component that does not use a
-// coupling mode clears a coupling mode a previously selected component set.
+// Selecting a suspension component REPLACES these fields on the vehicle
+// spec. A component therefore has to declare every field it owns, so
+// swapping back to a component that does not use a value clears a value a
+// previously selected component set.
+//
+// The axle coupling mode is NOT on this list. Each archetype declares its
+// mechanism as 'axleCoupling', and the slot selection DERIVES the runtime
+// spec fields 'frontAxleCoupling' and 'rearAxleCoupling' from it: the
+// front slot's archetype determines 'frontAxleCoupling' and the rear
+// slot's archetype determines 'rearAxleCoupling'. In this phase the flat
+// physical suspension fields are owned by the front slot; the rear slot
+// contributes only its coupling mode (the Phase A limitation documented
+// in deriveActiveVehicleConfiguration.js).
 //
 // The camber fields carry live physics: the static camber and the
 // archetype's camber gain per meter of suspension travel, both read by the
@@ -54,13 +64,25 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'suspensionTargetStaticCompressionRatio01',
   'suspensionDampingRatio',
   'chassisTerrainSupportBaselineOffsetMeters',
-  'frontAxleCoupling',
-  'rearAxleCoupling',
   'suspensionVisualKind',
   'camberStaticRadians',
   'camberGainRadiansPerMeterCompression',
   'suspensionLinkage',
   'solidAxleRollCenterHeightMeters',
+])
+
+// The coupling mode each suspension slot derives onto the runtime spec.
+// 'axleCoupling' is a component-declared value, not a spec field: the
+// archetype states what kind of mechanism it is, and the slot it is
+// installed in decides which axle's coupling mode that produces.
+export const SUSPENSION_FRONT_OWNED_SPEC_FIELDS = Object.freeze([
+  ...SUSPENSION_OWNED_SPEC_FIELDS,
+  'frontAxleCoupling',
+])
+
+export const SUSPENSION_REAR_OWNED_SPEC_FIELDS = Object.freeze([
+  ...SUSPENSION_OWNED_SPEC_FIELDS,
+  'rearAxleCoupling',
 ])
 
 // The spec fields the chassis component owns.
@@ -225,8 +247,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.4,
       suspensionDampingRatio: 0.35,
       chassisTerrainSupportBaselineOffsetMeters: 0,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'independent',
+      axleCoupling: 'independent',
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
@@ -248,8 +269,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.45,
       suspensionDampingRatio: 0.5,
       chassisTerrainSupportBaselineOffsetMeters: -0.06,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'independent',
+      axleCoupling: 'independent',
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
@@ -271,8 +291,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.32,
       suspensionDampingRatio: 0.3,
       chassisTerrainSupportBaselineOffsetMeters: 0.07,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'independent',
+      axleCoupling: 'independent',
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
@@ -294,30 +313,31 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.25,
       suspensionDampingRatio: 0.8,
       chassisTerrainSupportBaselineOffsetMeters: 0,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'independent',
+      axleCoupling: 'independent',
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
       solidAxleRollCenterHeightMeters: 0,
     },
   },
-  'susp-solid-axle-rear': {
-    id: 'susp-solid-axle-rear',
-    label: 'Rear Solid Axle (shared leaf)',
+  'susp-solid-axle': {
+    id: 'susp-solid-axle',
+    label: 'Solid Axle (shared leaf)',
     description:
-      'The rear axle is a rigid beam carried on one shared leaf: both rear ' +
-      'wheels report the same suspension length, so a one-sided bump lifts ' +
-      'one rear wheel and holds the other up instead of letting it droop. ' +
-      'The front axle stays independent. The shared leaf uses the stock ' +
-      'linear spring rate; there is no progressive leaf model, no anti-roll ' +
-      'bar, no unsprung-mass model, and no per-corner spring rates. The ' +
-      'leaf pack gives the coupled axle a 0.25 m roll-center height, so the ' +
-      'roll axis sits above the ground and the body rolls less than it ' +
-      'would over a ground-level roll axis. The rigid beam still takes no ' +
-      'lateral load transfer across its own tires: the beam articulation ' +
-      'and the leaf torsional stiffness that would produce it are not ' +
-      'modelled.',
+      'A rigid beam axle carried on one shared leaf. Selecting it for the ' +
+      'rear slot couples the rear axle; selecting it for the front slot ' +
+      'couples the front axle instead, and the other axle stays ' +
+      'independent. Both wheels on the coupled axle report the same ' +
+      'suspension length, so a one-sided bump lifts one wheel and holds ' +
+      'the other up instead of letting it droop. The shared leaf uses the ' +
+      'stock linear spring rate; there is no progressive leaf model, no ' +
+      'anti-roll bar, no unsprung-mass model, and no per-corner spring ' +
+      'rates. The leaf pack gives the coupled axle a 0.25 m roll-center ' +
+      'height, so the roll axis sits above the ground and the body rolls ' +
+      'less than it would over a ground-level roll axis. The rigid beam ' +
+      'still takes no lateral load transfer across its own tires: the ' +
+      'beam articulation and the leaf torsional stiffness that would ' +
+      'produce it are not modelled.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -326,8 +346,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.4,
       suspensionDampingRatio: 0.35,
       chassisTerrainSupportBaselineOffsetMeters: 0,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'rigidAxle',
+      axleCoupling: 'rigidAxle',
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
@@ -364,8 +383,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.4,
       suspensionDampingRatio: 0.35,
       chassisTerrainSupportBaselineOffsetMeters: 0,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'independent',
+      axleCoupling: 'independent',
       suspensionVisualKind: 'macphersonStrut',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
@@ -415,8 +433,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionTargetStaticCompressionRatio01: 0.4,
       suspensionDampingRatio: 0.35,
       chassisTerrainSupportBaselineOffsetMeters: 0,
-      frontAxleCoupling: 'independent',
-      rearAxleCoupling: 'independent',
+      axleCoupling: 'independent',
       suspensionVisualKind: 'doubleWishbone',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
@@ -669,7 +686,11 @@ export const VEHICLE_COMPONENT_CATALOG = Object.freeze({
     defaultComponentId: 'chassis-hatchback',
     components: CHASSIS_COMPONENTS,
   },
-  suspension: {
+  suspensionFront: {
+    defaultComponentId: 'susp-stock',
+    components: SUSPENSION_COMPONENTS,
+  },
+  suspensionRear: {
     defaultComponentId: 'susp-stock',
     components: SUSPENSION_COMPONENTS,
   },
