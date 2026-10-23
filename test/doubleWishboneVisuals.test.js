@@ -5,16 +5,15 @@ import test from 'node:test'
 import * as THREE from 'three'
 
 import { createCar } from '../src/car/createCar.js'
+import { createHeightfieldTerrainContactQuery } from '../src/terrain/createHeightfieldTerrainContactQuery.js'
+import { createTerrainSurfaceProfile } from '../src/terrain/createTerrainSurfaceProfile.js'
 import { createVehicleController } from '../src/vehicle/createVehicleController.js'
-import { getComponent } from '../src/vehicle/config/componentCatalog.js'
-import { solveLinkageCamber } from '../src/vehicle/dynamics/linkageCamberSolver.js'
 
 const DT_SECONDS = 1 / 60
 const WISHBONE_ID = 'susp-double-wishbone'
 const STOCK_ID = 'susp-stock'
 const MACPHERSON_ID = 'susp-macpherson-strut'
 const SOLID_AXLE_ID = 'susp-solid-axle-rear'
-const LINKAGE_SPEC = getComponent('suspension', WISHBONE_ID).spec.suspensionLinkage
 
 function createController() {
   const car = createCar()
@@ -116,59 +115,71 @@ test('stock starts without wishbone nodes and hides cached nodes after swap-back
 })
 
 test('A-arm outer endpoints track linkage output while inner pivots stay fixed', () => {
-  const { car, controller } = createController()
-  const initialSnapshot = selectAndUpdate(controller, WISHBONE_ID)
-  const wheelState = initialSnapshot.wheelStates.find(
+  const car = createCar()
+  const controller = createVehicleController({
+    vehicle: car,
+    terrainContactQuery: createHeightfieldTerrainContactQuery({
+      surfaceProfile: createTerrainSurfaceProfile(),
+    }),
+  })
+  controller.setSuspension(WISHBONE_ID)
+  let snapshot = controller.update(DT_SECONDS, {})
+  let wheelState = snapshot.wheelStates.find(
     (state) => state.id === 'front-left'
   )
-  const segmentName =
+  const armSegment = segmentByName(
+    car,
     'wishbone-front-left-upper-arm-front-link-segment-visual'
-  const armSegment = segmentByName(car, segmentName)
-  const initialEndpoints = segmentEndpoints(armSegment)
-
-  const movedJoints = {
-    upperOuterJoint: {},
-    lowerOuterJoint: {},
+  )
+  const carrierSegment = segmentByName(
+    car,
+    'wishbone-front-left-hub-carrier-segment-visual'
+  )
+  const initialArmEndpoints = segmentEndpoints(armSegment)
+  const initialJoint = {
+    xMeters: wheelState.wishboneKinematics.upperOuterJoint.xMeters,
+    yMeters: wheelState.wishboneKinematics.upperOuterJoint.yMeters,
   }
-  solveLinkageCamber({
-    wheelTravelMeters: 0.05,
-    linkageSpec: LINKAGE_SPEC,
-    staticCamberRadians: 0,
-    outJoints: movedJoints,
-  })
-  assert.ok(Number.isFinite(movedJoints.upperOuterJoint.xMeters))
+  const initialWheelCenter = wheelState.wheelCenterLocalPosition.clone()
+  let maximumJointTravelMeters = 0
+  let maximumWheelCenterTravelMeters = 0
+  let stepCount = 0
 
-  const movedWheelStates = initialSnapshot.wheelStates.map((state) => {
-    if (state.id !== wheelState.id) return state
-    return {
-      ...state,
-      wheelCenterLocalPosition: state.wheelCenterLocalPosition
-        .clone()
-        .add(new THREE.Vector3(0, -0.05, 0)),
-      wishboneKinematics: movedJoints,
-    }
-  })
-  car.userData.vehicle.suspensionVisuals.updateFromWheelStates(
-    movedWheelStates,
-    null,
-    'doubleWishbone',
-    LINKAGE_SPEC
-  )
-
-  const movedEndpoints = segmentEndpoints(armSegment)
-  assertVectorClose(movedEndpoints.start, initialEndpoints.start)
-  assert.ok(
-    movedEndpoints.end.distanceTo(initialEndpoints.end) > 1e-4,
-    'outer endpoint must follow the linkage-derived joint movement'
-  )
-  assertVectorClose(
-    movedEndpoints.end,
-    new THREE.Vector3(
-      movedJoints.upperOuterJoint.xMeters,
-      movedJoints.upperOuterJoint.yMeters,
+  while (snapshot.position.z < 65 && stepCount < 960) {
+    snapshot = controller.update(DT_SECONDS, { throttle: true })
+    wheelState = snapshot.wheelStates.find(
+      (state) => state.id === 'front-left'
+    )
+    const armEndpoints = segmentEndpoints(armSegment)
+    const carrierEndpoints = segmentEndpoints(carrierSegment)
+    const jointPoint = new THREE.Vector3(
+      wheelState.wishboneKinematics.upperOuterJoint.xMeters,
+      wheelState.wishboneKinematics.upperOuterJoint.yMeters,
       wheelState.localPosition.z
     )
-  )
+    const jointTravelMeters = Math.hypot(
+      jointPoint.x - initialJoint.xMeters,
+      jointPoint.y - initialJoint.yMeters
+    )
+
+    maximumJointTravelMeters = Math.max(
+      maximumJointTravelMeters,
+      jointTravelMeters
+    )
+    maximumWheelCenterTravelMeters = Math.max(
+      maximumWheelCenterTravelMeters,
+      wheelState.wheelCenterLocalPosition.distanceTo(initialWheelCenter)
+    )
+
+    assertVectorClose(armEndpoints.start, initialArmEndpoints.start)
+    assertVectorClose(armEndpoints.end, jointPoint)
+    assertVectorClose(carrierEndpoints.end, wheelState.wheelCenterLocalPosition)
+    stepCount += 1
+  }
+
+  assert.ok(snapshot.position.z >= 65, 'vehicle must traverse proving-ground bumps')
+  assert.ok(maximumWheelCenterTravelMeters > 0.01)
+  assert.ok(maximumJointTravelMeters > 0.01)
 })
 
 test('hub carrier joins the outer-joint midpoint to the wheel center', () => {
