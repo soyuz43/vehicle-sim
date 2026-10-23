@@ -303,7 +303,7 @@ test('the MacPherson archetype differs from the stock preset in its visual kind,
   const stock = getComponent('suspensionFront', STOCK_ID)
 
   assert.equal(archetype.spec.suspensionVisualKind, 'macphersonStrut')
-  assert.equal(stock.spec.suspensionVisualKind, 'none')
+  assert.equal(stock.spec.suspensionVisualKind, 'independent')
   assert.equal(archetype.spec.axleCoupling, 'independent')
 
   // The linear coefficient is zeroed so the linkage solver owns the camber
@@ -342,11 +342,11 @@ test('the MacPherson archetype declares every field the suspension slot owns', (
 test('the default configuration still produces the stock vehicle', () => {
   const applied = applyVehicleConfiguration(createDefaultVehicleConfiguration())
 
-  assert.equal(applied.spec.suspensionVisualKind, 'none')
+  assert.equal(applied.spec.suspensionVisualKind, 'independent')
   assert.equal(
     DEFAULT_VEHICLE_SPEC.suspensionVisualKind,
-    'none',
-    'the shipped default must draw no archetype geometry'
+    'independent',
+    'the shipped default must draw realistic independent geometry'
   )
 })
 
@@ -354,18 +354,24 @@ test('the default configuration still produces the stock vehicle', () => {
 // The visual.
 // ---------------------------------------------------------------------------
 
-test('the stock car carries no strut geometry at all', () => {
+test('the stock car carries independent strut geometry', () => {
   const { car, controller } = createCatalogCar(STOCK_ID)
   const snapshot = settle(controller)
 
-  assert.deepEqual(findStrutNodeNames(car), [])
-  assert.equal(car.getObjectByName('front-left-strut-visual'), undefined)
-  assert.equal(car.getObjectByName('front-right-strut-visual'), undefined)
-  assert.equal(snapshot.suspensionVisuals.frontSuspensionVisualKind, 'none')
-  assert.equal(snapshot.suspensionVisuals.rearSuspensionVisualKind, 'none')
+  assert.equal(findStrutNodeNames(car).length, 32)
+  assert.equal(car.getObjectByName('front-left-strut-visual')?.visible, true)
+  assert.equal(car.getObjectByName('front-right-strut-visual')?.visible, true)
+  assert.equal(
+    snapshot.suspensionVisuals.frontSuspensionVisualKind,
+    'independent'
+  )
+  assert.equal(
+    snapshot.suspensionVisuals.rearSuspensionVisualKind,
+    'independent'
+  )
 })
 
-test('the MacPherson archetype draws a strut on each front corner only', () => {
+test('the MacPherson archetype draws struts on all corners with stock', () => {
   const { car, controller } = createCatalogCar(ARCHETYPE_ID)
   const snapshot = settle(controller)
 
@@ -376,24 +382,28 @@ test('the MacPherson archetype draws a strut on each front corner only', () => {
   assert.ok(frontRightNode, 'the front right corner must draw a strut')
   assert.equal(frontLeftNode.visible, true)
   assert.equal(frontRightNode.visible, true)
-
-  assert.equal(
+  assert.ok(
     car.getObjectByName('rear-left-strut-visual'),
-    undefined,
-    'the rear axle stays stock and must draw no strut'
+    'the stock rear axle draws an independent strut'
   )
-  assert.equal(car.getObjectByName('rear-right-strut-visual'), undefined)
+  assert.ok(
+    car.getObjectByName('rear-right-strut-visual'),
+    'the stock rear axle draws an independent strut'
+  )
 
   const struts = snapshot.suspensionVisuals.struts
   assert.equal(struts['front-left'].isVisible, true)
   assert.equal(struts['front-right'].isVisible, true)
-  assert.equal(struts['rear-left'].isVisible, false)
-  assert.equal(struts['rear-right'].isVisible, false)
+  assert.equal(struts['rear-left'].isVisible, true)
+  assert.equal(struts['rear-right'].isVisible, true)
   assert.equal(
     snapshot.suspensionVisuals.frontSuspensionVisualKind,
     'macphersonStrut'
   )
-  assert.equal(snapshot.suspensionVisuals.rearSuspensionVisualKind, 'none')
+  assert.equal(
+    snapshot.suspensionVisuals.rearSuspensionVisualKind,
+    'independent'
+  )
 })
 
 test('the strut tracks the published wheel position it spans', () => {

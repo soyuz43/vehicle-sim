@@ -92,8 +92,9 @@ export const SUSPENSION_REAR_OWNED_SPEC_FIELDS = Object.freeze([
 // and polar inertia feed the planar and vertical dynamics directly, and the
 // wheelbase and the track widths are the authoritative chassis geometry that
 // the load transfer, the chassis mass properties and the vertical dynamics
-// all read (see resolveChassisGeometry). The rendered body mesh stays fixed
-// to the hatchback shape, so none of these fields change the drawn vehicle.
+// all read (see resolveChassisGeometry). The rendered body mesh also reads
+// the chassis geometry and the visual-only 'bodyVisualKind' so the drawn
+// vehicle follows the selected chassis archetype.
 export const CHASSIS_OWNED_SPEC_FIELDS = Object.freeze([
   'massKg',
   'centerOfMassHeightMeters',
@@ -101,6 +102,7 @@ export const CHASSIS_OWNED_SPEC_FIELDS = Object.freeze([
   'frontTrackWidthMeters',
   'rearTrackWidthMeters',
   'yawMomentOfInertiaKgMeterSquared',
+  'bodyVisualKind',
 ])
 
 // The spec fields the wheels component owns.
@@ -150,9 +152,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
       'and yaw inertia are live physics properties: the load transfer, the ' +
       'chassis mass properties and the vertical dynamics all honor them.' +
-      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
-      'so selecting a different chassis changes how the car drives but not ' +
-      'how it looks.',
+      ' Visual note: the rendered body mesh follows this hatchback geometry.',
 
     spec: {
       massKg: 1400,
@@ -161,6 +161,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       frontTrackWidthMeters: 2.5,
       rearTrackWidthMeters: 2.5,
       yawMomentOfInertiaKgMeterSquared: 2800,
+      bodyVisualKind: 'hatchback',
     },
   },
   'chassis-lightroadster': {
@@ -172,9 +173,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
       'and yaw inertia are live physics properties: the load transfer, the ' +
       'chassis mass properties and the vertical dynamics all honor them.' +
-      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
-      'so selecting a different chassis changes how the car drives but not ' +
-      'how it looks.',
+      ' Visual note: the rendered body mesh follows this roadster geometry.',
 
     spec: {
       massKg: 1180,
@@ -183,6 +182,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       frontTrackWidthMeters: 2.3,
       rearTrackWidthMeters: 2.3,
       yawMomentOfInertiaKgMeterSquared: 2200,
+      bodyVisualKind: 'roadster',
     },
   },
   'chassis-suv': {
@@ -194,9 +194,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
       'and yaw inertia are live physics properties: the load transfer, the ' +
       'chassis mass properties and the vertical dynamics all honor them.' +
-      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
-      'so selecting a different chassis changes how the car drives but not ' +
-      'how it looks.',
+      ' Visual note: the rendered body mesh follows this SUV geometry.',
 
     spec: {
       massKg: 1950,
@@ -205,6 +203,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       frontTrackWidthMeters: 2.6,
       rearTrackWidthMeters: 2.6,
       yawMomentOfInertiaKgMeterSquared: 3800,
+      bodyVisualKind: 'suv',
     },
   },
   'chassis-heavytruck': {
@@ -216,9 +215,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       ' The wheelbase, front track, rear track, mass, center-of-mass height ' +
       'and yaw inertia are live physics properties: the load transfer, the ' +
       'chassis mass properties and the vertical dynamics all honor them.' +
-      ' Visual note: the rendered body mesh is fixed to the hatchback shape, ' +
-      'so selecting a different chassis changes how the car drives but not ' +
-      'how it looks.',
+      ' Visual note: the rendered body mesh follows this truck geometry.',
 
     spec: {
       massKg: 3200,
@@ -227,6 +224,7 @@ const CHASSIS_COMPONENTS = Object.freeze({
       frontTrackWidthMeters: 2.7,
       rearTrackWidthMeters: 2.7,
       yawMomentOfInertiaKgMeterSquared: 6400,
+      bodyVisualKind: 'truck',
     },
   },
 })
@@ -248,7 +246,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionDampingRatio: 0.35,
       chassisTerrainSupportBaselineOffsetMeters: 0,
       axleCoupling: 'independent',
-      suspensionVisualKind: 'none',
+      suspensionVisualKind: 'independent',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
       solidAxleRollCenterHeightMeters: 0,

@@ -228,7 +228,10 @@ test('MacPherson struts and solid axle beam remain archetype-specific', () => {
   selectAndUpdate(controller, 'front', MACPHERSON_ID)
   assert.equal(car.getObjectByName('front-left-strut-visual').visible, true)
   assert.equal(car.getObjectByName('front-right-strut-visual').visible, true)
-  assert.equal(car.getObjectByName('rear-left-strut-visual'), undefined)
+  assert.ok(
+    car.getObjectByName('rear-left-strut-visual'),
+    'the stock rear axle draws an independent strut'
+  )
   assert.equal(wishboneGroups(car).length, 0)
 
   selectAndUpdate(controller, 'rear', SOLID_AXLE_ID)

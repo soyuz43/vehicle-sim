@@ -87,6 +87,10 @@ const STRUT_COIL_COUNT = 6
 // bare damper body.
 const STRUT_COIL_SPAN_FRACTION01 = 0.6
 const STRUT_COIL_TOP_MARGIN_FRACTION01 = 0.08
+const STRUT_CONTROL_ARM_RADIUS_METERS = 0.03
+const STRUT_CONTROL_ARM_RADIAL_SEGMENTS = 10
+const STRUT_CONTROL_ARM_DROP_METERS = 0.08
+const STRUT_CONTROL_ARM_INNER_FRACTION = 0.2
 // The strut sits inboard of the wheel, clear of the tire's inner face.
 const STRUT_BOTTOM_INBOARD_OFFSET_METERS = 0.26
 const STRUT_TOP_INBOARD_OFFSET_METERS = 0.32
@@ -96,6 +100,7 @@ const STRUT_TOP_INBOARD_OFFSET_METERS = 0.32
 const MACPHERSON_STRUT_VISUAL_KIND = 'macphersonStrut'
 const NO_SUSPENSION_VISUAL_KIND = 'none'
 const WISHBONE_VISUAL_KIND = 'doubleWishbone'
+const GENERIC_INDEPENDENT_VISUAL_KIND = 'independent'
 const WISHBONE_LINKAGE_KIND = 'double-wishbone'
 // Visual approximation only: the 2D linkage has no fore-aft dimension.
 const WISHBONE_INNER_PIVOT_HALF_SPAN_METERS = 0.15
@@ -431,7 +436,10 @@ export function createSuspensionVisuals(vehicle) {
           : wheelState.axle === 'rear'
             ? rearVisualKind
             : NO_SUSPENSION_VISUAL_KIND
-      if (visualKind !== MACPHERSON_STRUT_VISUAL_KIND) {
+      if (
+        visualKind !== MACPHERSON_STRUT_VISUAL_KIND &&
+        visualKind !== GENERIC_INDEPENDENT_VISUAL_KIND
+      ) {
         if (entry) hideStrutEntry(entry)
         updateStrutSnapshot(snapshot.struts[wheelId], {
           wheelId,
@@ -745,6 +753,20 @@ export function createSuspensionVisuals(vehicle) {
     group.name = wheelId + '-strut-visual'
     group.visible = false
 
+    const controlArmMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        STRUT_CONTROL_ARM_RADIUS_METERS,
+        STRUT_CONTROL_ARM_RADIUS_METERS,
+        1,
+        STRUT_CONTROL_ARM_RADIAL_SEGMENTS
+      ),
+      strutDamperMaterial
+    )
+    controlArmMesh.name = wheelId + '-control-arm-visual'
+    controlArmMesh.castShadow = true
+    controlArmMesh.visible = false
+    vehicle.add(controlArmMesh)
+
     const damperMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(
         STRUT_DAMPER_RADIUS_METERS,
@@ -784,6 +806,8 @@ export function createSuspensionVisuals(vehicle) {
       group,
       damperMesh,
       coilTori,
+      controlArmMesh,
+      controlArmKinematics: createSegmentBetweenPointsState(),
       topLocalMeters: new THREE.Vector3(),
       bottomLocalMeters: new THREE.Vector3(),
       lengthMeters: 0,
@@ -848,6 +872,27 @@ export function createSuspensionVisuals(vehicle) {
       .addVectors(strutTopLocal, strutBottomLocal)
       .multiplyScalar(0.5)
 
+    const controlArmOuterLocal = new THREE.Vector3(
+      wheelXMeters,
+      wheelYMeters - STRUT_CONTROL_ARM_DROP_METERS,
+      wheelZMeters
+    )
+    const controlArmInnerLocal = new THREE.Vector3(
+      wheelXMeters * STRUT_CONTROL_ARM_INNER_FRACTION,
+      wheelYMeters - STRUT_CONTROL_ARM_DROP_METERS,
+      wheelZMeters
+    )
+    updateSegmentBetweenPointsState(
+      entry.controlArmKinematics,
+      controlArmInnerLocal,
+      controlArmOuterLocal
+    )
+    const isControlArmFinite = applySegmentBetweenPointsState(
+      entry.controlArmMesh,
+      entry.controlArmKinematics
+    )
+    entry.controlArmMesh.visible = isControlArmFinite
+
     entry.group.position.copy(strutMidpointLocal)
     entry.group.quaternion.setFromUnitVectors(STRUT_UP_AXIS, strutAxisLocal)
     entry.group.visible = true
@@ -874,6 +919,9 @@ export function createSuspensionVisuals(vehicle) {
 
   function hideStrutEntry(entry) {
     entry.group.visible = false
+    if (entry.controlArmMesh) {
+      entry.controlArmMesh.visible = false
+    }
   }
 
   function isFiniteVector3(vector) {

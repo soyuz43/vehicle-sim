@@ -139,7 +139,7 @@ function componentMatchesEffectiveState(slot, component, effectiveState) {
 
     const expected = resolveDeclaredSpecValue(slot, field, component)
 
-    if (effectiveSpecValue(field, effectiveState) !== expected) {
+    if (effectiveSpecValue(field, effectiveState, slot) !== expected) {
       return false
     }
   }
@@ -159,12 +159,24 @@ function componentMatchesEffectiveState(slot, component, effectiveState) {
 // The rear differential is the exception: the differential state wins for
 // the physics, so the state value is the effective one and the spec field
 // is only a shadow kept for the snapshot.
-function effectiveSpecValue(field, effectiveState) {
+function effectiveSpecValue(field, effectiveState, slot) {
   if (field === 'rearDifferentialType') {
     return (
       effectiveState.rearDifferentialType ??
       effectiveState.spec.rearDifferentialType
     )
+  }
+
+  if (field === 'frontAxleCoupling' || field === 'rearAxleCoupling') {
+    return effectiveState.spec[field]
+  }
+
+  if (slot === 'suspensionFront' && effectiveState.spec.suspensionFront) {
+    return effectiveState.spec.suspensionFront[field]
+  }
+
+  if (slot === 'suspensionRear' && effectiveState.spec.suspensionRear) {
+    return effectiveState.spec.suspensionRear[field]
   }
 
   return effectiveState.spec[field]

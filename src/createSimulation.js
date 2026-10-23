@@ -7,7 +7,10 @@ import { createTerrainSelection } from './terrain/createTerrainSelection.js'
 import { createObstacleFieldVisuals } from './terrain/obstacles/createObstacleFieldVisuals.js'
 import { createCar } from './car/createCar.js'
 import { createVehicleController } from './vehicle/createVehicleController.js'
-import { createControllerConfig } from './vehicle/config/applyVehicleConfiguration.js'
+import {
+  applyVehicleConfiguration,
+  createControllerConfig,
+} from './vehicle/config/applyVehicleConfiguration.js'
 import {
   cloneVehicleConfiguration,
   createDefaultVehicleConfiguration,
@@ -84,7 +87,8 @@ export function createSimulation(deps = {}) {
   const initialVehicleConfig = deps.vehicleConfiguration
     ? cloneVehicleConfiguration(deps.vehicleConfiguration)
     : createDefaultVehicleConfiguration()
-  const car = createCar()
+  const initialSpec = applyVehicleConfiguration(initialVehicleConfig).spec
+  const car = createCar(initialSpec)
   scene.add(car)
 
   const controllerConfig = createControllerConfig(initialVehicleConfig, {

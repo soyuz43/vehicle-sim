@@ -16,7 +16,7 @@ test('slippery aero description matches its disabled-downforce setting', () => {
   assert.doesNotMatch(aero.description, /mild downforce/i)
 })
 
-test('chassis descriptions state that the geometry is live and the mesh is fixed', () => {
+test('chassis descriptions state that the geometry and mesh are live', () => {
   for (const componentId of [
     'chassis-hatchback',
     'chassis-lightroadster',
@@ -31,7 +31,7 @@ test('chassis descriptions state that the geometry is live and the mesh is fixed
     assert.match(chassis.description, /vertical dynamics/i)
     assert.match(
       chassis.description,
-      /rendered body mesh is fixed to the hatchback shape/i
+      /rendered body mesh follows this .* geometry/i
     )
     assert.doesNotMatch(chassis.description, /spec fallback/i)
     assert.doesNotMatch(

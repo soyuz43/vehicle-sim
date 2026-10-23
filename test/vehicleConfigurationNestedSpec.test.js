@@ -48,7 +48,7 @@ test('nested suspension specs expose the complete per-slot owned shape', () => {
 
   assert.equal(frontSpec.axleCoupling, 'independent')
   assert.equal(rearSpec.axleCoupling, 'independent')
-  assert.equal(frontSpec.suspensionVisualKind, 'none')
+  assert.equal(frontSpec.suspensionVisualKind, 'independent')
 })
 
 test('nested suspension fields fall back to the default spec when undeclared', () => {

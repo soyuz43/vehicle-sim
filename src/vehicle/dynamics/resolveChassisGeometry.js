@@ -7,12 +7,12 @@
  * component owns wheelbaseMeters, frontTrackWidthMeters and
  * rearTrackWidthMeters, so selecting a chassis has to change the physics.
  *
- * The rendered car mesh is NOT a geometry source. It is a fixed hatchback
- * shape (2.9 m wheelbase, 2.5 m track), so deriving the geometry from the
- * wheel layout made the load-transfer, chassis-mass-property and
- * vertical-dynamics derivations disagree with each other as soon as a
- * non-stock chassis was selected: the same vehicle was simulated with two
- * different geometries in the same step.
+ * The rendered car mesh is NOT a geometry source. It is a visual
+ * representation of the same spec geometry, so deriving the physics
+ * geometry from the wheel layout made the load-transfer,
+ * chassis-mass-property and vertical-dynamics derivations disagree with
+ * each other as soon as a non-stock chassis was selected: the same vehicle
+ * was simulated with two different geometries in the same step.
  *
  * The wheel layout is only a fallback for callers that pass no spec
  * geometry. The axle stations are always derived from the resolved
