@@ -598,3 +598,23 @@ test('a reset keeps the archetype and its beam', () => {
   )
 })
 
+
+test('only the linkage archetypes declare suspensionLinkage', () => {
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const linkageOwners = Object.keys(suspensionComponents).filter((componentId) =>
+    Object.hasOwn(suspensionComponents[componentId].spec, 'suspensionLinkage')
+  )
+
+  assert.deepEqual(
+    linkageOwners.sort(),
+    ['susp-double-wishbone', 'susp-macpherson-strut'].sort(),
+    'only the wishbone and MacPherson archetypes declare a linkage'
+  )
+
+  // The coefficient-fallback archetypes must not declare a linkage so they keep
+  // using the linear coefficient camber path (byte-identical to before).
+  assert.ok(!Object.hasOwn(suspensionComponents['susp-stock'].spec, 'suspensionLinkage'))
+  assert.ok(
+    !Object.hasOwn(suspensionComponents['susp-solid-axle-rear'].spec, 'suspensionLinkage')
+  )
+})

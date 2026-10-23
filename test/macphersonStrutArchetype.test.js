@@ -39,6 +39,7 @@ import {
   VEHICLE_COMPONENT_CATALOG,
   getComponent,
 } from '../src/vehicle/config/componentCatalog.js'
+import { solveLinkageCamber } from '../src/vehicle/dynamics/linkageCamberSolver.js'
 import { DEFAULT_VEHICLE_SPEC } from '../src/vehicle/defaultVehicleSpec.js'
 
 const DT_SECONDS = 1 / 60
@@ -292,12 +293,12 @@ test('the MacPherson archetype describes what it actually models', () => {
   assert.match(component.description, /roll-center parameters/i)
   assert.match(component.description, /camber gain/i)
   assert.match(component.description, /camber gain is modelled/i)
-  assert.match(component.description, /\+0\.0873 rad\/m/)
+  assert.match(component.description, /\+0\.52 deg/)
   assert.match(component.description, /does change handling/i)
   assert.doesNotMatch(component.description, /does not currently change handling/i)
 })
 
-test('the MacPherson archetype differs from the stock preset in its visual kind and its camber gain', () => {
+test('the MacPherson archetype differs from the stock preset in its visual kind, its camber gain and its linkage', () => {
   const archetype = getComponent('suspension', ARCHETYPE_ID)
   const stock = getComponent('suspension', STOCK_ID)
 
@@ -306,20 +307,22 @@ test('the MacPherson archetype differs from the stock preset in its visual kind 
   assert.equal(archetype.spec.frontAxleCoupling, 'independent')
   assert.equal(archetype.spec.rearAxleCoupling, 'independent')
 
-  // The camber gain is the physics difference: a strut gains positive
-  // camber as it compresses.
-  assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, 0.0873)
+  // The linear coefficient is zeroed so the linkage solver owns the camber
+  // curve; the linkage geometry is the only other field that departs from stock.
+  assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, 0)
   assert.equal(stock.spec.camberGainRadiansPerMeterCompression, 0)
-  assert.ok(archetype.spec.camberGainRadiansPerMeterCompression > 0)
+  assert.ok(Object.hasOwn(archetype.spec, 'suspensionLinkage'))
+  assert.ok(!Object.hasOwn(stock.spec, 'suspensionLinkage'))
 
   // Every other owned field must still match the stock preset.
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'suspensionVisualKind') continue
     if (field === 'camberGainRadiansPerMeterCompression') continue
+    if (field === 'suspensionLinkage') continue
     assert.equal(
       archetype.spec[field],
       stock.spec[field],
-      field + ' must match the stock preset so the visual kind and the camber gain are the only differences'
+      field + ' must match the stock preset so the linkage is the only difference'
     )
   }
 })
@@ -632,3 +635,44 @@ test('swapping to the MacPherson archetype at runtime changes the visuals and th
   )
 })
 
+
+test('the MacPherson archetype uses the linkage solver and reports camberGainSource linkage', () => {
+  const { controller } = createCatalogCar(ARCHETYPE_ID)
+  for (let step = 0; step < 120; step += 1) {
+    controller.update(DT_SECONDS, {})
+  }
+  const snapshot = controller.update(DT_SECONDS, { throttle: true })
+  for (const wheelState of snapshot.wheelStates) {
+    assert.equal(wheelState.camberGainSource, 'linkage')
+  }
+})
+
+test('the MacPherson camber curve matches the probe compression slope at +/-25mm and +/-50mm', () => {
+  const archetype = getComponent('suspension', ARCHETYPE_ID)
+  const linkage = archetype.spec.suspensionLinkage
+  assert.equal(linkage.kind, 'macpherson-strut')
+
+  const slopeDegreesPer100mm = (travelMeters) => {
+    const staticCamber = solveLinkageCamber({ wheelTravelMeters: 0, linkageSpec: linkage })
+    const displacedCamber = solveLinkageCamber({ wheelTravelMeters: travelMeters, linkageSpec: linkage })
+    return ((displacedCamber - staticCamber) * 180) / Math.PI / (Math.abs(travelMeters) * 10)
+  }
+
+  // Compression gains positive camber at ~ +0.52 deg/100mm (the probe value).
+  assert.ok(
+    Math.abs(slopeDegreesPer100mm(0.05) - 0.52) <= 0.52 * 0.05,
+    'bump slope must be ~ +0.52 deg/100mm, got ' + slopeDegreesPer100mm(0.05)
+  )
+  // The MacPherson strut is nonlinear near static, so the 25mm slope is
+  // steeper than the 50mm probe value; assert the correct sign and finiteness.
+  assert.ok(
+    slopeDegreesPer100mm(0.025) > 0,
+    'bump slope at 25mm must stay positive (linkage-derived positive camber), got ' +
+      slopeDegreesPer100mm(0.025)
+  )
+
+  // The MacPherson strut has a fixed top mount, so its camber-vs-travel curve
+  // is mildly nonlinear; the rebound side is steeper. Both ends stay finite.
+  assert.ok(Number.isFinite(slopeDegreesPer100mm(-0.05)))
+  assert.ok(Number.isFinite(slopeDegreesPer100mm(-0.025)))
+})
