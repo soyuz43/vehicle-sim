@@ -75,7 +75,7 @@ const SOLID_AXLE_ROLL_CENTER_HEIGHT_METERS = 0.25
 // stays the center-of-mass height, and every number in the trace is the
 // behavior the simulation had before roll centers were consumed.
 const STOCK_TRACE_SHA256 =
-  'fbda3dab3dfee1ecedd55487c354ca3bf5eab7cae4f37a73081f74a33d9bdeb3'
+  'cf141b8b2fbd88afaf101cb5c79eb56ec398ead7cbbcb7711d4981d5c46c9a81'
 
 function makeWheelState({ x, z, axle }) {
   return {
@@ -431,7 +431,14 @@ test('the stock vehicle keeps its byte-identical physics trace', () => {
   let lastVerticalDynamics = null
 
   for (let step = 0; step < 5400; step += 1) {
-    const input = step < 3600 ? { throttle: true } : { brake: true }
+    // The trace has to exercise the roll path: a straight-line run never
+    // develops body roll, so a broken roll arm would stay invisible.
+    const input =
+      step < 2700
+        ? { throttle: true }
+        : step < 3600
+          ? { throttle: true, left: true }
+          : { brake: true }
     const snapshot = controller.update(DT_SECONDS, input)
     const verticalDynamics = snapshot.verticalDynamics
     lastVerticalDynamics = verticalDynamics
