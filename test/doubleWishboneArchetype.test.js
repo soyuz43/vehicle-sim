@@ -261,8 +261,12 @@ test('the wishbone margin against the MacPherson strut stays bounded over the wh
     maximumDeltaNewtons > 0,
     'the wishbone must change the per-wheel lateral force'
   )
+  // Both archetypes carry a roll center now, so their direct transfers
+  // differ by the difference of their roll-center heights. The measured
+  // per-wheel delta grew from the camber-only value (below 15 N) to about
+  // 17 N with the direct transfer.
   assert.ok(
-    maximumDeltaNewtons < 15,
+    maximumDeltaNewtons < 25,
     'the per-wheel lateral force delta must stay bounded, got ' +
       maximumDeltaNewtons + ' N'
   )
