@@ -361,7 +361,8 @@ test('the stock car carries no strut geometry at all', () => {
   assert.deepEqual(findStrutNodeNames(car), [])
   assert.equal(car.getObjectByName('front-left-strut-visual'), undefined)
   assert.equal(car.getObjectByName('front-right-strut-visual'), undefined)
-  assert.equal(snapshot.suspensionVisuals.suspensionVisualKind, 'none')
+  assert.equal(snapshot.suspensionVisuals.frontSuspensionVisualKind, 'none')
+  assert.equal(snapshot.suspensionVisuals.rearSuspensionVisualKind, 'none')
 })
 
 test('the MacPherson archetype draws a strut on each front corner only', () => {
@@ -389,9 +390,10 @@ test('the MacPherson archetype draws a strut on each front corner only', () => {
   assert.equal(struts['rear-left'].isVisible, false)
   assert.equal(struts['rear-right'].isVisible, false)
   assert.equal(
-    snapshot.suspensionVisuals.suspensionVisualKind,
+    snapshot.suspensionVisuals.frontSuspensionVisualKind,
     'macphersonStrut'
   )
+  assert.equal(snapshot.suspensionVisuals.rearSuspensionVisualKind, 'none')
 })
 
 test('the strut tracks the published wheel position it spans', () => {
