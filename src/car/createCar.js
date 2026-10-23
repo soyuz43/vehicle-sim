@@ -39,10 +39,6 @@ const REAR_DIFFERENTIAL_HANGER_DEPTH = 0.08
 const BRAKE_LIGHT_WIDTH = 0.22
 const BRAKE_LIGHT_HEIGHT = 0.16
 const BRAKE_LIGHT_DEPTH = 0.05
-const DEFAULT_BRAKE_LIGHT_X = DEFAULT_BODY_WIDTH * 0.32
-const DEFAULT_BRAKE_LIGHT_Y = DEFAULT_BODY_Y + DEFAULT_BODY_HEIGHT * 0.12
-const DEFAULT_BRAKE_LIGHT_Z =
-  -DEFAULT_BODY_LENGTH / 2 - BRAKE_LIGHT_DEPTH / 2 - 0.012
 
 function sanitizePositiveMeters(value, fallbackMeters) {
   return Number.isFinite(value) && value > 0 ? value : fallbackMeters
@@ -104,16 +100,12 @@ function deriveVisualGeometry(spec = {}) {
 
 export function createCar(spec = {}) {
   const visualGeometry = deriveVisualGeometry(spec)
-  const BODY_LENGTH = visualGeometry.bodyLengthMeters
-  const BODY_WIDTH = visualGeometry.bodyWidthMeters
-  const BODY_HEIGHT = visualGeometry.bodyHeightMeters
   const FRONT_AXLE_Z = visualGeometry.frontAxleZMeters
   const REAR_AXLE_Z = visualGeometry.rearAxleZMeters
   const WHEEL_X = visualGeometry.wheelXMeters
   const FRONT_WHEEL_X = visualGeometry.frontWheelXMeters
   const REAR_WHEEL_X = visualGeometry.rearWheelXMeters
   const WHEEL_Y = WHEEL_RADIUS
-  const BODY_Y = visualGeometry.bodyY
   const FRAME_Y = visualGeometry.frameY
   const FRAME_RAIL_X = Math.max(0.3, WHEEL_X - 0.73)
   const WHEEL_STATIC_SUSPENSION_LENGTH_METERS = 0.262
@@ -124,9 +116,6 @@ export function createCar(spec = {}) {
   const SPINDLE_SUPPORT_BOTTOM_Y = WHEEL_Y
   const FRONT_SPINDLE_INNER_X = FRAME_RAIL_X
   const TRANSMISSION_OUTPUT_MOUNT_Y = FRAME_Y - 0.18
-  const BRAKE_LIGHT_X = BODY_WIDTH * 0.32
-  const BRAKE_LIGHT_Y = BODY_Y + BODY_HEIGHT * 0.12
-  const BRAKE_LIGHT_Z = -BODY_LENGTH / 2 - BRAKE_LIGHT_DEPTH / 2 - 0.012
   CHASSIS_TWIST_UNIFORMS.uFrontAxleZ.value = FRONT_AXLE_Z
   CHASSIS_TWIST_UNIFORMS.uRearAxleZ.value = REAR_AXLE_Z
   const car = new THREE.Group()
@@ -138,10 +127,8 @@ export function createCar(spec = {}) {
   applyTwistShader(materials.body)
   applyTwistShader(materials.nose)
 
-  const body = createBody(materials.body, visualGeometry)
-  const nose = createNose(materials.nose, visualGeometry)
-  const greenhouse = createGreenhouse(materials.glass, visualGeometry)
-  const brakeLights = createBrakeLights(materials.brakeLight, visualGeometry)
+  let bodyVisualGeometry = visualGeometry
+  let bodyVisuals = createBodyVisuals(materials, visualGeometry)
 
   const frameRails = [
     createFrameRail(
@@ -317,13 +304,7 @@ export function createCar(spec = {}) {
   }
 
   car.add(chassisVisualRoot)
-  addToChassisVisualRoot(chassisVisualRoot, body)
-  addToChassisVisualRoot(chassisVisualRoot, nose)
-  addToChassisVisualRoot(chassisVisualRoot, greenhouse)
-
-  for (const brakeLight of brakeLights) {
-    addToChassisVisualRoot(chassisVisualRoot, brakeLight)
-  }
+  addBodyVisualsToChassisRoot(chassisVisualRoot, bodyVisuals)
 
   for (const rail of frameRails) {
     addToChassisVisualRoot(chassisVisualRoot, rail)
@@ -359,13 +340,7 @@ export function createCar(spec = {}) {
   car.userData.vehicle = {
     kind: 'raised-four-wheel-test-chassis',
     forwardAxisLocal: new THREE.Vector3(0, 0, 1),
-    body: {
-      length: BODY_LENGTH,
-      width: BODY_WIDTH,
-      height: BODY_HEIGHT,
-      centerY: BODY_Y,
-      bottomY: BODY_Y - BODY_HEIGHT / 2,
-    },
+    body: createBodyMetadata(visualGeometry),
     frame: {
       railX: FRAME_RAIL_X,
       railY: FRAME_Y,
@@ -405,7 +380,7 @@ export function createCar(spec = {}) {
       note: 'Visual-only independent articulation; no CV-joint, control-arm, or driveshaft torque physics.',
     },
     lighting: {
-      brakeLightNodes: brakeLights.map((brakeLight) => brakeLight.name),
+      brakeLightNodes: bodyVisuals.brakeLights.map((brakeLight) => brakeLight.name),
     },
     steering: {
       steerableWheels: ['front-left', 'front-right'],
@@ -417,6 +392,27 @@ export function createCar(spec = {}) {
     })),
     tireInflationVisuals: {
       contactPatchNodes: contactPatches.map((patch) => patch.name),
+    },
+    updateBodyVisuals: (nextSpec = {}) => {
+      const nextVisualGeometry = deriveVisualGeometry(nextSpec)
+      if (areBodyVisualGeometriesEqual(bodyVisualGeometry, nextVisualGeometry)) {
+        return false
+      }
+
+      const nextBodyVisuals = createBodyVisuals(materials, nextVisualGeometry)
+      addBodyVisualsToChassisRoot(chassisVisualRoot, nextBodyVisuals)
+
+      const previousBodyVisuals = bodyVisuals
+      bodyVisuals = nextBodyVisuals
+      bodyVisualGeometry = nextVisualGeometry
+      car.userData.vehicle.body = createBodyMetadata(nextVisualGeometry)
+      CHASSIS_TWIST_UNIFORMS.uFrontAxleZ.value =
+        nextVisualGeometry.frontAxleZMeters
+      CHASSIS_TWIST_UNIFORMS.uRearAxleZ.value =
+        nextVisualGeometry.rearAxleZMeters
+      disposeBodyVisuals(chassisVisualRoot, previousBodyVisuals)
+
+      return true
     },
     setChassisAttitudeVisualState: (chassisAttitudeState) => {
       applyChassisAttitudeVisualState(chassisVisualRoot, chassisAttitudeState)
@@ -455,6 +451,60 @@ export function createCar(spec = {}) {
   tirePressureVisuals.reset()
 
   return car
+}
+
+function createBodyVisuals(materials, visualGeometry) {
+  return {
+    body: createBody(materials.body, visualGeometry),
+    nose: createNose(materials.nose, visualGeometry),
+    greenhouse: createGreenhouse(materials.glass, visualGeometry),
+    brakeLights: createBrakeLights(materials.brakeLight, visualGeometry),
+  }
+}
+
+function addBodyVisualsToChassisRoot(chassisVisualRoot, bodyVisuals) {
+  for (const node of getBodyVisualNodes(bodyVisuals)) {
+    addToChassisVisualRoot(chassisVisualRoot, node)
+  }
+}
+
+function disposeBodyVisuals(chassisVisualRoot, bodyVisuals) {
+  for (const node of getBodyVisualNodes(bodyVisuals)) {
+    chassisVisualRoot.remove(node)
+    node.traverse((child) => {
+      child.geometry?.dispose()
+    })
+  }
+}
+
+function getBodyVisualNodes(bodyVisuals) {
+  return [
+    bodyVisuals.body,
+    bodyVisuals.nose,
+    bodyVisuals.greenhouse,
+    ...bodyVisuals.brakeLights,
+  ]
+}
+
+function createBodyMetadata(visualGeometry) {
+  return {
+    length: visualGeometry.bodyLengthMeters,
+    width: visualGeometry.bodyWidthMeters,
+    height: visualGeometry.bodyHeightMeters,
+    centerY: visualGeometry.bodyY,
+    bottomY: visualGeometry.bodyY - visualGeometry.bodyHeightMeters / 2,
+    visualKind: visualGeometry.bodyVisualKind,
+  }
+}
+
+function areBodyVisualGeometriesEqual(left, right) {
+  return (
+    left.bodyVisualKind === right.bodyVisualKind &&
+    left.bodyLengthMeters === right.bodyLengthMeters &&
+    left.bodyWidthMeters === right.bodyWidthMeters &&
+    left.bodyHeightMeters === right.bodyHeightMeters &&
+    left.bodyY === right.bodyY
+  )
 }
 
 function createChassisAttitudeVisualRoot(visualGeometry) {

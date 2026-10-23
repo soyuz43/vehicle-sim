@@ -24,14 +24,9 @@
  * combination the catalog does not describe, for example a manual gearbox
  * on the stock inline-4.
  *
- * Phase A limitation: the flat physical suspension fields are owned by the
- * suspensionFront slot (they are the spec the physics actually reads). The
- * suspensionRear slot is matched on the same physical fields plus the rear
- * coupling mode, so it reports the mechanism the rear axle is effectively
- * running. When the two slots select different physical archetypes, the
- * rear slot reports the front's physical archetype with the rear's
- * coupling mode — the honest description of what the flat spec carries
- * until per-axle consumption lands.
+ * Each suspension slot is matched against its own nested per-axle physical
+ * spec and coupling mode. The flat physical fields are front-slot aliases
+ * for legacy consumers and do not determine the rear selection.
  */
 
 import {

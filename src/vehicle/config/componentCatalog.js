@@ -36,10 +36,9 @@ export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
 // mechanism as 'axleCoupling', and the slot selection DERIVES the runtime
 // spec fields 'frontAxleCoupling' and 'rearAxleCoupling' from it: the
 // front slot's archetype determines 'frontAxleCoupling' and the rear
-// slot's archetype determines 'rearAxleCoupling'. In this phase the flat
-// physical suspension fields are owned by the front slot; the rear slot
-// contributes only its coupling mode (the Phase A limitation documented
-// in deriveActiveVehicleConfiguration.js).
+// slot's archetype determines 'rearAxleCoupling'. Each slot's nested
+// suspension spec is consumed by its axle; the flat physical fields remain
+// front-slot aliases for legacy consumers.
 //
 // The camber fields carry live physics: the static camber and the
 // archetype's camber gain per meter of suspension travel, both read by the
