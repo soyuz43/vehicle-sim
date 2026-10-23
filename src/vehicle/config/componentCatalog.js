@@ -375,10 +375,12 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       'the MacPherson strut, which gains positive camber instead. The ' +
       'camber comes from the linkage solver, not a tuned coefficient: the ' +
       'linear camber-gain coefficient is zeroed so the geometry owns the ' +
-      'camber curve. Visual: this entry draws no archetype geometry yet; ' +
-      'the wishbone mesh is a separate seam. The roll center of a real ' +
-      'double wishbone is still not modelled, because that needs ' +
-      'roll-center parameters.',
+      'camber curve. Visual: schematic A-arms use invented symmetric ' +
+      '+/-0.15 m fore-aft inner-pivot spacing because linkage physics is ' +
+      'front-view only. A visual-only hub carrier bridges the ball joints ' +
+      'to the wheel hub. Caster and anti-dive are not modelled. The roll ' +
+      'center of a real double wishbone is still not modelled, because that ' +
+      'needs roll-center parameters.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,

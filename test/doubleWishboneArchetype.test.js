@@ -156,6 +156,8 @@ test('the wishbone archetype describes the camber gain it models', () => {
   assert.match(component.description, /wishbone/i)
   assert.match(component.description, /negative camber gain/i)
   assert.match(component.description, /-1\.64 deg/)
+  assert.match(component.description, /fore-aft inner-pivot spacing/i)
+  assert.match(component.description, /visual-only hub carrier/i)
   assert.match(component.description, /roll-center parameters/i)
   assert.match(component.description, /not modelled/i)
 })
