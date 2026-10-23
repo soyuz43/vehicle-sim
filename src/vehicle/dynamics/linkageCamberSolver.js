@@ -45,7 +45,8 @@ export function solveLinkageCamber(solverInput = {}) {
     return solveDoubleWishboneCamber(
       wheelTravelMeters,
       linkageSpec,
-      staticCamberRadians
+      staticCamberRadians,
+      solverInput.outJoints
     )
   }
 
@@ -63,7 +64,8 @@ export function solveLinkageCamber(solverInput = {}) {
 function solveDoubleWishboneCamber(
   wheelTravelMeters,
   linkageSpec,
-  staticCamberRadians
+  staticCamberRadians,
+  outJoints
 ) {
   const upperArm = linkageSpec.leftSide?.upperArm
   const lowerArm = linkageSpec.leftSide?.lowerArm
@@ -104,6 +106,15 @@ function solveDoubleWishboneCamber(
   )
   if (!currentUpperJoint) {
     return sanitizeStaticCamberRadians(staticCamberRadians)
+  }
+
+  if (outJoints?.upperOuterJoint) {
+    outJoints.upperOuterJoint.xMeters = currentUpperJoint.xMeters
+    outJoints.upperOuterJoint.yMeters = currentUpperJoint.yMeters
+  }
+  if (outJoints?.lowerOuterJoint) {
+    outJoints.lowerOuterJoint.xMeters = currentLowerJoint.xMeters
+    outJoints.lowerOuterJoint.yMeters = currentLowerJoint.yMeters
   }
 
   return (

@@ -514,6 +514,52 @@ test('a spec with a wishbone linkage uses the linkage solver path', () => {
   )
 })
 
+test('wishbone outer-joint output is additive and only active for wishbone linkage', () => {
+  const solverInput = {
+    wheelTravelMeters: 0.05,
+    linkageSpec: WISHBONE_LINKAGE,
+    staticCamberRadians: 0,
+  }
+  const outJoints = {
+    upperOuterJoint: { xMeters: Number.NaN, yMeters: Number.NaN },
+    lowerOuterJoint: { xMeters: Number.NaN, yMeters: Number.NaN },
+  }
+  const camberWithOutput = solveLinkageCamber({ ...solverInput, outJoints })
+  const camberWithoutOutput = solveLinkageCamber(solverInput)
+
+  assert.equal(typeof camberWithOutput, 'number')
+  assert.equal(camberWithOutput, camberWithoutOutput)
+  assert.ok(Number.isFinite(outJoints.upperOuterJoint.xMeters))
+  assert.ok(Number.isFinite(outJoints.upperOuterJoint.yMeters))
+  assert.ok(Number.isFinite(outJoints.lowerOuterJoint.xMeters))
+  assert.ok(Number.isFinite(outJoints.lowerOuterJoint.yMeters))
+
+  const wishboneWheel = makeWheel({
+    suspensionCompressionMeters: DESIGN_COMPRESSION_METERS + 0.05,
+  })
+  updateWheelCamberState(
+    [wishboneWheel],
+    { ...CAMBER_SPEC, suspensionLinkage: WISHBONE_LINKAGE },
+    0
+  )
+  assert.deepEqual(wishboneWheel.wishboneKinematics, outJoints)
+
+  const stockWheel = makeWheel()
+  updateWheelCamberState([stockWheel], CAMBER_SPEC, 0)
+  assert.equal(stockWheel.wishboneKinematics, undefined)
+
+  const macphersonWheel = makeWheel()
+  updateWheelCamberState(
+    [macphersonWheel],
+    {
+      ...CAMBER_SPEC,
+      suspensionLinkage: { kind: 'macpherson-strut', leftSide: {} },
+    },
+    0
+  )
+  assert.equal(macphersonWheel.wishboneKinematics, undefined)
+})
+
 test('an unknown linkage kind falls back to the coefficient path', () => {
   const wheel = makeWheel({ suspensionCompressionMeters: DESIGN_COMPRESSION_METERS + 0.05 })
   const spec = {
