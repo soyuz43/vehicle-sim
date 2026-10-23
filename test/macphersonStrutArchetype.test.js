@@ -131,7 +131,7 @@ function createCatalogCar(suspensionComponentId, terrainContactQuery) {
   const car = createCar()
   const configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
-    'suspension',
+    'suspensionFront',
     suspensionComponentId
   )
   const applied = applyVehicleConfiguration(configuration)
@@ -260,17 +260,17 @@ function buildPhysicsTrace(controller, steps = TRACE_STEPS) {
 // ---------------------------------------------------------------------------
 
 test('the catalog exposes exactly one MacPherson archetype', () => {
-  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspensionFront.components
   const macphersonIds = Object.keys(suspensionComponents).filter((componentId) =>
     componentId.includes('macpherson')
   )
 
   assert.deepEqual(macphersonIds, [ARCHETYPE_ID])
-  assert.equal(VEHICLE_COMPONENT_CATALOG.suspension.defaultComponentId, STOCK_ID)
+  assert.equal(VEHICLE_COMPONENT_CATALOG.suspensionFront.defaultComponentId, STOCK_ID)
 })
 
 test('the MacPherson archetype describes what it actually models', () => {
-  const component = getComponent('suspension', ARCHETYPE_ID)
+  const component = getComponent('suspensionFront', ARCHETYPE_ID)
 
   assert.equal(component.id, ARCHETYPE_ID)
   assert.equal(typeof component.label, 'string')
@@ -299,13 +299,12 @@ test('the MacPherson archetype describes what it actually models', () => {
 })
 
 test('the MacPherson archetype differs from the stock preset in its visual kind, its camber gain and its linkage', () => {
-  const archetype = getComponent('suspension', ARCHETYPE_ID)
-  const stock = getComponent('suspension', STOCK_ID)
+  const archetype = getComponent('suspensionFront', ARCHETYPE_ID)
+  const stock = getComponent('suspensionFront', STOCK_ID)
 
   assert.equal(archetype.spec.suspensionVisualKind, 'macphersonStrut')
   assert.equal(stock.spec.suspensionVisualKind, 'none')
-  assert.equal(archetype.spec.frontAxleCoupling, 'independent')
-  assert.equal(archetype.spec.rearAxleCoupling, 'independent')
+  assert.equal(archetype.spec.axleCoupling, 'independent')
 
   // The linear coefficient is zeroed so the linkage solver owns the camber
   // curve; the linkage geometry is the only other field that departs from stock.
@@ -328,7 +327,7 @@ test('the MacPherson archetype differs from the stock preset in its visual kind,
 })
 
 test('the MacPherson archetype declares every field the suspension slot owns', () => {
-  const component = getComponent('suspension', ARCHETYPE_ID)
+  const component = getComponent('suspensionFront', ARCHETYPE_ID)
 
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
     (field) => field !== 'suspensionLinkage'
@@ -598,7 +597,7 @@ test('swapping to the MacPherson archetype at runtime changes the visuals and th
 
   for (let step = 0; step < TRACE_STEPS; step += 1) {
     if (step === 300) {
-      swapped.controller.setSuspension(ARCHETYPE_ID)
+      swapped.controller.setSuspension('front', ARCHETYPE_ID)
     }
 
     const input = step < 300 ? { throttle: true } : { throttle: true, left: true }
@@ -653,7 +652,7 @@ test('the MacPherson archetype uses the linkage solver and reports camberGainSou
 })
 
 test('the MacPherson camber curve matches the probe compression slope at +/-25mm and +/-50mm', () => {
-  const archetype = getComponent('suspension', ARCHETYPE_ID)
+  const archetype = getComponent('suspensionFront', ARCHETYPE_ID)
   const linkage = archetype.spec.suspensionLinkage
   assert.equal(linkage.kind, 'macpherson-strut')
 

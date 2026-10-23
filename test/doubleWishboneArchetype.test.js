@@ -41,7 +41,7 @@ const INNER_WHEEL_ID = 'front-left'
 function createCatalogCar(suspensionComponentId) {
   const configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
-    'suspension',
+    'suspensionFront',
     suspensionComponentId
   )
   const applied = applyVehicleConfiguration(configuration)
@@ -101,17 +101,17 @@ function meanLateralForce(statistics, id) {
 // ---------------------------------------------------------------------------
 
 test('the catalog exposes exactly one double wishbone archetype', () => {
-  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspension.components
+  const suspensionComponents = VEHICLE_COMPONENT_CATALOG.suspensionFront.components
   const wishboneIds = Object.keys(suspensionComponents).filter((componentId) =>
     componentId.includes('wishbone')
   )
 
   assert.deepEqual(wishboneIds, [ARCHETYPE_ID])
-  assert.equal(VEHICLE_COMPONENT_CATALOG.suspension.defaultComponentId, STOCK_ID)
+  assert.equal(VEHICLE_COMPONENT_CATALOG.suspensionFront.defaultComponentId, STOCK_ID)
 })
 
 test('the wishbone archetype declares every field the suspension slot owns', () => {
-  const component = getComponent('suspension', ARCHETYPE_ID)
+  const component = getComponent('suspensionFront', ARCHETYPE_ID)
 
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS.filter(
     (field) => field !== 'suspensionLinkage'
@@ -124,8 +124,8 @@ test('the wishbone archetype declares every field the suspension slot owns', () 
 })
 
 test('the wishbone archetype differs from the stock preset only in camber, linkage, and visual kind', () => {
-  const archetype = getComponent('suspension', ARCHETYPE_ID)
-  const stock = getComponent('suspension', STOCK_ID)
+  const archetype = getComponent('suspensionFront', ARCHETYPE_ID)
+  const stock = getComponent('suspensionFront', STOCK_ID)
 
   // The linear coefficient is zeroed so the linkage solver owns the camber
   // curve; the linkage geometry is the only other field that departs from stock.
@@ -135,8 +135,7 @@ test('the wishbone archetype differs from the stock preset only in camber, linka
   assert.equal(stock.spec.suspensionVisualKind, 'none')
   assert.ok(Object.hasOwn(archetype.spec, 'suspensionLinkage'))
   assert.ok(!Object.hasOwn(stock.spec, 'suspensionLinkage'))
-  assert.equal(archetype.spec.frontAxleCoupling, 'independent')
-  assert.equal(archetype.spec.rearAxleCoupling, 'independent')
+  assert.equal(archetype.spec.axleCoupling, 'independent')
 
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'camberGainRadiansPerMeterCompression') continue
@@ -151,7 +150,7 @@ test('the wishbone archetype differs from the stock preset only in camber, linka
 })
 
 test('the wishbone archetype describes the camber gain it models', () => {
-  const component = getComponent('suspension', ARCHETYPE_ID)
+  const component = getComponent('suspensionFront', ARCHETYPE_ID)
 
   assert.match(component.description, /wishbone/i)
   assert.match(component.description, /negative camber gain/i)
@@ -300,7 +299,7 @@ test('the wishbone archetype uses the linkage solver and reports camberGainSourc
 })
 
 test('the wishbone camber curve matches the probe slope at +/-25mm and +/-50mm', () => {
-  const archetype = getComponent('suspension', ARCHETYPE_ID)
+  const archetype = getComponent('suspensionFront', ARCHETYPE_ID)
   const linkage = archetype.spec.suspensionLinkage
   assert.equal(linkage.kind, 'double-wishbone')
 

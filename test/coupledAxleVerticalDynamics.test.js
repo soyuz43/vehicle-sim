@@ -458,7 +458,7 @@ function createRaisedStepQuery(targetWheelXZ, stepHeightMeters = STEP_HEIGHT_MET
 function createCatalogController(suspensionComponentId, terrainContactQuery) {
   const configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
-    'suspension',
+    'suspensionRear',
     suspensionComponentId
   )
   const applied = applyVehicleConfiguration(configuration)
@@ -473,7 +473,7 @@ function createCatalogController(suspensionComponentId, terrainContactQuery) {
 
 test('a coupled rear axle under a one-sided bump still produces zero body roll', () => {
   const controller = createCatalogController(
-    'susp-solid-axle-rear',
+    'susp-solid-axle',
     createRaisedStepQuery(REAR_LEFT_WHEEL_XZ)
   )
 

@@ -25,6 +25,11 @@ function mergeComponentSpec(target, component) {
   if (!specContribution || typeof specContribution !== 'object') return
 
   for (const key of Object.keys(specContribution)) {
+    // 'axleCoupling' is a component-declared archetype value, not a spec
+    // field. The slot selection derives 'frontAxleCoupling' and
+    // 'rearAxleCoupling' from it below.
+    if (key === 'axleCoupling') continue
+
     const value = specContribution[key]
 
     if (value !== undefined && value !== null) {
@@ -49,7 +54,12 @@ export function applyVehicleConfiguration(configuration, options = {}) {
 
     if (!component) continue
 
-    mergeComponentSpec(specOverride, component)
+    // Phase A limitation: the flat physical suspension fields are owned by
+    // the front slot, so the rear slot merges no physical fields until
+    // per-axle consumption lands.
+    if (slot !== 'suspensionRear') {
+      mergeComponentSpec(specOverride, component)
+    }
 
     if (slot === 'drivetrain') {
       if (typeof component.engineId === 'string') {
@@ -59,6 +69,36 @@ export function applyVehicleConfiguration(configuration, options = {}) {
         transmissionId = component.transmissionId
       }
     }
+  }
+
+  // The axle coupling modes are derived from the archetype each slot
+  // selected. 'axleCoupling' itself never reaches the spec: the runtime
+  // spec keeps the two derived per-axle fields the axle coupling state
+  // has always read.
+  const suspensionFrontComponent = getComponent(
+    'suspensionFront',
+    configuration.slots?.suspensionFront
+  )
+  const suspensionRearComponent = getComponent(
+    'suspensionRear',
+    configuration.slots?.suspensionRear
+  )
+  specOverride.frontAxleCoupling =
+    suspensionFrontComponent?.spec?.axleCoupling ?? 'independent'
+  specOverride.rearAxleCoupling =
+    suspensionRearComponent?.spec?.axleCoupling ?? 'independent'
+
+  // The leaf-pack roll-center height belongs to the axle that is actually
+  // coupled: a rigid front slot contributes the front archetype's height, a
+  // rigid rear slot the rear archetype's height. A fully independent
+  // suspension keeps the merged (front) value, which is zero for every
+  // independent archetype, so the stock behavior is unchanged.
+  if (specOverride.frontAxleCoupling === 'rigidAxle') {
+    specOverride.solidAxleRollCenterHeightMeters =
+      suspensionFrontComponent?.spec?.solidAxleRollCenterHeightMeters ?? 0
+  } else if (specOverride.rearAxleCoupling === 'rigidAxle') {
+    specOverride.solidAxleRollCenterHeightMeters =
+      suspensionRearComponent?.spec?.solidAxleRollCenterHeightMeters ?? 0
   }
 
   return {

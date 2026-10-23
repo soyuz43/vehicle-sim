@@ -3,7 +3,7 @@
 // Runtime vehicle configuration apply via setVehicleConfiguration().
 //
 // The Config Panel's Apply button used to warn and do nothing. This session
-// adds the controller-side API that makes the apply real: the six catalog
+// adds the controller-side API that makes the apply real: the seven catalog
 // slots are swapped in place on the running controller, the vehicle keeps its
 // pose, velocity, gear, and tire pressures, and the chassis slot re-derives
 // the mass properties and drops the stale vertical dynamics state.
@@ -108,10 +108,10 @@ test('a console suspension swap is reported to the configuration listeners', () 
   const reported = []
   controller.onConfigurationChanged((active) => reported.push(active))
 
-  controller.setSuspension('susp-solid-axle-rear')
+  controller.setSuspension('rear', 'susp-solid-axle')
 
   assert.equal(reported.length, 1, 'the swap reports one change')
-  assert.equal(reported[0].slots.suspension, 'susp-solid-axle-rear')
+  assert.equal(reported[0].slots.suspensionRear, 'susp-solid-axle')
   assert.equal(
     reported[0].slots.chassis,
     'chassis-hatchback',
@@ -140,13 +140,13 @@ test('the controller exposes a runtime vehicle configuration apply', () => {
   assert.equal(typeof controller.setVehicleConfiguration, 'function')
 })
 
-test('setVehicleConfiguration applies all six catalog slots to the running spec', () => {
+test('setVehicleConfiguration applies all seven catalog slots to the running spec', () => {
   const { controller } = createController()
 
   controller.setVehicleConfiguration(
     configurationWith({
       chassis: 'chassis-suv',
-      suspension: 'susp-solid-axle-rear',
+      suspensionRear: 'susp-solid-axle',
       wheels: 'tires-slicks',
       drivetrain: 'drivetrain-sport',
       brakes: 'brakes-sport',
@@ -290,7 +290,7 @@ test('a suspension change through the configuration API reuses the suspension sw
   drive(controller, 60)
 
   controller.setVehicleConfiguration(
-    configurationWith({ suspension: 'susp-solid-axle-rear' })
+    configurationWith({ suspensionRear: 'susp-solid-axle' })
   )
   const coupled = controller.update(DT_SECONDS, { throttle: true })
 
@@ -300,7 +300,7 @@ test('a suspension change through the configuration API reuses the suspension sw
   assert.ok(car.getObjectByName('rear-axle-beam-visual'))
 
   // Swapping back through the configuration API restores the independent axle.
-  controller.setVehicleConfiguration(configurationWith({ suspension: 'susp-stock' }))
+  controller.setVehicleConfiguration(configurationWith({ suspensionRear: 'susp-stock' }))
   const independent = controller.update(DT_SECONDS, { throttle: true })
 
   assert.equal(independent.axleCoupling.axles.rear.isCoupled, false)
@@ -319,7 +319,7 @@ test('a suspension change through the configuration API drops the damper sample'
 
   // The lowered profile has a different rest length, so the suspension
   // compression changes at the swap.
-  controller.setVehicleConfiguration(configurationWith({ suspension: 'susp-lowered' }))
+  controller.setVehicleConfiguration(configurationWith({ suspensionFront: 'susp-lowered' }))
   const snapshot = controller.update(DT_SECONDS, { throttle: true })
 
   for (const wheelState of snapshot.wheelStates) {
@@ -433,20 +433,20 @@ test('repeated configuration applies do not leak visual geometry', () => {
   drive(controller, 30)
 
   controller.setVehicleConfiguration(
-    configurationWith({ suspension: 'susp-solid-axle-rear' })
+    configurationWith({ suspensionRear: 'susp-solid-axle' })
   )
   controller.update(DT_SECONDS, { throttle: true })
-  controller.setVehicleConfiguration(configurationWith({ suspension: 'susp-stock' }))
+  controller.setVehicleConfiguration(configurationWith({ suspensionRear: 'susp-stock' }))
   controller.update(DT_SECONDS, { throttle: true })
 
   const nodeCountAfterFirstSwap = countNodes(car)
 
   for (let index = 0; index < 10; index += 1) {
     controller.setVehicleConfiguration(
-      configurationWith({ suspension: 'susp-solid-axle-rear' })
+      configurationWith({ suspensionRear: 'susp-solid-axle' })
     )
     controller.update(DT_SECONDS, { throttle: true })
-    controller.setVehicleConfiguration(configurationWith({ suspension: 'susp-stock' }))
+    controller.setVehicleConfiguration(configurationWith({ suspensionRear: 'susp-stock' }))
     controller.update(DT_SECONDS, { throttle: true })
   }
 

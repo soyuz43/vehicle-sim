@@ -23,6 +23,7 @@ import {
 } from '../../ui/design-system/browserStorage.js'
 import {
   createDefaultVehicleConfiguration,
+  migrateVehicleConfiguration,
   validateVehicleConfiguration,
 } from './createVehicleConfiguration.js'
 
@@ -43,7 +44,16 @@ export function readStoredVehicleConfiguration(
     return null
   }
 
-  const validation = validateVehicleConfiguration(stored)
+  // A legacy stored configuration carries the single version 1
+  // 'suspension' slot; migrating it before validation lets an old session
+  // restore its applied setup instead of falling back to stock.
+  const migrated = migrateVehicleConfiguration(stored)
+
+  if (!migrated) {
+    return null
+  }
+
+  const validation = validateVehicleConfiguration(migrated)
 
   if (!validation.valid) {
     console.warn(
@@ -53,7 +63,7 @@ export function readStoredVehicleConfiguration(
     return null
   }
 
-  return stored
+  return migrated
 }
 
 // Store the vehicle configuration.

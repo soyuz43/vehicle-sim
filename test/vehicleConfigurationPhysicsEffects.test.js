@@ -55,11 +55,11 @@ test('heavier chassis reduces straight-line acceleration (mass -> acceleration)'
 })
 
 test('suspension baseline offset changes static ride height', () => {
-  const lowered = settle(withSlot('suspension', 'susp-lowered')).chassisTerrainSupport
+  const lowered = settle(withSlot('suspensionFront', 'susp-lowered')).chassisTerrainSupport
     .currentChassisSupportHeightMeters
-  const stock = settle(withSlot('suspension', 'susp-stock')).chassisTerrainSupport
+  const stock = settle(withSlot('suspensionFront', 'susp-stock')).chassisTerrainSupport
     .currentChassisSupportHeightMeters
-  const lifted = settle(withSlot('suspension', 'susp-lifted')).chassisTerrainSupport
+  const lifted = settle(withSlot('suspensionFront', 'susp-lifted')).chassisTerrainSupport
     .currentChassisSupportHeightMeters
 
   assert.ok(lowered < stock)

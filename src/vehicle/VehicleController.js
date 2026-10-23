@@ -23,6 +23,7 @@ import {
 } from './config/componentCatalog.js'
 import {
     cloneVehicleConfiguration,
+    migrateVehicleConfiguration,
     validateVehicleConfiguration,
 } from './config/createVehicleConfiguration.js'
 import { deriveActiveVehicleConfiguration } from './config/deriveActiveVehicleConfiguration.js'
@@ -360,6 +361,33 @@ export class VehicleController {
     const suspensionVisuals =
         vehicle.userData.vehicle?.suspensionVisuals ?? null
 
+    // The suspension component tracking starts from the catalog components
+    // the initial spec describes, so a controller built from a catalog
+    // configuration keeps deriving the leaf-pack roll-center height of the
+    // rigid axle across later swaps of the other slot.
+    function resolveInitialSuspensionComponents() {
+        const initialConfiguration = deriveActiveVehicleConfiguration({
+            spec,
+            engineProfileId: engineProfile?.engineId ?? null,
+            transmissionProfileId: transmissionProfile?.transmissionId ?? null,
+            rearDifferentialType:
+                rearDifferentialState?.rearDifferentialType ?? null,
+        })
+
+        return {
+            suspensionFront:
+                getComponent(
+                    'suspensionFront',
+                    initialConfiguration.slots.suspensionFront
+                ) ?? getComponent('suspensionFront', 'susp-stock'),
+            suspensionRear:
+                getComponent(
+                    'suspensionRear',
+                    initialConfiguration.slots.suspensionRear
+                ) ?? getComponent('suspensionRear', 'susp-stock'),
+        }
+    }
+
     const state = {
         controllerKind: 'uneven-terrain-raycast-suspension-v1',
         engineProfile,
@@ -390,6 +418,7 @@ export class VehicleController {
         loadTransferSummary,
         verticalChassisDynamicsState,
         axleCouplingState: createAxleCouplingState(),
+        suspensionComponents: resolveInitialSuspensionComponents(),
         suspensionNormalForceSummary: createSuspensionNormalForceSummary(),
         chassisTerrainSupportState,
         slopeGravityState: createSlopeGravityState(),
@@ -843,18 +872,93 @@ export class VehicleController {
     // reports the new mode immediately; the next step's constraint solve
     // fills the beam pose in again. The per-wheel damper sample is dropped
     // so a changed rest length cannot produce a one-frame damper spike.
-    function applySuspensionComponent(suspensionId) {
-        const component = requireSuspensionComponent(suspensionId)
+    function resolveSuspensionSlotKey(slot) {
+        if (slot === 'front') return 'suspensionFront'
+        if (slot === 'rear') return 'suspensionRear'
 
-        applySuspensionSpec(component.spec)
+        throw new Error(
+            'Unknown suspension slot "' +
+            String(slot) +
+            '". Expected "front" or "rear".'
+        )
+    }
+
+    // Applies one suspension slot to the running spec.
+    //
+    // Phase A limitation: the flat physical suspension fields are owned by
+    // the front slot, so only a front-slot swap replaces them. A rear-slot
+    // swap contributes only its coupling mode until per-axle consumption
+    // lands.
+    function applySuspensionSlotComponent(slotKey, component) {
+        if (slotKey === 'suspensionFront') {
+            const suspensionSpecChanged = applySuspensionSpec(component.spec)
+            const couplingChanged = applySuspensionCouplingMode(
+                'frontAxleCoupling',
+                component
+            )
+            if (suspensionSpecChanged || couplingChanged) {
+                state.isCamberStaticCompressionReferencePending = true
+            }
+        } else {
+            applySuspensionCouplingMode('rearAxleCoupling', component)
+        }
+        state.suspensionComponents[slotKey] = component
+        spec.solidAxleRollCenterHeightMeters =
+            deriveCoupledAxleRollCenterHeightMeters()
+
         syncAxleCouplingModesToSpec(state.axleCouplingState, spec)
-        dropSuspensionDamperSamples()
+        if (slotKey === 'suspensionFront') {
+            dropSuspensionDamperSamples()
+        }
 
         return component
     }
 
-    function setSuspension(suspensionId) {
-        const component = applySuspensionComponent(suspensionId)
+    // The leaf-pack roll-center height belongs to the axle that is actually
+    // coupled: a rigid front slot contributes the front archetype's height,
+    // a rigid rear slot the rear archetype's height. A fully independent
+    // suspension carries the front archetype's declared value (zero for
+    // every independent archetype), which keeps the stock behavior
+    // unchanged.
+    function deriveCoupledAxleRollCenterHeightMeters() {
+        if (spec.frontAxleCoupling === 'rigidAxle') {
+            const frontComponent = state.suspensionComponents.suspensionFront
+            if (frontComponent?.spec?.axleCoupling === 'rigidAxle') {
+                return frontComponent.spec.solidAxleRollCenterHeightMeters ?? 0
+            }
+        }
+
+        if (spec.rearAxleCoupling === 'rigidAxle') {
+            const rearComponent = state.suspensionComponents.suspensionRear
+            if (rearComponent?.spec?.axleCoupling === 'rigidAxle') {
+                return rearComponent.spec.solidAxleRollCenterHeightMeters ?? 0
+            }
+        }
+
+        return (
+            state.suspensionComponents.suspensionFront?.spec
+                ?.solidAxleRollCenterHeightMeters ?? 0
+        )
+    }
+
+    // The archetype declares its mechanism as 'axleCoupling'; the slot it
+    // is installed in decides which axle's coupling mode that produces.
+    function applySuspensionCouplingMode(specField, component) {
+        const couplingMode = component.spec?.axleCoupling ?? 'independent'
+
+        if (spec[specField] === couplingMode) return false
+
+        spec[specField] = couplingMode
+
+        return true
+    }
+
+    function setSuspension(slot, suspensionId) {
+        const slotKey = resolveSuspensionSlotKey(slot)
+        const component = applySuspensionSlotComponent(
+            slotKey,
+            requireSuspensionComponent(slotKey, suspensionId)
+        )
         notifyConfigurationChanged()
 
         return component
@@ -881,6 +985,12 @@ export class VehicleController {
     // mass and inertia), so that state is dropped instead of carrying
     // momentum the new body does not have.
     function setVehicleConfiguration(vehicleConfiguration) {
+        // A legacy configuration still carrying the single 'suspension'
+        // slot is migrated to the front/rear pair before validation, so an
+        // old stored or console-supplied setup applies instead of failing.
+        vehicleConfiguration =
+            migrateVehicleConfiguration(vehicleConfiguration) ??
+            vehicleConfiguration
         const validation = validateVehicleConfiguration(vehicleConfiguration)
 
         if (!validation.valid) {
@@ -891,15 +1001,22 @@ export class VehicleController {
 
         const components = {}
 
-        // --- Suspension slot ---------------------------------------------
-        // The suspension slot owns the archetype: the owned spec fields, the
-        // axle coupling modes, and the damper samples.
-        const suspensionComponent = requireSlotComponent(
-            'suspension',
-            vehicleConfiguration.slots.suspension
+        // --- Suspension slots --------------------------------------------
+        // The two suspension slots own the archetype per axle: the front
+        // slot owns the flat physical spec fields (the Phase A limitation),
+        // and each slot derives its own axle coupling mode.
+        const suspensionFrontComponent = requireSlotComponent(
+            'suspensionFront',
+            vehicleConfiguration.slots.suspensionFront
         )
-        applySuspensionComponent(suspensionComponent.id)
-        components.suspension = suspensionComponent
+        const suspensionRearComponent = requireSlotComponent(
+            'suspensionRear',
+            vehicleConfiguration.slots.suspensionRear
+        )
+        applySuspensionSlotComponent('suspensionFront', suspensionFrontComponent)
+        applySuspensionSlotComponent('suspensionRear', suspensionRearComponent)
+        components.suspensionFront = suspensionFrontComponent
+        components.suspensionRear = suspensionRearComponent
 
         // --- Drivetrain slot ---------------------------------------------
         // The engine and the transmission are controller-level profiles
@@ -1089,15 +1206,15 @@ export class VehicleController {
     // id is an error rather than a silent fallback: a swap request that
     // quietly kept the previous suspension would misrepresent what the
     // driver asked for.
-    function requireSuspensionComponent(suspensionId) {
-        const component = getComponent('suspension', suspensionId)
+    function requireSuspensionComponent(slotKey, suspensionId) {
+        const component = getComponent(slotKey, suspensionId)
 
         if (!component) {
             throw new Error(
-                'Unknown suspension id "' +
+                'Unknown ' + slotKey + ' id "' +
                 String(suspensionId) +
                 '". Known ids: ' +
-                Object.keys(VEHICLE_COMPONENT_CATALOG.suspension.components).join(', ')
+                Object.keys(VEHICLE_COMPONENT_CATALOG[slotKey].components).join(', ')
             )
         }
 
@@ -1116,6 +1233,8 @@ export class VehicleController {
         if (suspensionSpecChanged) {
             state.isCamberStaticCompressionReferencePending = true
         }
+
+        return suspensionSpecChanged
     }
 
     function dropSuspensionDamperSamples() {

@@ -460,7 +460,7 @@ test('a suspension change re-captures the static reference after the vehicle set
   for (let step = 0; step < 300; step += 1) {
     snapshot = controller.update(DT_SECONDS, { throttle: true })
   }
-  snapshot = controller.setSuspension('susp-double-wishbone')
+  snapshot = controller.setSuspension('front', 'susp-double-wishbone')
 
   for (let step = 0; step < 1800; step += 1) {
     snapshot = controller.update(DT_SECONDS, { brake: true })

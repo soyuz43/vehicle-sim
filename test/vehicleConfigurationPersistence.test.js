@@ -86,7 +86,8 @@ test('a successful apply writes the configuration to localStorage', () => {
 
   const stored = JSON.parse(storage.getItem(VEHICLE_CONFIGURATION_STORAGE_KEY))
   assert.equal(stored.slots.chassis, 'chassis-suv')
-  assert.equal(stored.slots.suspension, 'susp-stock')
+  assert.equal(stored.slots.suspensionFront, 'susp-stock')
+  assert.equal(stored.slots.suspensionRear, 'susp-stock')
 })
 
 test('a failed apply leaves the stored configuration alone', () => {
@@ -179,6 +180,55 @@ test('a stored value with an unknown slot id falls back to the stock configurati
     resolveInitialVehicleConfiguration().slots,
     createDefaultVehicleConfiguration().slots,
     'the stock configuration is used instead'
+  )
+})
+
+test('a legacy stored configuration with a single suspension slot migrates to both slots', () => {
+  const legacySlots = createDefaultVehicleConfiguration().slots
+  const legacy = {
+    version: 1,
+    slots: {
+      chassis: legacySlots.chassis,
+      suspension: 'susp-double-wishbone',
+      wheels: legacySlots.wheels,
+      drivetrain: legacySlots.drivetrain,
+      brakes: legacySlots.brakes,
+      aero: legacySlots.aero,
+    },
+  }
+  installFakeStorage({
+    [VEHICLE_CONFIGURATION_STORAGE_KEY]: JSON.stringify(legacy),
+  })
+
+  const migrated = readStoredVehicleConfiguration()
+
+  assert.equal(migrated.slots.suspensionFront, 'susp-double-wishbone')
+  assert.equal(migrated.slots.suspensionRear, 'susp-double-wishbone')
+  assert.equal(Object.hasOwn(migrated.slots, 'suspension'), false)
+  assert.equal(migrated.version, 2)
+})
+
+test('a legacy stored configuration with an invalid suspension id falls back to the stock setup', () => {
+  const legacySlots = createDefaultVehicleConfiguration().slots
+  const legacy = {
+    version: 1,
+    slots: {
+      chassis: legacySlots.chassis,
+      suspension: 'not-a-suspension',
+      wheels: legacySlots.wheels,
+      drivetrain: legacySlots.drivetrain,
+      brakes: legacySlots.brakes,
+      aero: legacySlots.aero,
+    },
+  }
+  installFakeStorage({
+    [VEHICLE_CONFIGURATION_STORAGE_KEY]: JSON.stringify(legacy),
+  })
+
+  assert.equal(readStoredVehicleConfiguration(), null)
+  assert.deepEqual(
+    resolveInitialVehicleConfiguration().slots,
+    createDefaultVehicleConfiguration().slots
   )
 })
 
