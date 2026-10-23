@@ -17,7 +17,15 @@
 //     kinematics.
 //   - Sprung mass only: unsprung mass and tire radial compliance are omitted
 //     (verticalDynamicsSprungMassFraction01 defaults to 1).
-//   - No roll-center geometry: pitch/roll rotate about the CG at com height.
+//   - Roll-center geometry: the roll axis runs through the front and rear
+//     roll centers, and the body rotates about it. A roll center shortens the
+//     roll arm (the distance from the center of mass to the roll axis) and
+//     takes the part of the lateral load transfer the links carry directly,
+//     so less of that transfer is left for the springs to carry as body roll.
+//     A vehicle with no roll center keeps the ground-level roll axis and the
+//     full center-of-mass roll arm, which is the pre-roll-center behavior.
+//     Pitch keeps its own axis: a longitudinal roll center (anti-dive and
+//     anti-squat) is not modelled.
 //   - Couples to terrain only through the existing raycast suspension
 //     compression already produced by updateSuspensionNormalForceState.
 //   - Planar-force coupling v1 adds prior-step pitch/roll moments.
@@ -42,6 +50,10 @@ import {
   resolveAxleCouplingMode,
 } from './axleCouplingState.js'
 import { resolveChassisGeometry } from './resolveChassisGeometry.js'
+import {
+  resolveAxleRollCenterHeightsMeters,
+  resolveRollAxisHeightMeters,
+} from './rollCenterGeometry.js'
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
 
@@ -75,6 +87,16 @@ function applyCompressionNoiseFloor(deviationMeters) {
   if (magnitude <= HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS) return 0
   return Math.sign(deviationMeters) *
     (magnitude - HEAVE_FORCING_COMPRESSION_NOISE_FLOOR_METERS)
+}
+
+function createAxleLateralTransferAccumulator() {
+  return {
+    cornerCount: 0,
+    minimumElasticDeviationNewtons: Number.POSITIVE_INFINITY,
+    maximumElasticDeviationNewtons: Number.NEGATIVE_INFINITY,
+    minimumDirectTransferNewtons: Number.POSITIVE_INFINITY,
+    maximumDirectTransferNewtons: Number.NEGATIVE_INFINITY,
+  }
 }
 
 function resolveWheelSpecArms(wheelState, chassisGeometry, target) {
@@ -206,6 +228,12 @@ export function createVerticalChassisDynamicsState(spec = {}) {
     sprungMassKg: 0,
     pitchInertiaKgMeterSquared: 0,
     rollInertiaKgMeterSquared: 0,
+    frontRollCenterHeightMeters: 0,
+    rearRollCenterHeightMeters: 0,
+    rollAxisHeightMeters: 0,
+    rollArmMeters: 0,
+    directLateralLoadTransferNewtons: 0,
+    elasticLateralLoadTransferNewtons: 0,
     planarForceCouplingActive: false,
     planarForcePitchMomentNewtonMeters: 0,
     planarForceRollMomentNewtonMeters: 0,
@@ -233,6 +261,12 @@ export function resetVerticalChassisDynamicsState(state, spec = {}) {
   state.sprungMassKg = 0
   state.pitchInertiaKgMeterSquared = 0
   state.rollInertiaKgMeterSquared = 0
+  state.frontRollCenterHeightMeters = 0
+  state.rearRollCenterHeightMeters = 0
+  state.rollAxisHeightMeters = 0
+  state.rollArmMeters = 0
+  state.directLateralLoadTransferNewtons = 0
+  state.elasticLateralLoadTransferNewtons = 0
   state.planarForceCouplingActive = false
   state.planarForcePitchMomentNewtonMeters = 0
   state.planarForceRollMomentNewtonMeters = 0
@@ -297,16 +331,46 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
         rearMassFraction01 * distanceCgToRearAxleMeters ** 2)
   }
 
+  // Roll-center geometry. A coupled axle is a rigid beam whose lateral
+  // force path runs through its leaf pack, so its roll-center height comes
+  // from the spec. An independent axle uses the linkage geometry when the
+  // vehicle declares a linkage, and has no roll center otherwise.
+  const coupledAxles = {
+    front:
+      resolveAxleCouplingMode(spec, 'front') ===
+      AXLE_COUPLING_MODES.RIGID_AXLE,
+    rear:
+      resolveAxleCouplingMode(spec, 'rear') ===
+      AXLE_COUPLING_MODES.RIGID_AXLE,
+  }
+  const axleRollCenterHeightsMeters = resolveAxleRollCenterHeightsMeters(
+    spec,
+    coupledAxles
+  )
+  const rollAxisHeightMeters = resolveRollAxisHeightMeters(
+    axleRollCenterHeightsMeters.front,
+    axleRollCenterHeightsMeters.rear,
+    chassisGeometry
+  )
+  // The roll arm is the distance from the center of mass to the roll axis.
+  // Without a roll center the roll axis is the ground line and the roll arm
+  // is the center-of-mass height, which is the pre-roll-center behavior.
+  const rollArmMeters = Math.max(
+    centerOfMassHeightMeters - rollAxisHeightMeters,
+    0
+  )
+
   let rollInertiaKgMeterSquared = sanitizePositiveNumber(
     spec.verticalDynamicsRollInertiaKgMeterSquared,
     0
   )
   if (rollInertiaKgMeterSquared <= 0) {
     // Beam about the longitudinal CG axis plus the parallel-axis term for the
-    // center-of-mass height.
+    // roll axis: the body rotates about the roll axis, so the parallel-axis
+    // term is the distance from the center of mass to that axis.
     rollInertiaKgMeterSquared =
       sprungMassKg * (trackWidthMeters ** 2 / 12) +
-      sprungMassKg * centerOfMassHeightMeters ** 2
+      sprungMassKg * rollArmMeters ** 2
   }
 
   // The body cannot sink past suspension droop or float past bottom-out, so
@@ -326,6 +390,12 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
     pitchInertiaKgMeterSquared,
     rollInertiaKgMeterSquared,
     centerOfMassHeightMeters,
+    coupledAxles,
+    frontMassFraction01,
+    rearMassFraction01,
+    axleRollCenterHeightsMeters,
+    rollAxisHeightMeters,
+    rollArmMeters,
     maximumHeaveDroopMeters: nominalStaticCompressionMeters,
     maximumHeaveCompressionMeters: Math.max(
       suspensionTravelMeters - nominalStaticCompressionMeters,
@@ -356,6 +426,12 @@ export function updateVerticalChassisDynamics(
   state.sprungMassKg = geometry.sprungMassKg
   state.pitchInertiaKgMeterSquared = geometry.pitchInertiaKgMeterSquared
   state.rollInertiaKgMeterSquared = geometry.rollInertiaKgMeterSquared
+  state.frontRollCenterHeightMeters =
+    geometry.axleRollCenterHeightsMeters.front
+  state.rearRollCenterHeightMeters =
+    geometry.axleRollCenterHeightsMeters.rear
+  state.rollAxisHeightMeters = geometry.rollAxisHeightMeters
+  state.rollArmMeters = geometry.rollArmMeters
 
   const groundedWheelCount = safeWheelStates.filter(
     (wheelState) => wheelState.isGrounded === true
@@ -376,10 +452,14 @@ export function updateVerticalChassisDynamics(
       localForwardAccelerationMetersPerSecondSquared *
       geometry.centerOfMassHeightMeters
     : 0
+  // The lateral inertia moment about the roll axis. The roll arm is the
+  // distance from the center of mass to the roll axis, so a roll center
+  // shortens the arm: less of the lateral load transfer is left for the
+  // springs to carry, and the body rolls less.
   state.planarForceRollMomentNewtonMeters = planarForceCouplingActive
     ? geometry.sprungMassKg *
       localLateralAccelerationMetersPerSecondSquared *
-      geometry.centerOfMassHeightMeters
+      geometry.rollArmMeters
     : 0
   // Terrain heave forcing rides on the same coupling gate. Both terms answer
   // the same question: does the vertical dynamics state react to the
@@ -393,11 +473,38 @@ export function updateVerticalChassisDynamics(
     safeWheelStates,
     geometry.chassisGeometry
   )
-  const coupledAxles = {
-    front:
-      resolveAxleCouplingMode(spec, 'front') === AXLE_COUPLING_MODES.RIGID_AXLE,
-    rear:
-      resolveAxleCouplingMode(spec, 'rear') === AXLE_COUPLING_MODES.RIGID_AXLE,
+  const coupledAxles = geometry.coupledAxles
+
+  // The direct (geometric) part of the lateral load transfer: the part the
+  // links carry instead of the springs. It is the classic
+  // m_axle * a_y * h_rc / track of one axle, and it lands on the tire loads
+  // because it never passes through a suspension spring.
+  const directLateralLoadTransferByAxleNewtons = { front: 0, rear: 0 }
+  if (planarForceCouplingActive) {
+    for (const axle of ['front', 'rear']) {
+      const rollCenterHeightMeters =
+        geometry.axleRollCenterHeightsMeters[axle]
+      if (!(rollCenterHeightMeters > 0)) continue
+      if (coupledAxles[axle] === true) continue
+
+      const trackWidthMeters =
+        axle === 'front'
+          ? geometry.chassisGeometry.frontTrackWidthMeters
+          : geometry.chassisGeometry.rearTrackWidthMeters
+      if (!(trackWidthMeters > 0)) continue
+
+      const axleSprungMassKg =
+        geometry.sprungMassKg *
+        (axle === 'front'
+          ? geometry.frontMassFraction01
+          : geometry.rearMassFraction01)
+
+      directLateralLoadTransferByAxleNewtons[axle] =
+        (axleSprungMassKg *
+          localLateralAccelerationMetersPerSecondSquared *
+          rollCenterHeightMeters) /
+        trackWidthMeters
+    }
   }
 
   // Assemble symmetric stiffness (K) and damping (C) sums over grounded wheels.
@@ -496,6 +603,23 @@ export function updateVerticalChassisDynamics(
     Krr += springRateNewtonsPerMeter * rollArmMeters * rollArmMeters
     Kpr += springRateNewtonsPerMeter * rollArmMeters * zMeters
 
+    // The direct transfer lands on the outside corner and leaves the
+    // inside corner. A positive lateral acceleration points toward the
+    // vehicle local left (+X), so the outside of that turn is the local right
+    // (-X): the right corners gain and the left corners lose.
+    //
+    // Coupled axles receive no direct lateral transfer here. The rigid beam
+    // routes lateral force through its own torsional stiffness and the leaf
+    // springs, which this physics does not model. The coupled axle therefore
+    // retains zero lateral transfer at the rear (pre-existing limitation,
+    // unchanged by RC consumption). Real solid axles transfer load laterally;
+    // this is a known simplification. The RC height on a coupled axle still
+    // reduces the elastic roll arm and thus body roll.
+    corner.directLoadTransferNewtons =
+      axle !== null && !isCoupledAxleCorner
+        ? -Math.sign(xMeters) * directLateralLoadTransferByAxleNewtons[axle]
+        : 0
+    corner.axle = axle
     corner.rollArmMeters = rollArmMeters
     corner.springRateNewtonsPerMeter = springRateNewtonsPerMeter
     corner.dampingRateNewtonsPerMeterPerSecond =
@@ -638,6 +762,15 @@ export function updateVerticalChassisDynamics(
   const finalPitchRate = state.pitchRateRadiansPerSecond
   const finalRollRate = state.rollRateRadiansPerSecond
 
+  // Per-axle lateral transfer accounting. The transfer an axle takes is the
+  // spread between its two corners: an independent axle gives its outside
+  // corner more load and its inside corner less, while a coupled axle gives
+  // both corners the same load and takes none.
+  const axleLateralTransferState = {
+    front: createAxleLateralTransferAccumulator(),
+    rear: createAxleLateralTransferAccumulator(),
+  }
+
   for (const corner of cornerData) {
     // The corner's vertical displacement of the BODY. A coupled axle's
     // corner moves with the axle centre, so its roll arm is the axle
@@ -656,15 +789,57 @@ export function updateVerticalChassisDynamics(
       -corner.springRateNewtonsPerMeter * uMeters -
       corner.dampingRateNewtonsPerMeterPerSecond * uRateMetersPerSecond
     const normalForceNewtons = Math.max(
-      corner.baseNormalForceNewtons + loadDeviationNewtons,
+      corner.baseNormalForceNewtons +
+        loadDeviationNewtons +
+        corner.directLoadTransferNewtons,
       minimumNormalForceNewtons
     )
     const wheelState = corner.wheelState
     wheelState.verticalDynamicsLoadDeviationNewtons = loadDeviationNewtons
+    wheelState.verticalDynamicsDirectLoadTransferNewtons =
+      corner.directLoadTransferNewtons
     wheelState.normalForceNewtons = normalForceNewtons
     wheelState.tractionLimitNewtons =
       sanitizeNumber(wheelState.frictionCoefficient, 0) * normalForceNewtons
+
+    const accumulator =
+      corner.axle !== null ? axleLateralTransferState[corner.axle] : null
+    if (accumulator) {
+      accumulator.cornerCount += 1
+      accumulator.minimumElasticDeviationNewtons = Math.min(
+        accumulator.minimumElasticDeviationNewtons,
+        loadDeviationNewtons
+      )
+      accumulator.maximumElasticDeviationNewtons = Math.max(
+        accumulator.maximumElasticDeviationNewtons,
+        loadDeviationNewtons
+      )
+      accumulator.minimumDirectTransferNewtons = Math.min(
+        accumulator.minimumDirectTransferNewtons,
+        corner.directLoadTransferNewtons
+      )
+      accumulator.maximumDirectTransferNewtons = Math.max(
+        accumulator.maximumDirectTransferNewtons,
+        corner.directLoadTransferNewtons
+      )
+    }
   }
+
+  let totalDirectLateralLoadTransferNewtons = 0
+  let totalElasticLateralLoadTransferNewtons = 0
+  for (const accumulator of Object.values(axleLateralTransferState)) {
+    if (accumulator.cornerCount < 2) continue
+    totalDirectLateralLoadTransferNewtons +=
+      (accumulator.maximumDirectTransferNewtons -
+        accumulator.minimumDirectTransferNewtons) /
+      2
+    totalElasticLateralLoadTransferNewtons +=
+      (accumulator.maximumElasticDeviationNewtons -
+        accumulator.minimumElasticDeviationNewtons) /
+      2
+  }
+  state.directLateralLoadTransferNewtons = totalDirectLateralLoadTransferNewtons
+  state.elasticLateralLoadTransferNewtons = totalElasticLateralLoadTransferNewtons
 
   state.integratedWheelCount = cornerData.length
   state.isFinite =

@@ -541,8 +541,13 @@ test('the MacPherson archetype produces a distinguishable but bounded physics tr
     maximumLateralForceDeltaNewtons > 0,
     'the archetype must change the per-wheel lateral force'
   )
+  // The archetype now carries a roll center derived from the strut linkage.
+  // The direct part of the lateral load transfer lands on the outside tire
+  // without passing through a spring, so the outside tire carries more load
+  // and therefore more grip. The measured per-wheel delta grew from the
+  // camber-only value (below 15 N) to about 90 N with the direct transfer.
   assert.ok(
-    maximumLateralForceDeltaNewtons < 15,
+    maximumLateralForceDeltaNewtons < 120,
     'the per-wheel lateral force delta must stay bounded, got ' +
       maximumLateralForceDeltaNewtons + ' N'
   )

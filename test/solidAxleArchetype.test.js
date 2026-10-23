@@ -276,7 +276,7 @@ test('the solid axle archetype describes what it actually models', () => {
   assert.doesNotMatch(component.description, /leaf spring rate/i)
 })
 
-test('the solid axle archetype differs from the stock preset only in the rear coupling mode', () => {
+test('the solid axle archetype differs from the stock preset in the rear coupling mode and the roll-center height', () => {
   const archetype = getComponent('suspension', ARCHETYPE_ID)
   const stock = getComponent('suspension', STOCK_ID)
 
@@ -285,12 +285,19 @@ test('the solid axle archetype differs from the stock preset only in the rear co
   assert.equal(stock.spec.frontAxleCoupling, 'independent')
   assert.equal(stock.spec.rearAxleCoupling, 'independent')
 
+  // The leaf pack gives the coupled axle a roll center above the ground.
+  // It is the second difference from the stock preset: the coupling mode and
+  // the roll-center height of the coupled axle.
+  assert.equal(archetype.spec.solidAxleRollCenterHeightMeters, 0.25)
+  assert.equal(stock.spec.solidAxleRollCenterHeightMeters, 0)
+
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'rearAxleCoupling') continue
+    if (field === 'solidAxleRollCenterHeightMeters') continue
     assert.equal(
       archetype.spec[field],
       stock.spec[field],
-      field + ' must match the stock preset so the coupling is the only difference'
+      field + ' must match the stock preset so the coupling and the roll center are the only differences'
     )
   }
 })

@@ -35,6 +35,11 @@ export const VEHICLE_COMPONENT_SLOTS = Object.freeze([
 // archetype's camber gain per meter of suspension travel, both read by the
 // camber state and the camber thrust term.
 //
+// 'solidAxleRollCenterHeightMeters' is the roll-center height of a
+// coupled (solid) axle. It is a leaf-pack property, so it is declared here
+// instead of derived from a linkage, and it is what shortens the elastic
+// roll arm of a car with a solid axle.
+//
 // 'suspensionVisualKind' is the one field in this list that carries NO
 // physics. It selects which archetype-specific geometry the renderer
 // draws for the suspension, and no force model reads it. It is owned by
@@ -55,6 +60,7 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'camberStaticRadians',
   'camberGainRadiansPerMeterCompression',
   'suspensionLinkage',
+  'solidAxleRollCenterHeightMeters',
 ])
 
 // The spec fields the chassis component owns.
@@ -224,6 +230,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0,
     },
   },
   'susp-lowered': {
@@ -246,6 +253,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0,
     },
   },
   'susp-lifted': {
@@ -268,6 +276,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0,
     },
   },
   'susp-stiff': {
@@ -290,6 +299,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0,
     },
   },
   'susp-solid-axle-rear': {
@@ -301,7 +311,13 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       'one rear wheel and holds the other up instead of letting it droop. ' +
       'The front axle stays independent. The shared leaf uses the stock ' +
       'linear spring rate; there is no progressive leaf model, no anti-roll ' +
-      'bar, no unsprung-mass model, and no per-corner spring rates.',
+      'bar, no unsprung-mass model, and no per-corner spring rates. The ' +
+      'leaf pack gives the coupled axle a 0.25 m roll-center height, so the ' +
+      'roll axis sits above the ground and the body rolls less than it ' +
+      'would over a ground-level roll axis. The rigid beam still takes no ' +
+      'lateral load transfer across its own tires: the beam articulation ' +
+      'and the leaf torsional stiffness that would produce it are not ' +
+      'modelled.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -315,6 +331,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0.25,
     },
   },
   'susp-macpherson-strut': {
@@ -332,9 +349,13 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       'up a little lateral force in a corner and this entry does change ' +
       'handling. The camber gain applies to every wheel of the archetype: ' +
       'the camber model has no per-axle camber gain. Visual: a coil-over ' +
-      'strut per front corner. The camber gain is modelled; the high roll ' +
-      'center of a real MacPherson strut is still not modelled, because ' +
-      'that needs roll-center parameters.',
+      'strut per front corner. The camber gain is modelled, and the same ' +
+      'linkage also supplies the roll-center height the vertical dynamics ' +
+      'consumes, so the body rolls less than the stock setup. The ' +
+      'roll-center parameters of a real strut - scrub, anti-dive, and the ' +
+      'sprung mass path - are still not modelled, and the derived height ' +
+      'comes from the schematic front-view linkage rather than from a ' +
+      'dimensioned car.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -348,6 +369,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'macphersonStrut',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0,
       suspensionLinkage: {
         kind: 'macpherson-strut',
         leftSide: {
@@ -378,9 +400,13 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       'camber curve. Visual: schematic A-arms use invented symmetric ' +
       '+/-0.15 m fore-aft inner-pivot spacing because linkage physics is ' +
       'front-view only. A visual-only hub carrier bridges the ball joints ' +
-      'to the wheel hub. Caster and anti-dive are not modelled. The roll ' +
-      'center of a real double wishbone is still not modelled, because that ' +
-      'needs roll-center parameters.',
+      'to the wheel hub. Caster and anti-dive are not modelled. The ' +
+      'wishbone linkage also supplies the roll-center height the vertical ' +
+      'dynamics consumes, so the body rolls less than the stock setup. The ' +
+      'roll-center parameters of a real car - jacking forces, scrub, and ' +
+      'the sprung mass path - are still not modelled, and the derived ' +
+      'height comes from the schematic front-view linkage rather than from ' +
+      'a dimensioned car.',
     spec: {
       suspensionRestLengthMeters: 0.35,
       suspensionMaximumLengthMeters: 0.35,
@@ -394,6 +420,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'doubleWishbone',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      solidAxleRollCenterHeightMeters: 0,
       suspensionLinkage: {
         kind: 'double-wishbone',
         leftSide: {

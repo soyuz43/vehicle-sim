@@ -82,6 +82,17 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   frontAxleCoupling: 'independent',
   rearAxleCoupling: 'independent',
 
+  // Roll-center height of a coupled (solid) axle, in meters above the
+  // ground. A rigid beam routes its lateral force through its leaf pack, so
+  // the roll center of a solid axle is a property of that leaf pack and is
+  // declared here instead of being derived from a linkage.
+  //
+  // The height shortens the elastic roll arm of the vertical dynamics, so a
+  // coupled axle rolls less than the same car with an independent rear axle.
+  // Zero means no roll center: the roll axis stays on the ground and the
+  // behavior is the pre-roll-center behavior.
+  solidAxleRollCenterHeightMeters: 0,
+
   // Suspension visual kind (Session A3). This field selects which VISUAL
   // archetype the renderer draws for the suspension. It carries no physics:
   // the vertical dynamics, the suspension forces, and the axle coupling all
