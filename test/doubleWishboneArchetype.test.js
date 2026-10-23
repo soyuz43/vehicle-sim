@@ -123,7 +123,7 @@ test('the wishbone archetype declares every field the suspension slot owns', () 
   }
 })
 
-test('the wishbone archetype differs from the stock preset only in its camber gain and linkage', () => {
+test('the wishbone archetype differs from the stock preset only in camber, linkage, and visual kind', () => {
   const archetype = getComponent('suspension', ARCHETYPE_ID)
   const stock = getComponent('suspension', STOCK_ID)
 
@@ -131,6 +131,8 @@ test('the wishbone archetype differs from the stock preset only in its camber ga
   // curve; the linkage geometry is the only other field that departs from stock.
   assert.equal(archetype.spec.camberGainRadiansPerMeterCompression, 0)
   assert.equal(stock.spec.camberGainRadiansPerMeterCompression, 0)
+  assert.equal(archetype.spec.suspensionVisualKind, 'doubleWishbone')
+  assert.equal(stock.spec.suspensionVisualKind, 'none')
   assert.ok(Object.hasOwn(archetype.spec, 'suspensionLinkage'))
   assert.ok(!Object.hasOwn(stock.spec, 'suspensionLinkage'))
   assert.equal(archetype.spec.frontAxleCoupling, 'independent')
@@ -139,6 +141,7 @@ test('the wishbone archetype differs from the stock preset only in its camber ga
   for (const field of SUSPENSION_OWNED_SPEC_FIELDS) {
     if (field === 'camberGainRadiansPerMeterCompression') continue
     if (field === 'suspensionLinkage') continue
+    if (field === 'suspensionVisualKind') continue
     assert.equal(
       archetype.spec[field],
       stock.spec[field],

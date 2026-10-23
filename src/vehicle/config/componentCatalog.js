@@ -389,7 +389,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       chassisTerrainSupportBaselineOffsetMeters: 0,
       frontAxleCoupling: 'independent',
       rearAxleCoupling: 'independent',
-      suspensionVisualKind: 'none',
+      suspensionVisualKind: 'doubleWishbone',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
       suspensionLinkage: {
