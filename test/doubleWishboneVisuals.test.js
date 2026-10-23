@@ -72,7 +72,8 @@ function assertVectorClose(actual, expected, epsilonMeters = 1e-9) {
 
 test('wishbone selection creates seven visible segments on all four corners', () => {
   const { car, controller } = createController()
-  const snapshot = selectAndUpdate(controller, 'front', WISHBONE_ID)
+  selectAndUpdate(controller, 'front', WISHBONE_ID)
+  const snapshot = selectAndUpdate(controller, 'rear', WISHBONE_ID)
 
   assert.equal(wishboneGroups(car).length, 4)
   assert.equal(wishboneSegments(car).length, 28)
@@ -106,8 +107,8 @@ test('stock starts without wishbone nodes and hides cached nodes after swap-back
   selectAndUpdate(controller, 'front', WISHBONE_ID)
   const cachedGroups = wishboneGroups(car)
   const cachedSegments = wishboneSegments(car)
-  assert.equal(cachedGroups.length, 4)
-  assert.equal(cachedSegments.length, 28)
+  assert.equal(cachedGroups.length, 2)
+  assert.equal(cachedSegments.length, 14)
 
   selectAndUpdate(controller, 'front', STOCK_ID)
   assert.ok(cachedGroups.every((group) => group.visible === false))

@@ -91,11 +91,9 @@ const STRUT_COIL_TOP_MARGIN_FRACTION01 = 0.08
 const STRUT_BOTTOM_INBOARD_OFFSET_METERS = 0.26
 const STRUT_TOP_INBOARD_OFFSET_METERS = 0.32
 
-// Which axle a suspension visual kind draws struts on. A visual kind
-// carries no physics: it only selects which archetype geometry is drawn.
-const STRUT_VISUAL_AXLE_BY_KIND = Object.freeze({
-  macphersonStrut: 'front',
-})
+// Strut visibility follows each axle's suspension visual kind. Visual kinds
+// carry no physics: they only select which archetype geometry is drawn.
+const MACPHERSON_STRUT_VISUAL_KIND = 'macphersonStrut'
 const NO_SUSPENSION_VISUAL_KIND = 'none'
 const WISHBONE_VISUAL_KIND = 'doubleWishbone'
 const WISHBONE_LINKAGE_KIND = 'double-wishbone'
@@ -166,13 +164,43 @@ export function createSuspensionVisuals(vehicle) {
   // Places the beam and the leaf pack of every axle from the published wheel
   // positions. The axle coupling state decides whether an axle is drawn as a
   // rigid beam at all.
+  // Legacy callers may pass one flat spec or kind/linkage pair. Use flat
+  // values for both axles only when no nested axle slot is present.
   function updateFromWheelStates(
     wheelStates = [],
     axleCouplingState = null,
-    suspensionVisualKind = NO_SUSPENSION_VISUAL_KIND,
-    suspensionLinkage = null
+    suspensionSpec = null,
+    legacySuspensionLinkage = null
   ) {
     const wheelStateList = Array.isArray(wheelStates) ? wheelStates : []
+    const isLegacyVisualSpec = typeof suspensionSpec === 'string'
+    const flatSpec =
+      suspensionSpec && typeof suspensionSpec === 'object'
+        ? suspensionSpec
+        : null
+    const hasNestedSuspensionSpecs =
+      flatSpec !== null &&
+      (Object.hasOwn(flatSpec, 'suspensionFront') ||
+        Object.hasOwn(flatSpec, 'suspensionRear'))
+    const frontSpec = hasNestedSuspensionSpecs
+      ? flatSpec.suspensionFront
+      : flatSpec
+    const rearSpec = hasNestedSuspensionSpecs
+      ? flatSpec.suspensionRear
+      : flatSpec
+    const frontVisualKind = isLegacyVisualSpec
+      ? suspensionSpec
+      : frontSpec?.suspensionVisualKind ?? NO_SUSPENSION_VISUAL_KIND
+    const rearVisualKind = isLegacyVisualSpec
+      ? suspensionSpec
+      : rearSpec?.suspensionVisualKind ?? NO_SUSPENSION_VISUAL_KIND
+    const frontLinkage = isLegacyVisualSpec
+      ? legacySuspensionLinkage
+      : frontSpec?.suspensionLinkage ?? null
+    const rearLinkage = isLegacyVisualSpec
+      ? legacySuspensionLinkage
+      : rearSpec?.suspensionLinkage ?? null
+    snapshot.suspensionVisualKind = frontVisualKind
 
     for (const axle of AXLE_IDS) {
       const record = axleCouplingState?.axles?.[axle] ?? null
@@ -226,8 +254,16 @@ export function createSuspensionVisuals(vehicle) {
       })
     }
 
-    updateStruts(wheelStateList, suspensionVisualKind)
-    updateWishbones(wheelStateList, suspensionVisualKind, suspensionLinkage)
+    // Beam visibility remains coupling-driven. A component that combines
+    // wishbone geometry with a rigid coupling intentionally draws both.
+    updateStruts(wheelStateList, frontVisualKind, rearVisualKind)
+    updateWishbones(
+      wheelStateList,
+      frontVisualKind,
+      frontLinkage,
+      rearVisualKind,
+      rearLinkage
+    )
 
     snapshot.isFinite =
       Object.values(snapshot.axles).every(
@@ -378,16 +414,7 @@ export function createSuspensionVisuals(vehicle) {
     entry.leafPackNode.visible = false
   }
 
-  // Places the struts of the axle the current visual kind selects. A wheel
-  // whose axle does not match the kind gets no strut at all.
-  function updateStruts(wheelStateList, suspensionVisualKind) {
-    const visualKind =
-      typeof suspensionVisualKind === 'string'
-        ? suspensionVisualKind
-        : NO_SUSPENSION_VISUAL_KIND
-    snapshot.suspensionVisualKind = visualKind
-    const strutAxle = STRUT_VISUAL_AXLE_BY_KIND[visualKind] ?? null
-
+  function updateStruts(wheelStateList, frontVisualKind, rearVisualKind) {
     for (const wheelState of wheelStateList) {
       const wheelId = wheelState?.id
       if (!wheelId) continue
@@ -396,7 +423,13 @@ export function createSuspensionVisuals(vehicle) {
       if (!snapshot.struts[wheelId]) {
         snapshot.struts[wheelId] = createStrutSnapshot(wheelId)
       }
-      if (!strutAxle || wheelState.axle !== strutAxle) {
+      const visualKind =
+        wheelState.axle === 'front'
+          ? frontVisualKind
+          : wheelState.axle === 'rear'
+            ? rearVisualKind
+            : NO_SUSPENSION_VISUAL_KIND
+      if (visualKind !== MACPHERSON_STRUT_VISUAL_KIND) {
         if (entry) hideStrutEntry(entry)
         updateStrutSnapshot(snapshot.struts[wheelId], {
           wheelId,
@@ -430,28 +463,53 @@ export function createSuspensionVisuals(vehicle) {
     }
   }
 
-  function updateWishbones(wheelStateList, suspensionVisualKind, linkageSpec) {
-    const isWishboneActive =
-      suspensionVisualKind === WISHBONE_VISUAL_KIND &&
-      linkageSpec?.kind === WISHBONE_LINKAGE_KIND &&
-      linkageSpec.leftSide
-
-    if (!isWishboneActive) {
-      for (const entry of wishboneEntries.values()) {
-        hideWishboneEntry(entry)
-        entry.isFinite = true
-      }
-      return
-    }
-
+  function updateWishbones(
+    wheelStateList,
+    frontVisualKind,
+    frontLinkage,
+    rearVisualKind,
+    rearLinkage
+  ) {
     for (const wheelState of wheelStateList) {
       const wheelId = wheelState?.id
-      if (!wheelId || (wheelState.axle !== 'front' && wheelState.axle !== 'rear')) continue
-      if (wheelState.side !== 'left' && wheelState.side !== 'right') continue
+      if (!wheelId) continue
 
-      const entry = wishboneEntries.get(wheelId) ?? createWishboneEntry(wheelId)
-      entry.isFinite = applyWishbonePose(entry, wheelState, linkageSpec)
-      if (!entry.isFinite) hideWishboneEntry(entry)
+      const isFrontAxle = wheelState.axle === 'front'
+      const isRearAxle = wheelState.axle === 'rear'
+      const visualKind = isFrontAxle
+        ? frontVisualKind
+        : isRearAxle
+          ? rearVisualKind
+          : NO_SUSPENSION_VISUAL_KIND
+      const linkageSpec = isFrontAxle
+        ? frontLinkage
+        : isRearAxle
+          ? rearLinkage
+          : null
+      const entry = wishboneEntries.get(wheelId) ?? null
+      const isWishboneActive =
+        visualKind === WISHBONE_VISUAL_KIND &&
+        linkageSpec?.kind === WISHBONE_LINKAGE_KIND &&
+        linkageSpec.leftSide
+
+      if (
+        !isWishboneActive ||
+        (wheelState.side !== 'left' && wheelState.side !== 'right')
+      ) {
+        if (entry) {
+          hideWishboneEntry(entry)
+          entry.isFinite = true
+        }
+        continue
+      }
+
+      const activeEntry = entry ?? createWishboneEntry(wheelId)
+      activeEntry.isFinite = applyWishbonePose(
+        activeEntry,
+        wheelState,
+        linkageSpec
+      )
+      if (!activeEntry.isFinite) hideWishboneEntry(activeEntry)
     }
 
     for (const entry of wishboneEntries.values()) {
