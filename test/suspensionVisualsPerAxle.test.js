@@ -241,10 +241,15 @@ test('case 12: ten independent axle swaps keep archetype node count stable', () 
 
 test('case 13: REGRESSION rear MacPherson draws rear struts with front stock', () => {
   const { car, controller } = createController()
-  selectBothAndUpdate(controller, STOCK_ID, MACPHERSON_ID)
+  const snapshot = selectBothAndUpdate(controller, STOCK_ID, MACPHERSON_ID)
   assert.equal(countNamedNodesMatching(car, /strut/i), 16)
   assertCornerVisibility(car, 'front', 'strut', false)
   assertCornerVisibility(car, 'rear', 'strut', true)
+  assert.equal(snapshot.suspensionVisuals.frontSuspensionVisualKind, 'none')
+  assert.equal(
+    snapshot.suspensionVisuals.rearSuspensionVisualKind,
+    'macphersonStrut'
+  )
 })
 
 test('case 14: REGRESSION rear wishbone draws rear A-arms with front stock', () => {

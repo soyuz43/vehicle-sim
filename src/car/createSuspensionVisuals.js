@@ -153,7 +153,8 @@ export function createSuspensionVisuals(vehicle) {
   const snapshot = {
     axles: {},
     struts: {},
-    suspensionVisualKind: NO_SUSPENSION_VISUAL_KIND,
+    frontSuspensionVisualKind: NO_SUSPENSION_VISUAL_KIND,
+    rearSuspensionVisualKind: NO_SUSPENSION_VISUAL_KIND,
     isFinite: true,
   }
 
@@ -200,7 +201,8 @@ export function createSuspensionVisuals(vehicle) {
     const rearLinkage = isLegacyVisualSpec
       ? legacySuspensionLinkage
       : rearSpec?.suspensionLinkage ?? null
-    snapshot.suspensionVisualKind = frontVisualKind
+    snapshot.frontSuspensionVisualKind = frontVisualKind
+    snapshot.rearSuspensionVisualKind = rearVisualKind
 
     for (const axle of AXLE_IDS) {
       const record = axleCouplingState?.axles?.[axle] ?? null
