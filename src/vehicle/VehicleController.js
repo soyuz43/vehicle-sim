@@ -26,6 +26,7 @@ import {
     migrateVehicleConfiguration,
     validateVehicleConfiguration,
 } from './config/createVehicleConfiguration.js'
+import { buildSuspensionSlotSpec } from './config/applyVehicleConfiguration.js'
 import { deriveActiveVehicleConfiguration } from './config/deriveActiveVehicleConfiguration.js'
 import {
     createAerodynamicDragState,
@@ -890,6 +891,14 @@ export class VehicleController {
     // swap contributes only its coupling mode until per-axle consumption
     // lands.
     function applySuspensionSlotComponent(slotKey, component) {
+        // Phase B.1 nested suspension spec. The selected component replaces
+        // the nested slot spec wholesale, while the flat physical fields
+        // remain aliases to the front slot until Session 2 migrates the
+        // physics consumers.
+        if (component) {
+            spec[slotKey] = buildSuspensionSlotSpec(component)
+        }
+
         if (slotKey === 'suspensionFront') {
             const suspensionSpecChanged = applySuspensionSpec(component.spec)
             const couplingChanged = applySuspensionCouplingMode(
