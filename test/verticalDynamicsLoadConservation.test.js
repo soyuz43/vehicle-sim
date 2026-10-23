@@ -50,9 +50,16 @@ function createController({ spec = {}, engineId, transmissionId } = {}) {
 }
 
 function createCatalogController(suspensionComponentId) {
-  const configuration = setVehicleConfigurationSlot(
+  // Phase B.1: suspension is consumed per axle, so a preset test has to
+  // select the archetype for both suspension slots to describe one setup.
+  let configuration = setVehicleConfigurationSlot(
     createDefaultVehicleConfiguration(),
     'suspensionFront',
+    suspensionComponentId
+  )
+  configuration = setVehicleConfigurationSlot(
+    configuration,
+    'suspensionRear',
     suspensionComponentId
   )
   const applied = applyVehicleConfiguration(configuration)

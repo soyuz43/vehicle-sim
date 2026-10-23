@@ -164,14 +164,27 @@ function resolveAxleCentreLateralOffsets(wheelStates, chassisGeometry) {
 // load by springRate * offset. The resulting static normal-force error is
 // totalSpringRate * offset, so a lowered car ends up carrying only a fraction
 // of its weight.
+// Phase B.1: suspension travel and the static-compression target are
+// consumed per axle. A wheel reads its own slot spec when the runtime spec
+// declares one, and falls back to the flat legacy fields otherwise.
+function resolveAxleSuspensionTravelSpec(axle, spec) {
+  const nestedSpec = axle === 'front'
+    ? spec.suspensionFront
+    : axle === 'rear'
+      ? spec.suspensionRear
+      : undefined
+  return nestedSpec ?? spec
+}
+
 function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
+  const axleSpec = resolveAxleSuspensionTravelSpec(wheelState?.axle, spec)
   const suspensionTravelMeters = sanitizePositiveNumber(
-    spec.suspensionTravelMeters,
+    axleSpec.suspensionTravelMeters,
     0.22
   )
   const nominalStaticCompressionMeters =
     suspensionTravelMeters *
-    clamp(sanitizeNumber(spec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
+    clamp(sanitizeNumber(axleSpec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
 
   // A positive offset raises the body, which shortens the geometric
   // compression the wheel carries at rest.
@@ -375,14 +388,38 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
 
   // The body cannot sink past suspension droop or float past bottom-out, so
   // the heave displacement is bounded by the suspension travel measured from
-  // the static ride height.
-  const suspensionTravelMeters = sanitizePositiveNumber(
-    spec.suspensionTravelMeters,
-    0.22
+  // the static ride height. Phase B.1: travel and the static-compression
+  // target are consumed per axle, so each axle's own bound is derived from
+  // its slot spec. The body has ONE heave degree of freedom, and the first
+  // axle to run out of travel stops it, so the body-level bound is the more
+  // restrictive (minimum) of the two axles' bounds.
+  const deriveAxleHeaveBounds = (axle) => {
+    const axleSpec = resolveAxleSuspensionTravelSpec(axle, spec)
+    const axleTravelMeters = sanitizePositiveNumber(
+      axleSpec.suspensionTravelMeters,
+      0.22
+    )
+    const axleNominalStaticCompressionMeters =
+      axleTravelMeters *
+      clamp(sanitizeNumber(axleSpec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
+    return {
+      maximumHeaveDroopMeters: axleNominalStaticCompressionMeters,
+      maximumHeaveCompressionMeters: Math.max(
+        axleTravelMeters - axleNominalStaticCompressionMeters,
+        0
+      ),
+    }
+  }
+  const frontHeaveBounds = deriveAxleHeaveBounds('front')
+  const rearHeaveBounds = deriveAxleHeaveBounds('rear')
+  const maximumHeaveDroopMeters = Math.min(
+    frontHeaveBounds.maximumHeaveDroopMeters,
+    rearHeaveBounds.maximumHeaveDroopMeters
   )
-  const nominalStaticCompressionMeters =
-    suspensionTravelMeters *
-    clamp(sanitizeNumber(spec.suspensionTargetStaticCompressionRatio01, 0.4), 0.01, 1)
+  const maximumHeaveCompressionMeters = Math.min(
+    frontHeaveBounds.maximumHeaveCompressionMeters,
+    rearHeaveBounds.maximumHeaveCompressionMeters
+  )
 
   return {
     chassisGeometry,
@@ -396,11 +433,8 @@ function deriveVerticalDynamicsGeometry(wheelStates, spec) {
     axleRollCenterHeightsMeters,
     rollAxisHeightMeters,
     rollArmMeters,
-    maximumHeaveDroopMeters: nominalStaticCompressionMeters,
-    maximumHeaveCompressionMeters: Math.max(
-      suspensionTravelMeters - nominalStaticCompressionMeters,
-      0
-    ),
+    maximumHeaveDroopMeters,
+    maximumHeaveCompressionMeters,
   }
 }
 

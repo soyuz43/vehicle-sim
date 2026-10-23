@@ -61,21 +61,33 @@ export function deriveLinkageRollCenterHeightMeters(linkageSpec) {
 // An independent axle uses the linkage geometry when the vehicle declares a
 // linkage, and has no roll center at all otherwise.
 export function resolveAxleRollCenterHeightsMeters(spec = {}, coupledAxles = {}) {
-  const solidAxleRollCenterHeightMeters = sanitizeNonNegativeNumber(
-    spec.solidAxleRollCenterHeightMeters,
+  // Phase B.1: the roll-center height is consumed per axle. The nested slot
+  // specs carry the archetype's own solid-axle height and linkage; legacy
+  // specs without the nested objects keep the flat values for both axles.
+  const frontSource = { ...spec, ...spec.suspensionFront }
+  const rearSource = { ...spec, ...spec.suspensionRear }
+  const frontSolidHeight = sanitizeNonNegativeNumber(
+    frontSource.solidAxleRollCenterHeightMeters,
     0
   )
-  const linkageRollCenterHeightMeters = deriveLinkageRollCenterHeightMeters(
-    spec.suspensionLinkage
+  const rearSolidHeight = sanitizeNonNegativeNumber(
+    rearSource.solidAxleRollCenterHeightMeters,
+    0
+  )
+  const frontLinkageHeight = deriveLinkageRollCenterHeightMeters(
+    frontSource.suspensionLinkage
+  )
+  const rearLinkageHeight = deriveLinkageRollCenterHeightMeters(
+    rearSource.suspensionLinkage
   )
 
   return {
     front: coupledAxles.front === true
-      ? solidAxleRollCenterHeightMeters
-      : linkageRollCenterHeightMeters,
+      ? frontSolidHeight
+      : frontLinkageHeight,
     rear: coupledAxles.rear === true
-      ? solidAxleRollCenterHeightMeters
-      : linkageRollCenterHeightMeters,
+      ? rearSolidHeight
+      : rearLinkageHeight,
   }
 }
 

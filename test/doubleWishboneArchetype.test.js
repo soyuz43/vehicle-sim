@@ -293,8 +293,14 @@ test('the wishbone archetype uses the linkage solver and reports camberGainSourc
   }
   const snapshot = controller.update(DT_SECONDS, { throttle: true })
 
+  // Per-axle consumption: only the axle that owns the archetype uses its
+  // linkage. The other axle still uses the flat default coefficient path.
   for (const wheelState of snapshot.wheelStates) {
-    assert.equal(wheelState.camberGainSource, 'linkage')
+    if (wheelState.axle === 'front') {
+      assert.equal(wheelState.camberGainSource, 'linkage')
+    } else {
+      assert.equal(wheelState.camberGainSource, 'coefficient')
+    }
   }
 })
 

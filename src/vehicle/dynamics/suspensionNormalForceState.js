@@ -96,21 +96,26 @@ export function updateSuspensionNormalForceState(
     return wheelStates
   }
 
-  const suspensionConfig = resolveSuspensionConfig(spec, wheelStates.length)
+  const suspensionConfigs = resolveSuspensionConfigs(spec, wheelStates.length)
   const safeDtSeconds = sanitizeNonNegativeNumber(dtSeconds)
   const activeSummary = summary ?? createSuspensionNormalForceSummary()
 
   resetSuspensionNormalForceSummary(activeSummary)
   activeSummary.vehicleWeightReferenceNewtons =
-    suspensionConfig.vehicleWeightReferenceNewtons
+    suspensionConfigs.front.vehicleWeightReferenceNewtons
 
   let groundedWheelCount = 0
   let totalRawSuspensionNormalForceNewtons = 0
 
   for (const wheelState of wheelStates) {
+    // Phase B.1: each axle consumes its own suspension config. The front
+    // axle reads the front slot spec, the rear axle reads the rear slot.
+    const axleConfig = wheelState.axle === 'rear'
+      ? suspensionConfigs.rear
+      : suspensionConfigs.front
     updateWheelSuspensionNormalForceState(
       wheelState,
-      suspensionConfig,
+      axleConfig,
       safeDtSeconds
     )
 
@@ -168,7 +173,7 @@ export function updateSuspensionNormalForceState(
     wheelStates,
     groundedWheelCount,
     totalRawSuspensionNormalForceNewtons,
-    suspensionConfig.vehicleWeightReferenceNewtons
+    suspensionConfigs.front.vehicleWeightReferenceNewtons
   )
 
   for (const wheelState of wheelStates) {
@@ -178,7 +183,7 @@ export function updateSuspensionNormalForceState(
 
   activeSummary.normalForceConservationErrorNewtons =
     activeSummary.totalBaseNormalForceNewtons -
-    suspensionConfig.vehicleWeightReferenceNewtons
+    suspensionConfigs.front.vehicleWeightReferenceNewtons
 
   return wheelStates
 }
@@ -364,28 +369,28 @@ function applySuspensionConfigToWheelState(wheelState, suspensionConfig) {
     suspensionConfig.reboundDampingNewtonsPerMeterPerSecond
 }
 
-function resolveSuspensionConfig(spec, wheelCount) {
-  const massKg = sanitizePositiveNumber(spec.massKg, 1)
-  const gravityMetersPerSecondSquared = sanitizePositiveNumber(
-    spec.gravityMetersPerSecondSquared,
-    EARTH_GRAVITY.standardMetersPerSecondSquared
-  )
+function resolveAxleSuspensionConfig(
+  sourceSpec,
+  massKg,
+  gravityMetersPerSecondSquared,
+  wheelCount
+) {
   const safeWheelCount = Math.max(1, sanitizeInteger(wheelCount, 1))
   const requestedRestLengthMeters = sanitizePositiveNumber(
-    spec.suspensionRestLengthMeters,
+    sourceSpec.suspensionRestLengthMeters,
     DEFAULT_SUSPENSION_SPEC.suspensionRestLengthMeters
   )
   const requestedTravelMeters = sanitizePositiveNumber(
-    spec.suspensionTravelMeters,
+    sourceSpec.suspensionTravelMeters,
     DEFAULT_SUSPENSION_SPEC.suspensionTravelMeters
   )
   const maximumLengthMeters = sanitizePositiveNumber(
-    spec.suspensionMaximumLengthMeters,
+    sourceSpec.suspensionMaximumLengthMeters,
     requestedRestLengthMeters
   )
   const minimumLengthMeters = clamp(
     sanitizePositiveNumber(
-      spec.suspensionMinimumLengthMeters,
+      sourceSpec.suspensionMinimumLengthMeters,
       maximumLengthMeters - requestedTravelMeters
     ),
     SUSPENSION_LENGTH_EPSILON_METERS,
@@ -402,7 +407,7 @@ function resolveSuspensionConfig(spec, wheelCount) {
   )
   const targetStaticCompressionRatio01 = clamp(
     sanitizePositiveNumber(
-      spec.suspensionTargetStaticCompressionRatio01,
+      sourceSpec.suspensionTargetStaticCompressionRatio01,
       DEFAULT_SUSPENSION_SPEC.suspensionTargetStaticCompressionRatio01
     ),
     SUSPENSION_LENGTH_EPSILON_METERS,
@@ -421,12 +426,12 @@ function resolveSuspensionConfig(spec, wheelCount) {
   const derivedSpringRateNewtonsPerMeter =
     staticNormalForcePerWheelNewtons / targetStaticCompressionMeters
   const springRateNewtonsPerMeter = sanitizePositiveNumber(
-    spec.suspensionSpringRateNewtonsPerMeter,
+    sourceSpec.suspensionSpringRateNewtonsPerMeter,
     Math.max(derivedSpringRateNewtonsPerMeter, 1)
   )
   const sprungMassPerWheelKg = massKg / safeWheelCount
   const dampingRatio = sanitizeNonNegativeNumber(
-    spec.suspensionDampingRatio,
+    sourceSpec.suspensionDampingRatio,
     DEFAULT_SUSPENSION_SPEC.suspensionDampingRatio
   )
   const derivedDampingRateNewtonsPerMeterPerSecond = finiteProduct(
@@ -436,33 +441,33 @@ function resolveSuspensionConfig(spec, wheelCount) {
   )
   const legacyDampingRateNewtonsPerMeterPerSecond =
     sanitizeNonNegativeNumber(
-      spec.suspensionDampingRateNewtonsSecondPerMeter,
+      sourceSpec.suspensionDampingRateNewtonsSecondPerMeter,
       derivedDampingRateNewtonsPerMeterPerSecond
     )
   const compressionDampingNewtonsPerMeterPerSecond =
     sanitizeNonNegativeNumber(
-      spec.suspensionCompressionDampingNewtonsPerMeterPerSecond,
+      sourceSpec.suspensionCompressionDampingNewtonsPerMeterPerSecond,
       legacyDampingRateNewtonsPerMeterPerSecond
     )
   const reboundDampingNewtonsPerMeterPerSecond =
     sanitizeNonNegativeNumber(
-      spec.suspensionReboundDampingNewtonsPerMeterPerSecond,
+      sourceSpec.suspensionReboundDampingNewtonsPerMeterPerSecond,
       legacyDampingRateNewtonsPerMeterPerSecond
     )
   const minimumNormalForceNewtons = sanitizeNonNegativeNumber(
-    spec.minimumNormalForceNewtons,
+    sourceSpec.minimumNormalForceNewtons,
     DEFAULT_SUSPENSION_SPEC.minimumNormalForceNewtons
   )
   const maximumNormalForceNewtons = Math.max(
     minimumNormalForceNewtons,
     sanitizePositiveNumber(
-      spec.maximumSuspensionNormalForceNewtons,
+      sourceSpec.maximumSuspensionNormalForceNewtons,
       vehicleWeightReferenceNewtons
     )
   )
 
   return {
-    enabled: spec.suspensionEnabled !== false,
+    enabled: sourceSpec.suspensionEnabled !== false,
     restLengthMeters,
     minimumLengthMeters,
     maximumLengthMeters,
@@ -473,6 +478,37 @@ function resolveSuspensionConfig(spec, wheelCount) {
     minimumNormalForceNewtons,
     maximumNormalForceNewtons,
     vehicleWeightReferenceNewtons,
+  }
+}
+
+// Phase B.1: suspension is resolved per axle. Each axle consumes its own
+// nested spec (spec.suspensionFront / spec.suspensionRear); callers without
+// nested slot specs fall back to the legacy flat suspension fields.
+function resolveSuspensionConfigs(spec, wheelCount) {
+  const massKg = sanitizePositiveNumber(spec.massKg, 1)
+  const gravityMetersPerSecondSquared = sanitizePositiveNumber(
+    spec.gravityMetersPerSecondSquared,
+    EARTH_GRAVITY.standardMetersPerSecondSquared
+  )
+  // A nested slot spec may be partial: merge it over the flat legacy
+  // fields so an undeclared slot value still inherits the vehicle-level
+  // suspension property instead of falling back to the built-in default.
+  const frontSource = { ...spec, ...spec.suspensionFront }
+  const rearSource = { ...spec, ...spec.suspensionRear }
+
+  return {
+    front: resolveAxleSuspensionConfig(
+      frontSource,
+      massKg,
+      gravityMetersPerSecondSquared,
+      wheelCount
+    ),
+    rear: resolveAxleSuspensionConfig(
+      rearSource,
+      massKg,
+      gravityMetersPerSecondSquared,
+      wheelCount
+    ),
   }
 }
 

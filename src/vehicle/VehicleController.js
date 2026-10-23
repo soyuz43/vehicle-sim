@@ -2265,10 +2265,16 @@ export class VehicleController {
             axleCouplingState: state.axleCouplingState,
             wheelStates: state.wheelStates,
             spec,
-            suspensionMinimumLengthMeters:
-                resolveSuspensionMinimumLengthMeters(),
-            suspensionMaximumLengthMeters:
-                resolveSuspensionMaximumLengthMeters(),
+            suspensionLimits: {
+                front: {
+                    minimumLengthMeters: resolveSuspensionMinimumLengthMeters('front'),
+                    maximumLengthMeters: resolveSuspensionMaximumLengthMeters('front'),
+                },
+                rear: {
+                    minimumLengthMeters: resolveSuspensionMinimumLengthMeters('rear'),
+                    maximumLengthMeters: resolveSuspensionMaximumLengthMeters('rear'),
+                },
+            },
         })
     }
 
@@ -2627,27 +2633,33 @@ export class VehicleController {
         )
     }
 
-    function resolveSuspensionMaximumLengthMeters() {
-        const restLengthMeters = Number.isFinite(spec.suspensionRestLengthMeters) &&
-            spec.suspensionRestLengthMeters > 0
-            ? spec.suspensionRestLengthMeters
+    function resolveSuspensionMaximumLengthMeters(axle = 'front') {
+        const axleSpec = axle === 'rear' && spec.suspensionRear
+            ? spec.suspensionRear
+            : spec
+        const restLengthMeters = Number.isFinite(axleSpec.suspensionRestLengthMeters) &&
+            axleSpec.suspensionRestLengthMeters > 0
+            ? axleSpec.suspensionRestLengthMeters
             : 0.35
-        return Number.isFinite(spec.suspensionMaximumLengthMeters) &&
-            spec.suspensionMaximumLengthMeters > 0
-            ? spec.suspensionMaximumLengthMeters
+        return Number.isFinite(axleSpec.suspensionMaximumLengthMeters) &&
+            axleSpec.suspensionMaximumLengthMeters > 0
+            ? axleSpec.suspensionMaximumLengthMeters
             : restLengthMeters
     }
 
-    function resolveSuspensionMinimumLengthMeters() {
-        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters()
-        const travelMeters = Number.isFinite(spec.suspensionTravelMeters) &&
-            spec.suspensionTravelMeters > 0
-            ? spec.suspensionTravelMeters
+    function resolveSuspensionMinimumLengthMeters(axle = 'front') {
+        const axleSpec = axle === 'rear' && spec.suspensionRear
+            ? spec.suspensionRear
+            : spec
+        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters(axle)
+        const travelMeters = Number.isFinite(axleSpec.suspensionTravelMeters) &&
+            axleSpec.suspensionTravelMeters > 0
+            ? axleSpec.suspensionTravelMeters
             : 0.22
         const configuredMinimumLengthMeters = Number.isFinite(
-            spec.suspensionMinimumLengthMeters
-        ) && spec.suspensionMinimumLengthMeters > 0
-            ? spec.suspensionMinimumLengthMeters
+            axleSpec.suspensionMinimumLengthMeters
+        ) && axleSpec.suspensionMinimumLengthMeters > 0
+            ? axleSpec.suspensionMinimumLengthMeters
             : maximumLengthMeters - travelMeters
 
         return THREE.MathUtils.clamp(
