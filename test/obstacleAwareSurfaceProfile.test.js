@@ -41,7 +41,7 @@ test('obstacle-aware query reports obstacle surface kind and friction', () => {
 })
 
 test('obstacle-aware profile exports a normal that matches its own surface query', () => {
-  const base = createOffroadPlaygroundProfile({ seed: null })
+  const base = createOffroadPlaygroundProfile({ seed: null, sizeMeters: 400 })
   const profile = createObstacleAwareSurfaceProfile({ baseProfile: base })
 
   // The trailing edge of the step-up jump on the 400 m off-road course is a

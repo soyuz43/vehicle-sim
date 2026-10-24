@@ -112,6 +112,19 @@ test('runRenderFrame calls renderer.render once', () => {
   assert.deepEqual(deps.renderer.calls[0], [deps.scene, deps.camera])
 })
 
+test('runRenderFrame follows the car with the directional shadow view', () => {
+  const deps = createTestRenderDeps()
+  const shadowLight = new THREE.DirectionalLight()
+  shadowLight.userData.shadowFollowOffset = new THREE.Vector3(20, 40, 20)
+  deps.simulation.car.position.set(360, 2, 420)
+  deps.shadowLight = shadowLight
+
+  runRenderFrame(deps, 1 / 60)
+
+  assert.deepEqual(shadowLight.target.position.toArray(), [360, 2, 420])
+  assert.deepEqual(shadowLight.position.toArray(), [380, 42, 440])
+})
+
 test('runRenderFrame does not throw when cameraManager is omitted', () => {
   const deps = createTestRenderDeps({ includeCameraManager: false })
 
