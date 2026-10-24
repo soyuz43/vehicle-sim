@@ -16,7 +16,7 @@
 - **Line Endings**: All source files use **LF**.
   - *Action*: When using text replacement scripts, ensure anchors match LF. Do not assume CRLF.
 - **Patch Strategy**:
-  - If `apply_patch` fails on an existing file, switch immediately to a simple, exact text replacement strategy.
+  - If `apply_patch` fails on an existing file, switch immediately to a simple, exact text replacement strategy (e.g., repository-local Node scripts or PowerShell here-strings).
   - Prefer replacing one complete, clearly anchored block at a time.
   - Before writing, verify the old text occurs exactly once.
   - After writing, immediately run `npm run build` or a targeted syntax/build check when editing JavaScript structure.
@@ -164,28 +164,34 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 - Fixed-timestep physics (1/60 s) decoupled from render (`src/simulation/createFixedTimestepRunner.js`, `src/main.js`).
 - Deterministic heightfield terrain plus per-wheel suspension raycast contact with hysteresis (`src/terrain/*`, `src/vehicle/createVehicleController.js`).
 - Torque-coupled wheel rotational dynamics (angular velocity, inertia, net torque).
-- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap, with a feature-gated brush/Fiala combined-slip tire seam (default `combinedSlipTireModelEnabled: false` at `src/vehicle/defaultVehicleSpec.js:276`; now includes a kinetic-friction floor and a controller-level validation harness at `test/combinedSlipIntegrationValidation.test.js`).
-- Quasi-static longitudinal and lateral load transfer redistributing normal force, with a feature-gated 3-DOF sprung-mass heave/pitch/roll vertical-dynamics seam (currently ENABLED by default: `verticalDynamicsEnabled: true` at `src/vehicle/defaultVehicleSpec.js:49`; the earlier "disabled by default" framing is stale). Forcing terms are gated separately by `verticalDynamicsForcingEnabled` (default true): prior-step planar acceleration drives pitch/roll, and terrain suspension spring-force deviation drives heave and, through the same per-corner force at each corner's moment arm, roll and pitch.
+- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap, with a feature-gated brush/Fiala combined-slip tire seam (default `combinedSlipTireModelEnabled: false` at `src/vehicle/defaultVehicleSpec.js`; includes a kinetic-friction floor and a controller-level validation harness).
+- Quasi-static longitudinal and lateral load transfer redistributing normal force, with a feature-gated 3-DOF sprung-mass heave/pitch/roll vertical-dynamics seam (currently ENABLED by default: `verticalDynamicsEnabled: true`). Forcing terms are gated separately by `verticalDynamicsForcingEnabled`.
+- **Anti-Roll Bars (ARBs)**: Modeled as per-axle wheel-rate friction elements (`antiRollBarStiffnessNewtonsPerMeter`). Applies equal/opposite load transfer to left/right wheels and folds into the vertical dynamics roll stiffness matrix (`Krr`). Correctly no-ops on coupled/rigid axles.
 - Planar chassis motion: world/local velocity, yaw, yaw rate, summed planar force and yaw moment.
 - Aerodynamic drag (quadratic), optional feature-gated downforce/lift load, chassis mass properties, and a chassis-attitude foundation.
-- Rear differential models (open, limited-slip, torsen, locked, welded), powertrain profiles, active drive torque v1 with predictive redline cap, and feature-gated automatic gear selection, clutch engagement, engine braking, and engine rotational integration.
+- Rear differential models (open, limited-slip, torsen, locked, welded), powertrain profiles, and active drive torque with predictive redline cap.
+- **Advanced Powertrain (Gated)**: Integrated engine flywheel ODE and friction-element clutch with torque capacity (gated by `engineDrivetrainModelEnabled: false` to preserve byte-identical baseline). Includes throttle pedal ramping (`throttleResponseTimeSeconds`) to smooth binary inputs.
+- Feature-gated automatic gear selection, clutch engagement, and engine braking.
 - Service brake bias, ABS v1, feature-gated wheel-lock detection/advanced ABS, traction control, and electronic stability control.
+- **7-Slot Vehicle Configuration**: `chassis`, `suspensionFront`, `suspensionRear`, `wheels`, `drivetrain`, `brakes`, `aero`. Supports nested per-axle specs with flat compatibility aliases.
+- **Visuals & Live Apply**: Catalog-driven body visuals with live swapping and geometry disposal. Per-axle suspension visual routing (e.g., MacPherson control arm gating vs. generic independent).
 - Tire pressure handling and visual deformation, a developer tuning panel, step-trace instrumentation, and a multi-rate timestep-sensitivity regression suite.
-- Config Panel session state: the panel's dirty state is DERIVED from the staged selection and the running selection, never a stored flag, so it cannot disagree with what the panel shows. The panel's reset control is "Reset Vehicle" and restores the vehicle setup only; a staged terrain selection stays staged and keeps the panel dirty.
-- Config Panel live apply: the applied setup is applied and RECORDED in `localStorage` (`vehicle-sim-config`) before a terrain change reloads the session, so a combined terrain and vehicle apply lands both changes. A stored value is validated on read and falls back to the stock setup when it is corrupt or names an unknown slot.
-- Controller configuration reporting: the controller DERIVES the catalog configuration it is effectively running (`src/vehicle/config/deriveActiveVehicleConfiguration.js`) and reports every configuration change through `onConfigurationChanged`. A state that matches no catalog component is reported as `null` and the panel shows it as "modified outside catalog".
-- Apply-at-speed reporting: a chassis change above 30 km/h drops the vertical dynamics state, and the apply reports that consequence in the panel's status line instead of blocking the apply (`src/vehicle/config/describeVehicleApplyWarning.js`).
-- Roll-center consumption: the vertical dynamics derives a roll-center height per axle (from the front-view linkage geometry for the wishbone and MacPherson archetypes, from `solidAxleRollCenterHeightMeters` for a coupled axle), shortens the elastic roll arm to `h_cg - h_rc`, and applies the direct part of the lateral load transfer (`m_axle * a_lat * h_rc / track`) straight to the per-corner normal force. The stock vehicle has no roll center, so its 5400-step trace stays byte-identical to the pre-roll-center baseline.
+- Config Panel session state: the panel's dirty state is DERIVED from the staged selection and the running selection, never a stored flag. The panel's reset control is "Reset Vehicle" and restores the vehicle setup only; a staged terrain selection stays staged.
+- Config Panel live apply: the applied setup is applied and RECORDED in `localStorage` before a terrain change reloads the session.
+- Controller configuration reporting: the controller DERIVES the catalog configuration it is effectively running and reports every configuration change through `onConfigurationChanged`.
+- Apply-at-speed reporting: a chassis change above 30 km/h drops the vertical dynamics state, and the apply reports that consequence.
+- Roll-center consumption: the vertical dynamics derives a roll-center height per axle, shortens the elastic roll arm, and applies the direct part of the lateral load transfer straight to the per-corner normal force.
 
 ### 3.2 Documented Unfinished Seams
 The genuine next-layer gaps, self-identified in source comments and `README.md`. Any "future work" claim must map to one of these or be evidenced in code:
+- **Suspension Hard Limits (Bump/Droop Stops)**: Suspension currently lacks physical hard limits for extreme compression or droop, causing visual/numerical instability (infinite stretching, chassis clipping) when the car flips or drives off steep edges.
 - Pacejka/professional tire model: the default model remains a staged brush/Fiala-style model, not a full validated tire library.
-- True multibody chassis dynamics beyond the gated 3-DOF vertical seam (landing impulses, nonlinear bump stops, anti-roll bars, detailed pitch/roll coupling).
-- Roll-center depth: the roll-center height is consumed (roll arm reduction plus the direct link path), but the linkage schema has no per-axle designation, so a linkage archetype gives the front and the rear axle the same roll-center height. Per-axle roll-center overrides, a longitudinal roll center (anti-dive/anti-squat), and the roll-center height of a coupled axle's lateral transfer are not modelled.
-- Solid axle lateral transfer: a coupled axle still takes no lateral load transfer across its own tires. The beam articulation and leaf torsional stiffness that would produce it are not modelled, so the solid axle archetype is distinguished by body roll magnitude, not by a lateral transfer redistribution.
+- True multibody chassis dynamics beyond the gated 3-DOF vertical seam (landing impulses, nonlinear bump stops, detailed pitch/roll coupling).
+- Roll-center depth: the roll-center height is consumed, but the linkage schema has no per-axle designation. Per-axle roll-center overrides and longitudinal roll center (anti-dive/anti-squat) are not modelled.
+- Solid axle lateral transfer: a coupled axle still takes no lateral load transfer across its own tires. The beam articulation and leaf torsional stiffness that would produce it are not modelled.
 - Full production ABS/TC/ESC behavior: currently feature-gated staged seams, not a complete hydraulic/production stability-control system.
 - Drift models and rich tire audio/visual effects (squeal, smoke, persistent skid marks).
-- Powertrain depth: torque converter, detailed shift actuation, full manual shift control, driveline compliance, launch control.
+- Powertrain depth: torque converter (fluid coupling), detailed shift actuation, driveline compliance, launch control.
 - Aero depth: wind and drafting are not modeled; downforce/lift is a first-order speed-squared vertical load.
 - Timestep sensitivity: documented long-brake stopping-distance and stop-time spread across 60 to 480 Hz.
 
@@ -201,23 +207,12 @@ When analyzing or describing this repository, you MUST:
 When performing reconnaissance, review, or simulation design work, apply these negative constraints to prevent hallucinated architecture or broken physics:
 
 - **Do not collapse source evidence and proposed design**: Keep what the code *actually does* separate from what you *think it should do*. Do not present a design recommendation as though the repository already requires it.
-- **Trace execution before relocating ownership**: Before moving or centralizing a mechanism (e.g., moving tire force calculation from the wheel module to the chassis module), identify:
-  1. Where it currently executes.
-  2. What inputs are available at that exact stage.
-  3. Which ordering, accumulation, or clamping semantics depend on that location.
-  4. Whether the proposed destination has enough information to preserve those semantics.
-  *(Centralized configuration does not imply centralized execution.)*
-- **Prefer the smallest live improvement**: Do not introduce an unused schema, loader, config file, or abstraction merely because it fits a "cleaner" future architecture. Prefer the smallest change that is consumed by live code immediately, removes an existing ambiguity, preserves current behavior by default, and leaves later generalization possible.
-- **Check proposed designs for internal contradictions**: Before recommending an architecture, test it for incompatible claims, such as:
-  - `enabled: false` alongside a separate `mode: "active"` flag.
-  - A module described as independent while it imports from the module it's supposed to replace.
-  - A behavior-preserving refactor that accidentally changes return shapes, object keys, or execution order.
-- **Use precise strength of claim**: Do not overstate what source inspection or one test establishes. For example:
-  - Passing one test establishes it works for that case, not arbitrary-order independence.
-  - A live read with no repository writes is an undeclared override channel, not necessarily dead code.
-  - When uncertain, state the narrower claim and identify what evidence would justify the stronger one.
+- **Trace execution before relocating ownership**: Before moving or centralizing a mechanism, identify where it currently executes, what inputs are available, which ordering semantics depend on that location, and whether the proposed destination has enough information.
+- **Prefer the smallest live improvement**: Do not introduce an unused schema, loader, config file, or abstraction merely because it fits a "cleaner" future architecture.
+- **Check proposed designs for internal contradictions**: Before recommending an architecture, test it for incompatible claims (e.g., `enabled: false` alongside `mode: "active"`).
+- **Use precise strength of claim**: Do not overstate what source inspection or one test establishes.
 - **Preserve executed semantics during refactoring**: Treat current production physics behavior as a reproducible historical baseline. Do not silently "fix", consolidate, or reinterpret behavior while exposing it through configuration unless the task explicitly requires it.
-- **Validate environment-specific assumptions**: Do not infer compatibility from general platform knowledge alone. For file formats, module loading, or shell behavior, inspect the repository's actual runtime and tooling.
+- **Validate environment-specific assumptions**: Do not infer compatibility from general platform knowledge alone. Inspect the repository's actual runtime and tooling.
 
 ### 3.5 Sim-Design Self-Check
 Before finalizing a design report or large PR, quickly ask:
@@ -252,7 +247,7 @@ Before finalizing a design report or large PR, quickly ask:
 
 ## 5. Code Style & Module Structure
 - **Orchestration**: `src/main.js` is for wiring only. It should not contain physics logic.
-- **Modularity**: Prefer professional, comprehensive, but narrowly scoped single-responsibility modules (e.g., `createFixedTimestepRunner.js`, `createFlatTerrainContactQuery.js`).
+- **Modularity**: Prefer professional, comprehensive, but narrowly scoped single-responsibility modules.
 - **Comments**:
   - Preserve file path headers: `// src/vehicle/createVehicleController.js`
   - **Honesty Policy**: Clearly label placeholders.
@@ -280,11 +275,11 @@ Before finalizing a design report or large PR, quickly ask:
 - **Validation Checklist** (Before Pushing):
   1. `npm run build` passes.
   2. `npm test` passes.
-  3. `rg` confirms no prohibited feature implementation was introduced. Future-work mentions in README, AGENTS.md, skill docs, or comments are allowed; executable-code matches must be inspected and explained.
+  3. `rg` confirms no prohibited feature implementation was introduced.
   4. Manual check: Driving, Braking, Reset, and HUD updates work.
   5. No unintended behavior regression.
 
 ## 7. Review Posture
 - **Correctness > Features**: A broken realistic system is worse than a working simple one.
 - **Flag Fake Physics**: If code claims to be "realistic" but uses hardcoded multipliers to mask instability, flag it.
-- **Seams Over Solutions**: If a request requires a complex system (e.g., advanced ABS) that isn't ready, implement the *interface* (seam) and leave the logic empty/commented. Flag it honestly rather than hacking a half-baked solution.
+- **Seams Over Solutions**: If a request requires a complex system that isn't ready, implement the *interface* (seam) and leave the logic empty/commented. Flag it honestly rather than hacking a half-baked solution.
