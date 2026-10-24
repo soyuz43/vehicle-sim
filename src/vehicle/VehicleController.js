@@ -593,6 +593,13 @@ export class VehicleController {
             state.powertrainKinematics.estimatedEngineRpm =
                 Math.abs(state.engineDrivetrain.engineOmegaRadiansPerSecond) *
                 (60 / (Math.PI * 2))
+        } else if (
+            spec.engineDrivetrainModelEnabled === true &&
+            state.transmissionProfile?.transmissionKind === 'cvt'
+        ) {
+            state.engineDrivetrain.engineOmegaRadiansPerSecond =
+                state.powertrainKinematics.estimatedEngineRpm *
+                ((Math.PI * 2) / 60)
         }
     }
 
@@ -670,9 +677,13 @@ export class VehicleController {
         )
         const clutchTorqueCapacityNewtonMeters =
             state.transmissionProfile?.clutchTorqueCapacityNewtonMeters ?? 400
+        const netEngineTorqueBeforeClutchNewtonMeters =
+            engineTorqueNewtonMeters - pumpingTorqueNewtonMeters
         const desiredClutchTorqueNewtonMeters = gearDirection === 0
             ? 0
-            : engineTorqueNewtonMeters - pumpingTorqueNewtonMeters
+            : spec.engineBrakingEnabled === true
+              ? netEngineTorqueBeforeClutchNewtonMeters
+              : Math.max(0, netEngineTorqueBeforeClutchNewtonMeters)
         engineDrivetrainClutchInput.engineOmegaRadiansPerSecond =
             engineOmegaRadiansPerSecond
         engineDrivetrainClutchInput.transmissionInputOmegaRadiansPerSecond =
@@ -690,9 +701,7 @@ export class VehicleController {
         )
 
         const netEngineTorqueNewtonMeters =
-            engineTorqueNewtonMeters -
-            pumpingTorqueNewtonMeters -
-            clutchTorqueNewtonMeters
+            netEngineTorqueBeforeClutchNewtonMeters - clutchTorqueNewtonMeters
         engineDrivetrainIntegrationInput.engineOmegaRadiansPerSecond =
             engineOmegaRadiansPerSecond
         engineDrivetrainIntegrationInput.netEngineTorqueNewtonMeters =

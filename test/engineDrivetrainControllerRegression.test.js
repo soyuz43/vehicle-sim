@@ -121,6 +121,53 @@ test('engine pumping drag reaches the wheels as negative torque while coasting',
   assert.ok(transmittedEngineBraking, 'pumping drag should reach the wheels through the clutch')
 })
 
+test('disabled engine braking does not send pumping drag to the wheels', () => {
+  const controller = makeController({ spec: { engineBrakingEnabled: false } })
+  for (let step = 0; step < 180; step += 1) {
+    controller.update(DT_SECONDS, { throttle: true })
+  }
+
+  let coastSnapshot
+  for (let step = 0; step < 30; step += 1) {
+    coastSnapshot = controller.update(DT_SECONDS, {})
+    assert.ok(
+      coastSnapshot.totalAxleDriveTorqueNewtonMeters >= 0,
+      'disabled engine braking must not apply negative axle torque from pumping drag'
+    )
+  }
+
+  assert.equal(coastSnapshot.throttleInput, 0)
+  assert.ok(coastSnapshot.speedMetersPerSecond > 0.1)
+})
+
+test('switching from CVT synchronizes engine speed before geared clutch torque', () => {
+  const controller = makeController({
+    transmissionId: 'cvt',
+    spec: { engineBrakingEnabled: true },
+  })
+  let cvtSnapshot
+  for (let step = 0; step < 120; step += 1) {
+    cvtSnapshot = controller.update(DT_SECONDS, { throttle: true })
+  }
+  const cvtEngineOmegaRadiansPerSecond =
+    cvtSnapshot.engineAngularVelocityRadiansPerSecond
+
+  controller.setTransmission('manual-6')
+  const gearedSnapshot = controller.update(DT_SECONDS, { throttle: true })
+
+  assert.ok(cvtEngineOmegaRadiansPerSecond > 100)
+  assert.ok(
+    gearedSnapshot.engineAngularVelocityRadiansPerSecond >
+      cvtEngineOmegaRadiansPerSecond * 0.7,
+    'geared integration should continue from the engine speed reached on the CVT'
+  )
+  assert.ok(
+    gearedSnapshot.clutchTorqueNewtonMeters < 0,
+    'the faster transmission input should load the engine through the slipping clutch'
+  )
+  assert.ok(gearedSnapshot.totalAxleDriveTorqueNewtonMeters < 0)
+})
+
 test('new drivetrain ordering preserves tire-road reaction torque on driven wheels', () => {
   const controller = makeController()
   controller.update(DT_SECONDS, { throttle: true })
