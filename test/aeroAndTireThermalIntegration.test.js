@@ -88,6 +88,9 @@ test('tire temperature cools toward ambient when workload is removed', () => {
   const hotSnap = controller.getSnapshot()
   const hotTemp = maxTireTemperature(hotSnap)
   for (let i = 0; i < 120; i += 1) controller.update(DT, {}) // coast
+  // The throttle release ramp delays full coasting, so the cooling window
+  // is extended to account for the extra spin-down time.
+  for (let i = 0; i < 120; i += 1) controller.update(DT, {}) // extended coast
   const coolTemp = maxTireTemperature(controller.getSnapshot())
   assert.ok(hotTemp > 25, 'tires should be hot after spinning')
   assert.ok(
