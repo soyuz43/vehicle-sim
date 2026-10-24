@@ -28,6 +28,7 @@ import {
 } from './config/createVehicleConfiguration.js'
 import { buildSuspensionSlotSpec } from './config/applyVehicleConfiguration.js'
 import { deriveActiveVehicleConfiguration } from './config/deriveActiveVehicleConfiguration.js'
+import { resolveSuspensionTravelLimits } from './dynamics/suspensionTravelLimits.js'
 import {
     createAerodynamicDragState,
     updateAerodynamicDragState,
@@ -2936,36 +2937,14 @@ export class VehicleController {
         const axleSpec = axle === 'rear' && spec.suspensionRear
             ? spec.suspensionRear
             : spec
-        const restLengthMeters = Number.isFinite(axleSpec.suspensionRestLengthMeters) &&
-            axleSpec.suspensionRestLengthMeters > 0
-            ? axleSpec.suspensionRestLengthMeters
-            : 0.35
-        return Number.isFinite(axleSpec.suspensionMaximumLengthMeters) &&
-            axleSpec.suspensionMaximumLengthMeters > 0
-            ? axleSpec.suspensionMaximumLengthMeters
-            : restLengthMeters
+        return resolveSuspensionTravelLimits(axleSpec).maximumLengthMeters
     }
 
     function resolveSuspensionMinimumLengthMeters(axle = 'front') {
         const axleSpec = axle === 'rear' && spec.suspensionRear
             ? spec.suspensionRear
             : spec
-        const maximumLengthMeters = resolveSuspensionMaximumLengthMeters(axle)
-        const travelMeters = Number.isFinite(axleSpec.suspensionTravelMeters) &&
-            axleSpec.suspensionTravelMeters > 0
-            ? axleSpec.suspensionTravelMeters
-            : 0.22
-        const configuredMinimumLengthMeters = Number.isFinite(
-            axleSpec.suspensionMinimumLengthMeters
-        ) && axleSpec.suspensionMinimumLengthMeters > 0
-            ? axleSpec.suspensionMinimumLengthMeters
-            : maximumLengthMeters - travelMeters
-
-        return THREE.MathUtils.clamp(
-            configuredMinimumLengthMeters,
-            Number.EPSILON,
-            maximumLengthMeters - Number.EPSILON
-        )
+        return resolveSuspensionTravelLimits(axleSpec).minimumLengthMeters
     }
 
     function resolveMaximumSuspensionRayDistanceMeters() {

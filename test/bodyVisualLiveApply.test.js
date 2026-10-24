@@ -80,12 +80,12 @@ test('live chassis apply swaps body visuals and disposes replaced geometries', (
   const car = createCar()
   const bodyNodeNames = [
     'raised-body-shell',
-    'front-direction-nose',
     'greenhouse-visual',
     'brake-light-right',
     'brake-light-left',
   ]
   const previousNodes = bodyNodeNames.map((name) => car.getObjectByName(name))
+  assert.equal(car.getObjectByName('front-direction-nose'), undefined)
   const disposedGeometryNames = []
 
   for (const node of previousNodes) {
