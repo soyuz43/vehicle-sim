@@ -49,7 +49,11 @@ export function createSimulation(deps = {}) {
   // represent them, and the physics contact query keeps sampling the
   // obstacle-aware profile.
   const terrainRenderProfile = terrainSelection.baseProfile
-  const terrain = createTerrain({ surfaceProfile: terrainRenderProfile })
+  const terrain = createTerrain({
+    surfaceProfile: terrainRenderProfile,
+    subdivisions:
+      terrainSelection.name === 'proving-ground' ? 256 : undefined,
+  })
   scene.add(terrain)
 
   let deformationVisuals = null

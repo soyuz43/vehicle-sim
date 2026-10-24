@@ -5,7 +5,7 @@ import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
 
 const DEFAULT_RENDER_SAMPLE_SPACING_METERS = 1.25
 const MIN_RENDER_SUBDIVISIONS = 256
-const MAX_RENDER_SUBDIVISIONS = 512
+const MAX_RENDER_SUBDIVISIONS = 1024
 const MIN_EXPLICIT_RENDER_SUBDIVISIONS = 16
 
 export function createTerrain(config = {}) {
@@ -154,7 +154,7 @@ function createTerrainGridLines(
   const gridSpacingMeters = Number.isFinite(requestedGridSpacingMeters) &&
       requestedGridSpacingMeters > 0
     ? requestedGridSpacingMeters
-    : Math.max(4, sizeMeters / 80)
+    : Math.max(4, sizeMeters / 60)
   const lineSegmentsPerAxis = Math.max(8, Math.ceil(subdivisions / 2))
   const lineCountPerSide = Math.floor(halfSizeMeters / gridSpacingMeters)
   const positions = []

@@ -2,6 +2,7 @@
 
 import {
   createOffroadTerrainGenerationConfig,
+  DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG,
   MAX_OFFROAD_ROUGHNESS_METERS,
 } from './createOffroadTerrainGenerationConfig.js'
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
@@ -97,7 +98,8 @@ function resolveGenerationConfig(name, config) {
   const sizeMeters = configuredSizeMeters ?? (
     boundsMeters
       ? undefined
-      : readNumberParam('terrainSizeMeters', (value) => value > 0) ?? 400
+      : readNumberParam('terrainSizeMeters', (value) => value > 0) ??
+        DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG.sizeMeters
   )
   const seed = Object.prototype.hasOwnProperty.call(generationOverrides, 'seed')
     ? generationOverrides.seed
