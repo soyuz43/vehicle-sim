@@ -1,7 +1,7 @@
 // src/vehicle/config/applyVehicleConfiguration.js
 
 /**
- * Applies a Phase 4 vehicle configuration to the controller input.
+ * Applies the vehicle configuration to the controller input.
  *
  * Each selected component may contribute SI-unit spec fields (merged into the
  * controller spec override) and, for the drivetrain slot, controller-level
@@ -30,7 +30,7 @@ function mergeComponentSpec(target, component) {
     // 'axleCoupling' is a component-declared archetype value, not a flat
     // runtime field. The slot selection derives 'frontAxleCoupling' and
     // 'rearAxleCoupling' from it below, while the nested slot spec keeps
-    // the declaration for Phase B.1 consumers.
+    // the declaration for nested-spec consumers.
     if (key === 'axleCoupling') continue
 
     const value = specContribution[key]
@@ -41,7 +41,7 @@ function mergeComponentSpec(target, component) {
   }
 }
 
-// Phase B.1 nested suspension shape.
+// Nested per-axle suspension shape.
 //
 // Each slot owns a complete suspension spec object. A component declares
 // every field it uses, but the effective runtime shape must be complete: a

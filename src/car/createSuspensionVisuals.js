@@ -60,8 +60,8 @@ import {
 // wheel position), so it compresses and extends with the suspension
 // travel. Like the leaf pack, its top does NOT follow the rolling body:
 // the visible gap between the strut tower and the body changes with body
-// roll. The MacPherson archetype's physics are identical to the stock
-// profile - the strut is a visual seam, not a force model.
+// roll. The MacPherson archetype also contributes linkage-derived camber and
+// roll-center physics elsewhere; this strut mesh is a visual seam only.
 
 const AXLE_IDS = Object.freeze(['front', 'rear'])
 
@@ -453,7 +453,7 @@ export function createSuspensionVisuals(vehicle) {
       }
 
       const activeEntry = entry ?? createStrutEntry(wheelId, wheelState.axle)
-      const isPoseFinite = applyStrutPose(activeEntry, wheelState)
+      const isPoseFinite = applyStrutPose(activeEntry, wheelState, visualKind)
       if (isPoseFinite) {
         activeEntry.topLocalMeters.copy(strutTopLocal)
         activeEntry.bottomLocalMeters.copy(strutBottomLocal)
@@ -822,7 +822,7 @@ export function createSuspensionVisuals(vehicle) {
   // The tower is a fixed point in the vehicle's frame, so the strut's
   // length follows the published wheel position and the strut visibly
   // compresses with the suspension travel.
-  function applyStrutPose(entry, wheelState) {
+  function applyStrutPose(entry, wheelState, visualKind) {
     const mountLocal = wheelState.suspensionMountLocalPosition
     const wheelCentreLocal = wheelState.wheelCenterLocalPosition
     const mountXMeters = Number(mountLocal?.x)
@@ -891,7 +891,8 @@ export function createSuspensionVisuals(vehicle) {
       entry.controlArmMesh,
       entry.controlArmKinematics
     )
-    entry.controlArmMesh.visible = isControlArmFinite
+    entry.controlArmMesh.visible =
+      isControlArmFinite && visualKind === MACPHERSON_STRUT_VISUAL_KIND
 
     entry.group.position.copy(strutMidpointLocal)
     entry.group.quaternion.setFromUnitVectors(STRUT_UP_AXIS, strutAxisLocal)

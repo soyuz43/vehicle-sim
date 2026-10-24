@@ -256,6 +256,11 @@ test('the restored configuration is passed to createSimulation at construction',
     'chassis-suv',
     'the controller is built with the restored configuration'
   )
+  assert.equal(
+    simulation.car.userData.vehicle.body.visualKind,
+    'suv',
+    'the effective chassis spec reaches the constructed body visual'
+  )
 })
 
 test('a session without a stored configuration starts from the stock setup', () => {

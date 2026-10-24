@@ -458,6 +458,75 @@ test('Reset Vehicle restores the stock configuration and applies it', async () =
 })
 
 
+test('Reset Vehicle restores both front and rear suspension slots to stock', async () => {
+  installFakeDom()
+  const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')
+  const { createDefaultVehicleConfiguration } = await import(
+    '../src/vehicle/config/createVehicleConfiguration.js'
+  )
+
+  let resetConfig = null
+  const ui = createConfigPanel({
+    initialTerrain: 'proving-ground',
+    initialVehicleConfig: createDefaultVehicleConfiguration(),
+    onReset: () => { resetConfig = ui.getVehicleConfig(); },
+  })
+
+  const findById = (element, id) => {
+    if (element.id === id) return element
+    for (const child of element.children ?? []) {
+      const match = findById(child, id)
+      if (match) return match
+    }
+    return null
+  }
+  const findElement = (element, predicate) => {
+    if (predicate(element)) return element
+    for (const child of element.children ?? []) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+
+  // The panel exposes the split suspension slots as two distinct dropdowns.
+  const frontSelect = findById(ui.element, 'config-suspensionFront-select')
+  const rearSelect = findById(ui.element, 'config-suspensionRear-select')
+  assert.ok(frontSelect, 'the panel must expose a Front Suspension dropdown')
+  assert.ok(rearSelect, 'the panel must expose a Rear Suspension dropdown')
+
+  frontSelect.value = 'susp-lowered'
+  frontSelect.dispatchEvent({ type: 'change', target: frontSelect })
+  rearSelect.value = 'susp-solid-axle'
+  rearSelect.dispatchEvent({ type: 'change', target: rearSelect })
+
+  assert.equal(ui.getVehicleConfig().slots.suspensionFront, 'susp-lowered')
+  assert.equal(ui.getVehicleConfig().slots.suspensionRear, 'susp-solid-axle')
+  assert.equal(ui.isDirty(), true, 'the split suspension changes are pending')
+
+  const resetButton = findElement(
+    ui.element,
+    (element) => element.tagName === 'button' &&
+      findElement(element, (child) => child.tagName === 'span' && child.textContent === 'Reset Vehicle') !== null
+  )
+  assert.ok(resetButton, 'the panel must expose a Reset Vehicle button')
+  resetButton.dispatchEvent({ type: 'click' })
+
+  // Both suspension slots return to the stock component.
+  assert.equal(ui.getVehicleConfig().slots.suspensionFront, 'susp-stock')
+  assert.equal(ui.getVehicleConfig().slots.suspensionRear, 'susp-stock')
+
+  // The dropdowns reflect the restored stock selection.
+  assert.equal(frontSelect.value, 'susp-stock', 'the Front Suspension dropdown shows stock')
+  assert.equal(rearSelect.value, 'susp-stock', 'the Rear Suspension dropdown shows stock')
+
+  assert.ok(resetConfig, 'the host is told about the reset')
+  assert.equal(resetConfig.slots.suspensionFront, 'susp-stock')
+  assert.equal(resetConfig.slots.suspensionRear, 'susp-stock')
+  assert.equal(ui.isDirty(), false, 'resetting both suspension slots clears the dirty state')
+})
+
+
 test('the Apply button applies the staged setup to a running controller', async () => {
   installFakeDom()
   const { createConfigPanel } = await import('../src/ui/config-panel/createConfigPanel.js')

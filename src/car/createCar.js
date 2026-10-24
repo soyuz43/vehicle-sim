@@ -358,8 +358,18 @@ export function createCar(spec = {}) {
       hangerNodes: rearDifferentialHangers.map((hanger) => hanger.name),
     },
     suspension: {
-      type: 'independent',
-      visualRepresentation: 'realistic-macpherson-strut-v2',
+      type: 'per-axle',
+      frontAxleCoupling: spec.suspensionFront?.axleCoupling ?? 'independent',
+      rearAxleCoupling: spec.suspensionRear?.axleCoupling ?? 'independent',
+      visualRepresentation: 'per-axle-suspension-visual-kinds-v1',
+      frontSuspensionVisualKind:
+        spec.suspensionFront?.suspensionVisualKind ??
+        spec.suspensionVisualKind ??
+        'independent',
+      rearSuspensionVisualKind:
+        spec.suspensionRear?.suspensionVisualKind ??
+        spec.suspensionVisualKind ??
+        'independent',
       behavior: 'physics-driven-suspension-v1',
     },
     drivetrain: {
