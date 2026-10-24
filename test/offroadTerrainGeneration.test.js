@@ -4,7 +4,9 @@ import * as THREE from 'three'
 import { createSimulation } from '../src/createSimulation.js'
 import { createOffroadTerrainGenerationConfig } from '../src/terrain/createOffroadTerrainGenerationConfig.js'
 import { createTerrainSelection } from '../src/terrain/createTerrainSelection.js'
+import { SURFACE_MATERIAL_KINDS } from '../src/terrain/createSurfaceMaterialCatalog.js'
 import {
+  createOffroadPlaygroundHeightEvaluator,
   createOffroadPlaygroundProfile,
   ROCK_GARDEN_BAND_EAST_EDGE_OFFSET_METERS,
   ROCK_GARDEN_BAND_FEATHER_METERS,
@@ -86,8 +88,22 @@ test('unseeded offroad defaults preserve the established layout', () => {
   assert.deepEqual(readTerrainSamples({ surfaceProfile: profile }), readTerrainSamples({ surfaceProfile: explicitUnseededProfile }))
   assert.equal(profile.generationConfig.seed, null)
   assert.equal(defaultSelection.generationConfig.seed, null)
-  assert.equal(defaultSelection.generationConfig.sizeMeters, 400)
+  assert.equal(defaultSelection.generationConfig.sizeMeters, 1200)
   assert.equal(defaultSelection.obstacleField.getObstacles().length, 8)
+})
+
+test('both default terrain profiles have 1200 m square bounds', () => {
+  const provingGround = selectTerrain('?terrain=proving-ground')
+  const offroad = selectTerrain('?terrain=offroad')
+
+  assert.equal(provingGround.surfaceProfile.sizeMeters, 1200)
+  assert.equal(offroad.surfaceProfile.sizeMeters, 1200)
+  assert.deepEqual(offroad.generationConfig.boundsMeters, {
+    minXMeters: -600,
+    maxXMeters: 600,
+    minZMeters: -600,
+    maxZMeters: 600,
+  })
 })
 
 test('proving-ground ignores off-road seed and generation options', () => {
@@ -122,7 +138,7 @@ test('invalid URL generation values fall back to established defaults', () => {
   )
 
   assert.equal(selection.generationConfig.seed, null)
-  assert.equal(selection.generationConfig.sizeMeters, 400)
+  assert.equal(selection.generationConfig.sizeMeters, 1200)
   assert.equal(selection.generationConfig.featureScale, 1)
   assert.equal(selection.generationConfig.roughnessMeters, 0.05)
   assert.equal(selection.generationConfig.obstacleDensity, 1)
@@ -223,7 +239,9 @@ test('roughness is bounded to the supported amplitude range', () => {
 })
 
 test('the obstacle visuals are added to the scene', () => {
-  const simulation = createSimulationForSearch('?terrain=offroad')
+  const simulation = createSimulationForSearch(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
 
   assert.ok(simulation.obstacleVisuals)
   assert.ok(simulation.obstacleVisuals.group)
@@ -235,7 +253,9 @@ test('the obstacle visuals are added to the scene', () => {
 })
 
 test('the terrain mesh carries the terrain only while the contact query keeps the obstacles', () => {
-  const simulation = createSimulationForSearch('?terrain=offroad')
+  const simulation = createSimulationForSearch(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const positions = simulation.terrain.geometry.getAttribute('position')
   const baseProfile = simulation.terrainSelection.baseProfile
   let maximumMeshDeviationMeters = 0
@@ -297,20 +317,52 @@ test('the proving ground mesh is unchanged by the obstacle rendering', () => {
     maximumMeshDeviationMeters <= 1e-6,
     'the proving ground mesh changed: ' + maximumMeshDeviationMeters + ' m'
   )
+  const bumpCenterHeightMeters = surfaceProfile.getHeightAtWorldXZ(-1.5, 52.2)
+  const renderedBumpHeightMeters = sampleTerrainMeshHeight(simulation.terrain, -1.5, 52.2)
+  assert.ok(bumpCenterHeightMeters > 0.07)
+  assert.ok(renderedBumpHeightMeters > 0.05)
+  assert.ok(Math.abs(renderedBumpHeightMeters - bumpCenterHeightMeters) < 0.02)
   assert.equal(simulation.obstacleVisuals, null)
-  assert.equal(simulation.terrain.userData.terrain.renderSubdivisions, 256)
+  assert.equal(simulation.terrain.userData.terrain.renderSubdivisions, 960)
 })
 
 test('the terrain render grid follows the terrain size', () => {
   const provingGround = createSimulationForSearch('?terrain=proving-ground')
   const offroad = createSimulationForSearch('?terrain=offroad')
   const resized = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
-  const large = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=1000')
 
-  assert.equal(provingGround.terrain.userData.terrain.renderSubdivisions, 256)
-  assert.equal(offroad.terrain.userData.terrain.renderSubdivisions, 320)
+  assert.equal(provingGround.terrain.userData.terrain.renderSubdivisions, 960)
+  assert.equal(offroad.terrain.userData.terrain.renderSubdivisions, 960)
   assert.equal(resized.terrain.userData.terrain.renderSubdivisions, 400)
-  assert.equal(large.terrain.userData.terrain.renderSubdivisions, 512)
+
+  const provingMesh = provingGround.terrain.geometry
+  const provingGrid = provingGround.terrain.getObjectByName('terrain-contour-grid')
+  assert.equal(provingGround.terrain.userData.terrain.sizeMeters, 1200)
+  assert.equal(provingMesh.getAttribute('position').count, 923521)
+  assert.equal(provingGrid.userData.gridSpacingMeters, 20)
+  assert.equal(provingGrid.geometry.getAttribute('position').count, 117120)
+  assert.equal(
+    provingMesh.getAttribute('position').count +
+      provingGrid.geometry.getAttribute('position').count,
+    1040641
+  )
+  assert.equal(provingMesh.boundingBox.min.x, -600)
+  assert.equal(provingMesh.boundingBox.max.x, 600)
+  assert.equal(provingMesh.boundingBox.min.z, -600)
+  assert.equal(provingMesh.boundingBox.max.z, 600)
+
+  const offroadMesh = offroad.terrain.geometry
+  const offroadGrid = offroad.terrain.getObjectByName('terrain-contour-grid')
+  assert.equal(offroad.terrain.userData.terrain.sizeMeters, 1200)
+  assert.equal(offroad.terrain.userData.terrain.renderSampleSpacingMeters, 1.25)
+  assert.equal(offroadMesh.getAttribute('position').count, 923521)
+  assert.equal(offroadGrid.userData.gridSpacingMeters, 20)
+  assert.equal(offroadGrid.geometry.getAttribute('position').count, 117120)
+  assert.equal(
+    offroadMesh.getAttribute('position').count +
+      offroadGrid.geometry.getAttribute('position').count,
+    1040641
+  )
 })
 
 test('the terrain render grid reports its sample spacing', () => {
@@ -324,6 +376,45 @@ test('the terrain render grid reports its sample spacing', () => {
   assert.equal(terrain.renderSampleSpacingMeters, 1.25)
 })
 
+test('simulation deformation bounds follow the selected off-road course', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
+  assert.deepEqual(simulation.terrainDeformation.bounds, {
+    minXMeters: -250,
+    maxXMeters: 250,
+    minZMeters: -250,
+    maxZMeters: 250,
+    columns: 250,
+    rows: 250,
+  })
+})
+
+test('deformation reaches newly included sand without aliasing another cell', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad')
+  assert.equal(
+    simulation.terrainSurfaceProfile.querySurfaceAtWorldPosition(360, 2).surfaceKind,
+    SURFACE_MATERIAL_KINDS.SAND
+  )
+  assert.deepEqual(simulation.terrainDeformation.bounds, {
+    minXMeters: -600,
+    maxXMeters: 600,
+    minZMeters: -600,
+    maxZMeters: 600,
+    columns: 600,
+    rows: 600,
+  })
+
+  simulation.terrainDeformation.accrueFromWheelContacts([{
+    isGrounded: true,
+    surfaceKind: SURFACE_MATERIAL_KINDS.SAND,
+    suspensionNormalForceNewtons: 4000,
+    contactPointWorldPosition: { x: 360, y: 0, z: 2 },
+  }], 5)
+  simulation.terrainDeformation.step(1 / 60)
+
+  assert.ok(simulation.terrainDeformation.getHeightOffsetAtWorldXZ(360, 2) < 0)
+  assert.equal(simulation.terrainDeformation.getHeightOffsetAtWorldXZ(40, 4), 0)
+})
+
 test('the 400 m rock garden reference heights match the bounded band', () => {
   // The garden is a bounded band now, and the band mask holds its full
   // strength across the band instead of ramping up from the south and
@@ -331,7 +422,9 @@ test('the 400 m rock garden reference heights match the bounded band', () => {
   // the south course edge, so it no longer adds a sine wave to these
   // samples either: the pinned heights are the base terrain plus the
   // garden contribution only.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const samples = [
     { xMeters: -120, zMeters: -80, heightMeters: -0.0037536279781548994 },
     { xMeters: -50, zMeters: -60, heightMeters: 0.1003569995452813 },
@@ -353,7 +446,9 @@ test('the start ramp stays inside its own zone and does not ripple across the co
   // wave that shapes it must fade out at the end of the ramp zone; before
   // the fix the zone mask stayed at full strength for every z north of the
   // ramp, so the whole course carried the sine.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const { sizeMeters, featureScale } = selection.generationConfig
   const courseScale = featureScale * (sizeMeters / 400)
   const halfSizeMeters = sizeMeters * 0.5
@@ -371,8 +466,14 @@ test('the start ramp stays inside its own zone and does not ripple across the co
   // with jumpScale. The sampled x position is clear of the three jump
   // footprints, so the difference between the two profiles is the start
   // ramp contribution alone.
-  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
-  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const withJumps = createOffroadPlaygroundProfile({
+    sizeMeters: 400,
+    jumpScale: 1,
+  })
+  const withoutJumps = createOffroadPlaygroundProfile({
+    sizeMeters: 400,
+    jumpScale: 0,
+  })
   const startRampContribution = (zMeters) =>
     withJumps.getHeightAtWorldXZ(25, zMeters) - withoutJumps.getHeightAtWorldXZ(25, zMeters)
 
@@ -427,8 +528,14 @@ test('the step-up jump ends on a short steep ramp instead of a vertical wall', (
   // with jumpScale, and the start ramp is bounded to its own zone at the
   // south edge, so the difference between the two profiles is the jump
   // contribution.
-  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
-  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const withJumps = createOffroadPlaygroundProfile({
+    sizeMeters: 400,
+    jumpScale: 1,
+  })
+  const withoutJumps = createOffroadPlaygroundProfile({
+    sizeMeters: 400,
+    jumpScale: 0,
+  })
   const stepUpHeight = (zMeters) =>
     withJumps.getHeightAtWorldXZ(0, zMeters) - withoutJumps.getHeightAtWorldXZ(0, zMeters)
 
@@ -488,7 +595,9 @@ test('the gap jump is two smooth ramps with a gap instead of a walled slot', () 
   // of the slot, and a 0.6 m step at the sides of the jump. It is now the
   // shape its comment describes: a takeoff lip, a dip back down to the
   // base height, and a landing lip, with every edge a ramp.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const { sizeMeters, featureScale } = selection.generationConfig
   const courseScale = featureScale * (sizeMeters / 400)
   const halfSizeMeters = sizeMeters * 0.5
@@ -504,8 +613,14 @@ test('the gap jump is two smooth ramps with a gap instead of a walled slot', () 
   // jumpScale, and the start ramp is bounded to its own zone at the south
   // edge, so the difference between the two profiles is the jump
   // contribution.
-  const withJumps = createOffroadPlaygroundProfile({ jumpScale: 1 })
-  const withoutJumps = createOffroadPlaygroundProfile({ jumpScale: 0 })
+  const withJumps = createOffroadPlaygroundProfile({
+    sizeMeters: 400,
+    jumpScale: 1,
+  })
+  const withoutJumps = createOffroadPlaygroundProfile({
+    sizeMeters: 400,
+    jumpScale: 0,
+  })
   const gapJumpHeight = (xMeters, zMeters) =>
     withJumps.getHeightAtWorldXZ(xMeters, zMeters) -
     withoutJumps.getHeightAtWorldXZ(xMeters, zMeters)
@@ -638,9 +753,11 @@ test('the rock garden is bounded to a discrete band', () => {
   // out again, so the garden covered the sand, dirt, and grass regions of
   // the course at full strength. The garden is now a bounded band: full
   // strength inside it and nothing outside it.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const band = readRockGardenBand(selection)
-  const contribution = createRockGardenContributionReader()
+  const contribution = createRockGardenContributionReader({ sizeMeters: 400 })
 
   const bandMaximumMeters = readMaximumRockGardenContribution(
     contribution,
@@ -721,9 +838,11 @@ test('the rock garden holds full strength across the band', () => {
   // western and southern parts of the band. The bounded mask holds its
   // full strength across the band and ramps over the feather at the edges
   // only.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const band = readRockGardenBand(selection)
-  const contribution = createRockGardenContributionReader()
+  const contribution = createRockGardenContributionReader({ sizeMeters: 400 })
   const bandMaximumMeters = readMaximumRockGardenContribution(
     contribution,
     band.westEdgeMeters + band.featherMeters,
@@ -793,7 +912,9 @@ test('the rock garden band stays inside a bounded course footprint', () => {
   // surface region and the western half of the course at that band.
   // These rails keep a later change from widening the garden back into a
   // course wide feature.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const band = readRockGardenBand(selection)
   const zExtentMeters = band.northEdgeMeters - band.southEdgeMeters
   const xExtentMeters = band.eastEdgeMeters - band.westEdgeMeters
@@ -870,7 +991,9 @@ test('the 800 m course scales the rock garden heights proportionally', () => {
   // measured maximum over the 861 rock-garden sample points below is
   // 0.190936 m, and the 0.3 m tolerance sits above both that measurement
   // and the analytic bound.
-  const reference = selectTerrain('?terrain=offroad')
+  const reference = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
   const scaled = selectTerrain('?terrain=offroad&terrainSizeMeters=800')
   let maximumDeviationMeters = 0
 
@@ -917,7 +1040,9 @@ test('obstacle dimensions scale with the course extent', () => {
 })
 
 test('a feature scale on the 400 m course keeps the legacy dimension scaling', () => {
-  const selection = selectTerrain('?terrain=offroad&featureScale=1.2')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400&featureScale=1.2'
+  )
   const obstacles = readObstacleGeometrySamples(selection)
 
   assert.equal(obstacles.length, 8)
@@ -928,7 +1053,9 @@ test('a feature scale on the 400 m course keeps the legacy dimension scaling', (
 })
 
 test('unseeded offroad keeps the legacy obstacle layout', () => {
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
 
   assert.deepEqual(
     readObstacleSamples(selection).map((obstacle) => [
@@ -957,7 +1084,9 @@ test('unseeded offroad scales the legacy obstacle layout with the course size', 
 })
 
 test('unseeded offroad places extra obstacles on a deterministic layout', () => {
-  const selection = selectTerrain('?terrain=offroad&obstacleDensity=2')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400&obstacleDensity=2'
+  )
   const obstacles = readObstacleSamples(selection)
 
   assert.equal(obstacles.length, 16)
@@ -1082,7 +1211,9 @@ test('the mud pit keeps the width it declares', () => {
   // its left and the grass band on its right. The first matching region
   // wins, so the pit has to be listed before both bands to keep the
   // symmetric width it declares.
-  const selection = selectTerrain('?terrain=offroad')
+  const selection = selectTerrain(
+    '?terrain=offroad&terrainSizeMeters=400'
+  )
 
   for (const xMeters of [-14, -12, -10, 0, 10, 12, 14]) {
     const surface = selection.surfaceProfile.querySurfaceAtWorldPosition(
@@ -1105,7 +1236,7 @@ test('the mud pit keeps the width it declares', () => {
 test('the whoops section keeps its rhythmic amplitude north of the ramp-up', () => {
   // The analytic off-road profile, sampled at x = 0. The default seed is
   // null, so the course layout is the same one the app renders.
-  const profile = createOffroadPlaygroundProfile({ seed: null })
+  const profile = createOffroadPlaygroundProfile({ seed: null, sizeMeters: 400 })
   const heightAt = (zMeters) => profile.getHeightAtWorldXZ(0, zMeters)
 
   // Known behaviour, not a bug until the maintainer decides: the whoops mask
@@ -1211,6 +1342,40 @@ test('the whoops section keeps its rhythmic amplitude north of the ramp-up', () 
         zMeters +
         ', got ' +
         deltaMeters
+    )
+  }
+})
+
+test('the whoops retain a 3 m wavelength on larger courses', () => {
+  for (const sizeMeters of [400, 1200]) {
+    const courseScale = sizeMeters / 400
+    const whoopsFullStrengthStartZMeters =
+      -sizeMeters * 0.5 + 340 * courseScale
+    const exitRampStartZMeters = sizeMeters * 0.5 - 40 * courseScale
+    const firstPeakZMeters =
+      whoopsFullStrengthStartZMeters +
+      ((0.75 - (whoopsFullStrengthStartZMeters % 3) + 3) % 3)
+    const evaluateHeight = createOffroadPlaygroundHeightEvaluator({
+      sizeMeters,
+      seed: null,
+      roughnessMeters: 0,
+      jumpScale: 0,
+      rockGardenScale: 0,
+    })
+
+    assert.ok(firstPeakZMeters + 3 < exitRampStartZMeters)
+    assert.ok(
+      Math.abs(
+        evaluateHeight(0, firstPeakZMeters + 1.5, 0) -
+          evaluateHeight(0, firstPeakZMeters, 0) +
+          0.3
+      ) < 1e-10
+    )
+    assert.ok(
+      Math.abs(
+        evaluateHeight(0, firstPeakZMeters + 3, 0) -
+          evaluateHeight(0, firstPeakZMeters, 0)
+      ) < 1e-10
     )
   }
 })
@@ -1337,4 +1502,30 @@ function selectTerrain(search, config = {}) {
       delete globalThis.location
     }
   }
+}
+
+function sampleTerrainMeshHeight(terrainMesh, worldXMeters, worldZMeters) {
+  const { sizeMeters, renderSubdivisions } = terrainMesh.userData.terrain
+  const spacingMeters = sizeMeters / renderSubdivisions
+  const xCoordinate = (worldXMeters + sizeMeters / 2) / spacingMeters
+  const zCoordinate = (worldZMeters + sizeMeters / 2) / spacingMeters
+  const cellI = Math.floor(xCoordinate)
+  const cellJ = Math.floor(zCoordinate)
+  const fractionX = xCoordinate - cellI
+  const fractionZ = zCoordinate - cellJ
+  const rowLength = renderSubdivisions + 1
+  const positions = terrainMesh.geometry.getAttribute('position')
+  const heightAt = (i, j) => positions.getY(j * rowLength + i)
+  const heightA = heightAt(cellI, cellJ)
+  const heightB = heightAt(cellI, cellJ + 1)
+  const heightC = heightAt(cellI + 1, cellJ + 1)
+  const heightD = heightAt(cellI + 1, cellJ)
+
+  if (fractionX + fractionZ <= 1) {
+    return heightA * (1 - fractionX - fractionZ) +
+      heightB * fractionZ + heightD * fractionX
+  }
+  return heightB * (1 - fractionX) +
+    heightC * (fractionX + fractionZ - 1) +
+    heightD * (1 - fractionZ)
 }

@@ -60,6 +60,7 @@ export function createTerrainDeformation(config = {}) {
   const cells = new Map()
   let dirty = false
   let activeBounds = null
+  let changedBounds = null
 
   function cellKey(col, row) {
     return row * columns + col
@@ -116,6 +117,10 @@ export function createTerrainDeformation(config = {}) {
 
       const contact = wheelState.contactPointWorldPosition
       if (!hasFiniteXZ(contact)) continue
+      if (
+        contact.x < minXMeters || contact.x > maxXMeters ||
+        contact.z < minZMeters || contact.z > maxZMeters
+      ) continue
 
       const loadNewtons = sanitizeNonNegativeNumber(wheelState.suspensionNormalForceNewtons)
       const loadFactor01 = clamp01(loadNewtons / referenceLoadNewtons)
@@ -131,9 +136,10 @@ export function createTerrainDeformation(config = {}) {
       targetDepthMeters = clamp(targetDepthMeters, 0, maxDepthMeters)
       if (targetDepthMeters <= DEPTH_EPSILON_METERS) continue
 
-      const col = columnOf(contact.x)
-      const row = rowOf(contact.z)
+      const col = Math.min(columns - 1, columnOf(contact.x))
+      const row = Math.min(rows - 1, rowOf(contact.z))
       const cell = ensureCell(col, row)
+      if (!cell) continue
       if (targetDepthMeters > cell.targetDepthMeters) {
         cell.targetDepthMeters = targetDepthMeters
       }
@@ -142,6 +148,7 @@ export function createTerrainDeformation(config = {}) {
   }
 
   function ensureCell(col, row) {
+    if (col < 0 || row < 0 || col >= columns || row >= rows) return null
     const key = cellKey(col, row)
     let cell = cells.get(key)
     if (!cell) {
@@ -178,17 +185,18 @@ export function createTerrainDeformation(config = {}) {
 
       const previousDepth = cell.depthMeters
       cell.depthMeters += (cell.targetDepthMeters - cell.depthMeters) * settleFactor
+      const col = key % columns
+      const row = Math.floor(key / columns)
 
       if (cell.depthMeters < DEPTH_EPSILON_METERS && cell.targetDepthMeters < DEPTH_EPSILON_METERS) {
+        if (previousDepth > 0) markChangedCell(col, row)
         cells.delete(key)
         continue
       }
-      if (Math.abs(cell.depthMeters - previousDepth) > DEPTH_EPSILON_METERS) {
+      if (cell.depthMeters !== previousDepth) {
         changedThisStep = true
+        markChangedCell(col, row)
       }
-
-      const col = key % columns
-      const row = Math.floor(key / columns)
       if (col < minCol) minCol = col
       if (col > maxCol) maxCol = col
       if (row < minRow) minRow = row
@@ -222,6 +230,7 @@ export function createTerrainDeformation(config = {}) {
   }
 
   function reset() {
+    if (activeBounds) mergeChangedBounds(activeBounds)
     cells.clear()
     dirty = false
     activeBounds = null
@@ -229,6 +238,48 @@ export function createTerrainDeformation(config = {}) {
 
   function getActiveBounds() {
     return activeBounds
+  }
+
+  function consumeChangedBounds() {
+    const bounds = changedBounds
+    changedBounds = null
+    return bounds
+  }
+
+  function markChangedCell(col, row) {
+    const cellMinXMeters = minXMeters + col * cellSizeMeters
+    const cellMinZMeters = minZMeters + row * cellSizeMeters
+    mergeChangedBoundsValues(
+      cellMinXMeters,
+      cellMinXMeters + cellSizeMeters,
+      cellMinZMeters,
+      cellMinZMeters + cellSizeMeters
+    )
+  }
+
+  function mergeChangedBounds(bounds) {
+    mergeChangedBoundsValues(
+      bounds.minXMeters,
+      bounds.maxXMeters,
+      bounds.minZMeters,
+      bounds.maxZMeters
+    )
+  }
+
+  function mergeChangedBoundsValues(minXMeters, maxXMeters, minZMeters, maxZMeters) {
+    if (!changedBounds) {
+      changedBounds = {
+        minXMeters,
+        maxXMeters,
+        minZMeters,
+        maxZMeters,
+      }
+      return
+    }
+    changedBounds.minXMeters = Math.min(changedBounds.minXMeters, minXMeters)
+    changedBounds.maxXMeters = Math.max(changedBounds.maxXMeters, maxXMeters)
+    changedBounds.minZMeters = Math.min(changedBounds.minZMeters, minZMeters)
+    changedBounds.maxZMeters = Math.max(changedBounds.maxZMeters, maxZMeters)
   }
 
   function getSnapshot() {
@@ -260,6 +311,7 @@ export function createTerrainDeformation(config = {}) {
     update,
     reset,
     getActiveBounds,
+    consumeChangedBounds,
     getSnapshot,
   }
 }

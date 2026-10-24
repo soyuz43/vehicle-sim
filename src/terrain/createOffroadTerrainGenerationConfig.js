@@ -6,7 +6,7 @@ export const MAX_OFFROAD_ROUGHNESS_METERS = 2
 
 export const DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG = Object.freeze({
   seed: null,
-  sizeMeters: 400,
+  sizeMeters: 1200,
   featureScale: 1,
   roughnessMeters: 0.05,
   waterEnabled: false,
@@ -52,7 +52,11 @@ export function createOffroadTerrainGenerationConfig(config = {}) {
 
 function normalizeBounds(boundsMeters, sizeMeters) {
   if (boundsMeters === undefined) {
-    const resolvedSizeMeters = normalizePositiveValue(sizeMeters, 400, 'sizeMeters')
+    const resolvedSizeMeters = normalizePositiveValue(
+      sizeMeters,
+      DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG.sizeMeters,
+      'sizeMeters'
+    )
     return createSquareBounds(resolvedSizeMeters)
   }
 

@@ -2,6 +2,7 @@
 
 import {
   createOffroadTerrainGenerationConfig,
+  DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG,
   MAX_OFFROAD_ROUGHNESS_METERS,
 } from './createOffroadTerrainGenerationConfig.js'
 import { createTerrainSurfaceProfile } from './createTerrainSurfaceProfile.js'
@@ -31,10 +32,16 @@ export function createTerrainSelection(config = {}) {
   let waterSurface = null
   let weatherState = null
   let generationConfig = null
-  const deformationField = config.deformationField ?? null
-
-  if (name === 'offroad' || name === 'offroad-water') {
+  let deformationField = config.deformationField ?? null
+  const isOffroadTerrain = name === 'offroad' || name === 'offroad-water'
+  if (isOffroadTerrain) {
     generationConfig = resolveGenerationConfig(name, config)
+  }
+  if (!deformationField && typeof config.createDeformationField === 'function') {
+    deformationField = config.createDeformationField(generationConfig)
+  }
+
+  if (isOffroadTerrain) {
     enhancedProfile = createOffroadPlaygroundProfile({
       ...config.offroadProfileConfig,
       ...generationConfig,
@@ -97,7 +104,8 @@ function resolveGenerationConfig(name, config) {
   const sizeMeters = configuredSizeMeters ?? (
     boundsMeters
       ? undefined
-      : readNumberParam('terrainSizeMeters', (value) => value > 0) ?? 400
+      : readNumberParam('terrainSizeMeters', (value) => value > 0) ??
+        DEFAULT_OFFROAD_TERRAIN_GENERATION_CONFIG.sizeMeters
   )
   const seed = Object.prototype.hasOwnProperty.call(generationOverrides, 'seed')
     ? generationOverrides.seed

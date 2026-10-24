@@ -235,6 +235,8 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
   const { sizeMeters, featureScale, roughnessMeters, seed } = generationConfig
   const halfSize = sizeMeters * 0.5
   const courseScale = featureScale * (sizeMeters / 400)
+  const whoopsWavelengthMeters = 3.0 * featureScale
+  const whoopsAmplitudeMeters = 0.15 * featureScale
   const jumpScale = config.jumpScale ?? 1.0
   const rockGardenScale = config.rockGardenScale ?? 1.0
   const noiseScale = config.noiseScale ?? 0.02 / featureScale
@@ -390,8 +392,8 @@ export function createOffroadPlaygroundHeightEvaluator(config = {}) {
       whoopsZone *
       whoopsPattern(
         worldZMeters - courseOffsets.zMeters,
-        3.0 * courseScale,
-        0.15 * courseScale
+        whoopsWavelengthMeters,
+        whoopsAmplitudeMeters
       )
 
     const exitRampZone = smoothStep(
@@ -685,4 +687,3 @@ function whoopsPattern(worldZ, wavelength, amplitude) {
   // Rhythmic whoops (repeating bumps)
   return amplitude * Math.sin((worldZ * Math.PI * 2) / wavelength)
 }
-

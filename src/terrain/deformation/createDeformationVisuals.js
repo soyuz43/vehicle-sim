@@ -30,34 +30,47 @@ export function createDeformationVisuals(config = {}) {
   const sizeMeters = sanitizeNumber(terrainMesh.userData?.terrain?.sizeMeters, 320)
   const subdivisions = Math.max(1, Math.round(Math.sqrt(vertexCount)) - 1)
   const spacingMeters = sizeMeters / subdivisions
+  const normalAttribute = geometry.getAttribute('normal')
+  const indexAttribute = geometry.index
 
   // Capture the undeformed heights once; X and Z of a heightfield mesh are fixed.
   const baseHeightMeters = new Float64Array(vertexCount)
+  let hasRenderedDeformation = false
   for (let i = 0; i < vertexCount; i += 1) {
     baseHeightMeters[i] = positionAttribute.getY(i)
   }
 
-  let dirtyRestored = false
-
   function update() {
-    const bounds = deformationField.getActiveBounds()
-
+    const hasChangedBounds = typeof deformationField.consumeChangedBounds === 'function'
+    const bounds = hasChangedBounds
+      ? deformationField.consumeChangedBounds()
+      : deformationField.getActiveBounds()
     if (!bounds) {
-      if (dirtyRestored) {
-        restoreAll()
-        dirtyRestored = false
-        geometry.computeVertexNormals()
-        positionAttribute.needsUpdate = true
+      if (!hasChangedBounds && hasRenderedDeformation) {
+        reset()
+        hasRenderedDeformation = false
       }
       return
     }
 
-    dirtyRestored = true
-
-    const iMin = clampIndex(Math.round((bounds.minXMeters + sizeMeters / 2) / spacingMeters), subdivisions)
-    const iMax = clampIndex(Math.round((bounds.maxXMeters + sizeMeters / 2) / spacingMeters), subdivisions)
-    const jMin = clampIndex(Math.round((bounds.minZMeters + sizeMeters / 2) / spacingMeters), subdivisions)
-    const jMax = clampIndex(Math.round((bounds.maxZMeters + sizeMeters / 2) / spacingMeters), subdivisions)
+    const influenceMarginMeters = deformationField.cellSizeMeters ?? spacingMeters
+    const iMin = clampIndex(
+      Math.floor((bounds.minXMeters - influenceMarginMeters + sizeMeters / 2) / spacingMeters),
+      subdivisions
+    )
+    const iMax = clampIndex(
+      Math.ceil((bounds.maxXMeters + sizeMeters / 2) / spacingMeters),
+      subdivisions
+    )
+    const jMin = clampIndex(
+      Math.floor((bounds.minZMeters - influenceMarginMeters + sizeMeters / 2) / spacingMeters),
+      subdivisions
+    )
+    const jMax = clampIndex(
+      Math.ceil((bounds.maxZMeters + sizeMeters / 2) / spacingMeters),
+      subdivisions
+    )
+    if (iMin > iMax || jMin > jMax) return
 
     for (let j = jMin; j <= jMax; j += 1) {
       for (let i = iMin; i <= iMax; i += 1) {
@@ -70,8 +83,45 @@ export function createDeformationVisuals(config = {}) {
       }
     }
 
-    geometry.computeVertexNormals()
+    positionAttribute.clearUpdateRanges()
+    for (let j = jMin; j <= jMax; j += 1) {
+      const firstVertex = j * (subdivisions + 1) + iMin
+      positionAttribute.addUpdateRange(
+        firstVertex * positionAttribute.itemSize,
+        (iMax - iMin + 1) * positionAttribute.itemSize
+      )
+    }
     positionAttribute.needsUpdate = true
+
+    if (indexAttribute && vertexCount === (subdivisions + 1) ** 2) {
+      const normalMinI = Math.max(0, iMin - 1)
+      const normalMaxI = Math.min(subdivisions, iMax + 1)
+      const normalMinJ = Math.max(0, jMin - 1)
+      const normalMaxJ = Math.min(subdivisions, jMax + 1)
+      recomputeGridNormals(
+        positionAttribute,
+        normalAttribute,
+        indexAttribute,
+        subdivisions,
+        normalMinI,
+        normalMaxI,
+        normalMinJ,
+        normalMaxJ
+      )
+      normalAttribute.clearUpdateRanges()
+      for (let j = normalMinJ; j <= normalMaxJ; j += 1) {
+        const firstVertex = j * (subdivisions + 1) + normalMinI
+        normalAttribute.addUpdateRange(
+          firstVertex * normalAttribute.itemSize,
+          (normalMaxI - normalMinI + 1) * normalAttribute.itemSize
+        )
+      }
+      normalAttribute.needsUpdate = true
+    } else {
+      geometry.computeVertexNormals()
+      geometry.getAttribute('normal').needsUpdate = true
+    }
+    hasRenderedDeformation = true
   }
 
   function restoreAll() {
@@ -82,15 +132,76 @@ export function createDeformationVisuals(config = {}) {
 
   function reset() {
     restoreAll()
-    dirtyRestored = false
     geometry.computeVertexNormals()
+    positionAttribute.clearUpdateRanges()
+    positionAttribute.addUpdateRange(0, positionAttribute.array.length)
     positionAttribute.needsUpdate = true
+    normalAttribute.clearUpdateRanges()
+    normalAttribute.addUpdateRange(0, normalAttribute.array.length)
+    normalAttribute.needsUpdate = true
   }
 
   return {
     kind: 'deformation-visuals-v1',
     update,
     reset,
+  }
+}
+
+function recomputeGridNormals(
+  positionAttribute,
+  normalAttribute,
+  indexAttribute,
+  subdivisions,
+  minI,
+  maxI,
+  minJ,
+  maxJ
+) {
+  const rowLength = subdivisions + 1
+  for (let j = minJ; j <= maxJ; j += 1) {
+    for (let i = minI; i <= maxI; i += 1) {
+      const targetVertex = j * rowLength + i
+      let normalX = 0
+      let normalY = 0
+      let normalZ = 0
+      const cellMinI = Math.max(0, i - 1)
+      const cellMaxI = Math.min(subdivisions - 1, i)
+      const cellMinJ = Math.max(0, j - 1)
+      const cellMaxJ = Math.min(subdivisions - 1, j)
+
+      for (let cellJ = cellMinJ; cellJ <= cellMaxJ; cellJ += 1) {
+        for (let cellI = cellMinI; cellI <= cellMaxI; cellI += 1) {
+          const firstIndex = (cellJ * subdivisions + cellI) * 6
+          for (let triangleOffset = 0; triangleOffset < 6; triangleOffset += 3) {
+            const vertexA = indexAttribute.getX(firstIndex + triangleOffset)
+            const vertexB = indexAttribute.getX(firstIndex + triangleOffset + 1)
+            const vertexC = indexAttribute.getX(firstIndex + triangleOffset + 2)
+            if (vertexA !== targetVertex && vertexB !== targetVertex && vertexC !== targetVertex) {
+              continue
+            }
+
+            const cbXMeters = positionAttribute.getX(vertexC) - positionAttribute.getX(vertexB)
+            const cbYMeters = positionAttribute.getY(vertexC) - positionAttribute.getY(vertexB)
+            const cbZMeters = positionAttribute.getZ(vertexC) - positionAttribute.getZ(vertexB)
+            const abXMeters = positionAttribute.getX(vertexA) - positionAttribute.getX(vertexB)
+            const abYMeters = positionAttribute.getY(vertexA) - positionAttribute.getY(vertexB)
+            const abZMeters = positionAttribute.getZ(vertexA) - positionAttribute.getZ(vertexB)
+            normalX += cbYMeters * abZMeters - cbZMeters * abYMeters
+            normalY += cbZMeters * abXMeters - cbXMeters * abZMeters
+            normalZ += cbXMeters * abYMeters - cbYMeters * abXMeters
+          }
+        }
+      }
+
+      const normalLength = Math.hypot(normalX, normalY, normalZ)
+      if (normalLength > 0) {
+        normalX /= normalLength
+        normalY /= normalLength
+        normalZ /= normalLength
+      }
+      normalAttribute.setXYZ(targetVertex, normalX, normalY, normalZ)
+    }
   }
 }
 
