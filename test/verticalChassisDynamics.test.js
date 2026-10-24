@@ -71,6 +71,43 @@ test('equilibrium: grounded wheels at rest keep their base normal force', () => 
   }
 })
 
+test('extreme chassis pitch and roll clamp at the hard attitude limits', () => {
+  const wheelStates = makeSymmetricWheelStates()
+  const spec = makeSpec()
+  const state = createVerticalChassisDynamicsState(spec)
+  const attitudeLimitRadians = (80 * Math.PI) / 180
+
+  state.pitchRadians = attitudeLimitRadians - 0.01
+  state.pitchRateRadiansPerSecond = 100
+  state.rollRadians = -attitudeLimitRadians + 0.01
+  state.rollRateRadiansPerSecond = -100
+  updateVerticalChassisDynamics(state, wheelStates, spec, DT_SECONDS)
+
+  assert.equal(state.pitchRadians, attitudeLimitRadians)
+  assert.equal(state.rollRadians, -attitudeLimitRadians)
+  assert.equal(state.pitchRateRadiansPerSecond, 0)
+  assert.equal(state.rollRateRadiansPerSecond, 0)
+  assert.equal(state.isFinite, true)
+})
+
+test('non-finite chassis attitude inputs recover to finite neutral angles', () => {
+  const wheelStates = makeSymmetricWheelStates()
+  const spec = makeSpec()
+  const state = createVerticalChassisDynamicsState(spec)
+
+  state.pitchRadians = Number.POSITIVE_INFINITY
+  state.pitchRateRadiansPerSecond = Number.NaN
+  state.rollRadians = Number.NEGATIVE_INFINITY
+  state.rollRateRadiansPerSecond = Number.POSITIVE_INFINITY
+  updateVerticalChassisDynamics(state, wheelStates, spec, 0)
+
+  assert.equal(state.pitchRadians, 0)
+  assert.equal(state.rollRadians, 0)
+  assert.equal(state.pitchRateRadiansPerSecond, 0)
+  assert.equal(state.rollRateRadiansPerSecond, 0)
+  assert.equal(state.isFinite, true)
+})
+
 test('pitch (nose up) transfers load rearward and conserves total', () => {
   const wheelStates = makeSymmetricWheelStates()
   const state = createVerticalChassisDynamicsState(makeSpec())

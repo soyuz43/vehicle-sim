@@ -56,6 +56,7 @@ import {
 } from './rollCenterGeometry.js'
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
+const MAX_CHASSIS_ATTITUDE_RADIANS = (80 * Math.PI) / 180
 
 // Contact resolution noise floor for the terrain heave forcing. The heightfield
 // contact query resolves the suspension ray with a finite tolerance
@@ -77,6 +78,32 @@ function sanitizeNumber(value, fallback = 0) {
 
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum)
+}
+
+function resolveBoundedAttitude(angleRadians, rateRadiansPerSecond) {
+  const boundedAngleRadians = clamp(
+    sanitizeNumber(angleRadians),
+    -MAX_CHASSIS_ATTITUDE_RADIANS,
+    MAX_CHASSIS_ATTITUDE_RADIANS
+  )
+  let boundedRateRadiansPerSecond = sanitizeNumber(rateRadiansPerSecond)
+
+  if (
+    boundedAngleRadians >= MAX_CHASSIS_ATTITUDE_RADIANS &&
+    boundedRateRadiansPerSecond > 0
+  ) {
+    boundedRateRadiansPerSecond = 0
+  } else if (
+    boundedAngleRadians <= -MAX_CHASSIS_ATTITUDE_RADIANS &&
+    boundedRateRadiansPerSecond < 0
+  ) {
+    boundedRateRadiansPerSecond = 0
+  }
+
+  return {
+    angleRadians: boundedAngleRadians,
+    rateRadiansPerSecond: boundedRateRadiansPerSecond,
+  }
 }
 
 // Soft-threshold the compression deviation so contact resolution noise does
@@ -745,11 +772,23 @@ export function updateVerticalChassisDynamics(
   }
 
   const heave = state.heaveMeters
-  const pitch = state.pitchRadians
-  const roll = state.rollRadians
+  const boundedPitch = resolveBoundedAttitude(
+    state.pitchRadians,
+    state.pitchRateRadiansPerSecond
+  )
+  const boundedRoll = resolveBoundedAttitude(
+    state.rollRadians,
+    state.rollRateRadiansPerSecond
+  )
+  state.pitchRadians = boundedPitch.angleRadians
+  state.pitchRateRadiansPerSecond = boundedPitch.rateRadiansPerSecond
+  state.rollRadians = boundedRoll.angleRadians
+  state.rollRateRadiansPerSecond = boundedRoll.rateRadiansPerSecond
+  const pitch = boundedPitch.angleRadians
+  const roll = boundedRoll.angleRadians
   const heaveRate = state.heaveVelocityMetersPerSecond
-  const pitchRate = state.pitchRateRadiansPerSecond
-  const rollRate = state.rollRateRadiansPerSecond
+  const pitchRate = boundedPitch.rateRadiansPerSecond
+  const rollRate = boundedRoll.rateRadiansPerSecond
 
   // Net deviation force/moment on the body (spring + damper). Gravity is
   // already balanced by the static base support, so it does not appear here.
@@ -798,8 +837,8 @@ export function updateVerticalChassisDynamics(
   if (dt > 0) {
     // Semi-implicit (symplectic) Euler: advance velocities, then positions.
     const nextHeaveRate = heaveRate + heaveAccel * dt
-    const nextPitchRate = pitchRate + pitchAccel * dt
-    const nextRollRate = rollRate + rollAccel * dt
+    const nextPitchRate = sanitizeNumber(pitchRate + pitchAccel * dt)
+    const nextRollRate = sanitizeNumber(rollRate + rollAccel * dt)
     // Without ground support the suspension cannot act on the body: the
     // stiffness and damping sums are empty, so the heave row has no restoring
     // force and no damping and would drift with a stale velocity. This model
@@ -820,8 +859,18 @@ export function updateVerticalChassisDynamics(
       geometry.maximumHeaveCompressionMeters
     )
     state.heaveMeters = clampedHeaveMeters
-    state.pitchRadians = pitch + nextPitchRate * dt
-    state.rollRadians = roll + nextRollRate * dt
+    const boundedNextPitch = resolveBoundedAttitude(
+      pitch + nextPitchRate * dt,
+      nextPitchRate
+    )
+    const boundedNextRoll = resolveBoundedAttitude(
+      roll + nextRollRate * dt,
+      nextRollRate
+    )
+    state.pitchRadians = boundedNextPitch.angleRadians
+    state.pitchRateRadiansPerSecond = boundedNextPitch.rateRadiansPerSecond
+    state.rollRadians = boundedNextRoll.angleRadians
+    state.rollRateRadiansPerSecond = boundedNextRoll.rateRadiansPerSecond
     if (clampedHeaveMeters !== unconstrainedHeaveMeters) {
       // The body hit a suspension travel bound. Remove only the velocity
       // component that would push it further past the bound, so the body does

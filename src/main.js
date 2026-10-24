@@ -37,6 +37,15 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.4))
 const sun = new THREE.DirectionalLight(0xffffff, 1)
 sun.position.set(20, 40, 20)
 sun.castShadow = true
+sun.shadow.mapSize.set(2048, 2048)
+sun.shadow.camera.left = -260
+sun.shadow.camera.right = 260
+sun.shadow.camera.top = 260
+sun.shadow.camera.bottom = -260
+sun.shadow.camera.near = 0.1
+sun.shadow.camera.far = 500
+sun.shadow.camera.updateProjectionMatrix()
+sun.shadow.bias = -0.0002
 scene.add(sun)
 initTheme()
 initResponsive()

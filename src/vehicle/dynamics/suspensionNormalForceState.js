@@ -1,6 +1,7 @@
 // src/vehicle/dynamics/suspensionNormalForceState.js
 
 import { EARTH_GRAVITY } from '../../simulation/simulationConstants.js'
+import { resolveSuspensionTravelLimits } from './suspensionTravelLimits.js'
 
 const DEFAULT_SUSPENSION_SPEC = Object.freeze({
   suspensionEnabled: true,
@@ -58,6 +59,8 @@ export function resetWheelSuspensionNormalForceState(wheelState) {
   wheelState.suspensionMinimumLengthMeters = 0
   wheelState.suspensionMaximumLengthMeters = 0
   wheelState.suspensionTravelMeters = 0
+  wheelState.suspensionMaximumCompressionMeters = 0
+  wheelState.suspensionMaximumDroopMeters = 0
   wheelState.suspensionCurrentLengthMeters = 0
   wheelState.previousSuspensionLengthMeters = 0
   wheelState.suspensionCompressionMeters = 0
@@ -361,6 +364,10 @@ function applySuspensionConfigToWheelState(wheelState, suspensionConfig) {
   wheelState.suspensionMaximumLengthMeters =
     suspensionConfig.maximumLengthMeters
   wheelState.suspensionTravelMeters = suspensionConfig.travelMeters
+  wheelState.suspensionMaximumCompressionMeters =
+    suspensionConfig.maximumCompressionMeters
+  wheelState.suspensionMaximumDroopMeters =
+    suspensionConfig.maximumDroopMeters
   wheelState.suspensionSpringRateNewtonsPerMeter =
     suspensionConfig.springRateNewtonsPerMeter
   wheelState.suspensionCompressionDampingNewtonsPerMeterPerSecond =
@@ -376,35 +383,13 @@ function resolveAxleSuspensionConfig(
   wheelCount
 ) {
   const safeWheelCount = Math.max(1, sanitizeInteger(wheelCount, 1))
-  const requestedRestLengthMeters = sanitizePositiveNumber(
-    sourceSpec.suspensionRestLengthMeters,
-    DEFAULT_SUSPENSION_SPEC.suspensionRestLengthMeters
-  )
-  const requestedTravelMeters = sanitizePositiveNumber(
-    sourceSpec.suspensionTravelMeters,
-    DEFAULT_SUSPENSION_SPEC.suspensionTravelMeters
-  )
-  const maximumLengthMeters = sanitizePositiveNumber(
-    sourceSpec.suspensionMaximumLengthMeters,
-    requestedRestLengthMeters
-  )
-  const minimumLengthMeters = clamp(
-    sanitizePositiveNumber(
-      sourceSpec.suspensionMinimumLengthMeters,
-      maximumLengthMeters - requestedTravelMeters
-    ),
-    SUSPENSION_LENGTH_EPSILON_METERS,
-    maximumLengthMeters - SUSPENSION_LENGTH_EPSILON_METERS
-  )
-  const travelMeters = Math.max(
-    maximumLengthMeters - minimumLengthMeters,
-    SUSPENSION_LENGTH_EPSILON_METERS
-  )
-  const restLengthMeters = clamp(
-    requestedRestLengthMeters,
+  const travelLimits = resolveSuspensionTravelLimits(sourceSpec)
+  const {
+    restLengthMeters,
     minimumLengthMeters,
-    maximumLengthMeters
-  )
+    maximumLengthMeters,
+    travelMeters,
+  } = travelLimits
   const targetStaticCompressionRatio01 = clamp(
     sanitizePositiveNumber(
       sourceSpec.suspensionTargetStaticCompressionRatio01,
@@ -477,6 +462,8 @@ function resolveAxleSuspensionConfig(
     reboundDampingNewtonsPerMeterPerSecond,
     minimumNormalForceNewtons,
     maximumNormalForceNewtons,
+    maximumCompressionMeters: travelLimits.maximumCompressionMeters,
+    maximumDroopMeters: travelLimits.maximumDroopMeters,
     vehicleWeightReferenceNewtons,
   }
 }

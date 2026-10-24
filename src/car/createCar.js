@@ -125,7 +125,6 @@ export function createCar(spec = {}) {
   const chassisVisualRoot = createChassisAttitudeVisualRoot(visualGeometry)
 
   applyTwistShader(materials.body)
-  applyTwistShader(materials.nose)
 
   let bodyVisualGeometry = visualGeometry
   let bodyVisuals = createBodyVisuals(materials, visualGeometry)
@@ -466,7 +465,6 @@ export function createCar(spec = {}) {
 function createBodyVisuals(materials, visualGeometry) {
   return {
     body: createBody(materials.body, visualGeometry),
-    nose: createNose(materials.nose, visualGeometry),
     greenhouse: createGreenhouse(materials.glass, visualGeometry),
     brakeLights: createBrakeLights(materials.brakeLight, visualGeometry),
   }
@@ -490,7 +488,6 @@ function disposeBodyVisuals(chassisVisualRoot, bodyVisuals) {
 function getBodyVisualNodes(bodyVisuals) {
   return [
     bodyVisuals.body,
-    bodyVisuals.nose,
     bodyVisuals.greenhouse,
     ...bodyVisuals.brakeLights,
   ]
@@ -604,11 +601,6 @@ function createMaterials() {
       metalness: 0.55,
       roughness: 0.35,
     }),
-    nose: new THREE.MeshStandardMaterial({
-      color: 0xff3333,
-      metalness: 0.55,
-      roughness: 0.35,
-    }),
     glass: new THREE.MeshStandardMaterial({
       color: 0x101820,
       metalness: 0.25,
@@ -680,27 +672,6 @@ function createBody(material, visualGeometry) {
   body.position.set(0, visualGeometry.bodyY, 0)
 
   return body
-}
-
-function createNose(material, visualGeometry) {
-  const noseLengthMeters = visualGeometry.wheelbaseMeters * 0.35
-  const geometry = new THREE.ConeGeometry(
-    visualGeometry.bodyWidthMeters * 0.5,
-    noseLengthMeters,
-    3
-  )
-  const nose = new THREE.Mesh(geometry, material)
-
-  nose.name = 'front-direction-nose'
-  nose.castShadow = true
-  nose.rotation.x = Math.PI / 2
-  nose.position.set(
-    0,
-    visualGeometry.bodyY,
-    visualGeometry.bodyLengthMeters / 2 + noseLengthMeters / 2
-  )
-
-  return nose
 }
 
 function createGreenhouse(material, visualGeometry) {
