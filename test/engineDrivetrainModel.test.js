@@ -62,6 +62,33 @@ test('clutch transmitted torque never exceeds capacity when slipping', () => {
   assert.ok(Math.abs(result.torqueNewtonMeters) <= capacity)
 })
 
+test('a near-locked clutch slips rather than exceeding its torque capacity', () => {
+  const capacity = 400
+  const result = computeClutchTorque({
+    engineOmegaRadiansPerSecond: 100,
+    transmissionInputOmegaRadiansPerSecond: 100.5,
+    clutchTorqueCapacityNewtonMeters: capacity,
+    desiredTorqueNewtonMeters: 650,
+  })
+
+  assert.equal(result.isLocked, false)
+  assert.ok(Math.abs(result.torqueNewtonMeters) <= capacity)
+})
+
+test('clutch calculations can reuse caller-provided result storage', () => {
+  const resultStorage = { torqueNewtonMeters: 0, isLocked: false }
+  const result = computeClutchTorque({
+    engineOmegaRadiansPerSecond: 500,
+    transmissionInputOmegaRadiansPerSecond: 0,
+    clutchTorqueCapacityNewtonMeters: 400,
+    desiredTorqueNewtonMeters: 300,
+    result: resultStorage,
+  })
+
+  assert.equal(result, resultStorage)
+  assert.equal(result.torqueNewtonMeters, 300)
+})
+
 test('clutch is locked when engine and transmission omega are near-equal', () => {
   const result = computeClutchTorque({
     engineOmegaRadiansPerSecond: 100,
@@ -136,6 +163,20 @@ test('no energy creation across a launch: engine KE decrease matches clutch diss
   // significant numerical dissipation error. We verify the correct physical
   // direction (KE decreases, positive dissipation) without requiring
   // tight numerical conservation at this timestep.
+})
+
+test('engine idle floor uses net torque after pumping drag', () => {
+  const idleRpm = 800
+  const idleOmegaRadiansPerSecond = idleRpm * (Math.PI * 2) / 60
+  const engineOmegaRadiansPerSecond = updateEngineAngularVelocity({
+    engineOmegaRadiansPerSecond: idleOmegaRadiansPerSecond,
+    netEngineTorqueNewtonMeters: -5,
+    engineInertiaKgMeterSquared: 0.2,
+    dtSeconds: 1 / 60,
+    idleRpm,
+  })
+
+  assert.ok(engineOmegaRadiansPerSecond >= idleOmegaRadiansPerSecond - 1e-12)
 })
 
 test('pumping torque scales with omega', () => {

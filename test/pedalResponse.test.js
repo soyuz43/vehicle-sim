@@ -2,6 +2,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 
 import { createCar } from '../src/car/createCar.js'
 import { createVehicleController } from '../src/vehicle/createVehicleController.js'
@@ -94,38 +95,68 @@ test('zero response time produces binary throttle (byte-identical fallback)', ()
   assert.equal(snapshot.throttleInput, 1)
 })
 
-test('zero response time keeps the stock 5400-step trace byte-identical to binary throttle', () => {
-  // The baseline controller (default spec, no ramping input) must match
-  // a controller with throttleResponseTimeSeconds = 0 when both are fed
-  // the same input sequence. Since the default is 0.3s, we compare a
-  // zero-ramp controller against a binary-input controller by using the
-  // zero-ramp one for both sides.
+test('zero response time preserves the frozen gate-off physics trace', () => {
   const controller = createController({
     spec: {
+      engineDrivetrainModelEnabled: false,
       throttleResponseTimeSeconds: 0,
       throttleReleaseTimeSeconds: 0,
     },
   })
+  const lines = []
 
-  let snapshot = controller.getSnapshot()
-  const signatures = []
   for (let step = 0; step < 5400; step += 1) {
-    snapshot = controller.update(DT_SECONDS, step % 20 < 10 ? { throttle: true } : {})
-    signatures.push(JSON.stringify([
-      snapshot.speedMetersPerSecond,
-      snapshot.throttleInput,
-      snapshot.engineAngularVelocityRadiansPerSecond,
-    ]))
-  }
-  // With zero response time, throttle jumps 0->1 and 1->0 instantly.
-  // Verify the throttle is always exactly 0 or 1 at every step.
-  for (const signature of signatures) {
-    const parsed = JSON.parse(signature)
-    assert.ok(
-      parsed[1] === 0 || parsed[1] === 1,
-      `throttle must be binary with zero response time, got ${parsed[1]}`
+    const snapshot = controller.update(
+      DT_SECONDS,
+      step % 20 < 10 ? { throttle: true } : {}
     )
+    const velocity = snapshot.worldVelocityMetersPerSecond
+    const powertrainKinematics = snapshot.powertrainKinematics
+    assert.ok(
+      snapshot.throttleInput === 0 || snapshot.throttleInput === 1,
+      'zero response time must keep throttle binary'
+    )
+    const wheelFields = []
+
+    for (const wheelState of snapshot.wheelStates) {
+      wheelFields.push(
+        wheelState.id,
+        wheelState.angularVelocityRadiansPerSecond.toFixed(9),
+        wheelState.requestedDriveTorqueNewtonMeters.toFixed(9),
+        wheelState.driveTorqueNewtonMeters.toFixed(9),
+        wheelState.appliedLongitudinalForceNewtons.toFixed(9),
+        wheelState.appliedLateralTireForceNewtons.toFixed(9),
+        wheelState.contactReactionTorqueNewtonMeters.toFixed(9),
+        wheelState.netTorqueNewtonMeters.toFixed(9),
+      )
+    }
+
+    lines.push([
+      step,
+      snapshot.position.x.toFixed(9),
+      snapshot.position.y.toFixed(9),
+      snapshot.position.z.toFixed(9),
+      velocity.x.toFixed(9),
+      velocity.y.toFixed(9),
+      velocity.z.toFixed(9),
+      snapshot.throttleInput.toFixed(9),
+      snapshot.selectedForwardGearIndex,
+      snapshot.engineAngularVelocityRadiansPerSecond.toFixed(9),
+      snapshot.clutchSlipRadiansPerSecond.toFixed(9),
+      snapshot.totalAxleDriveTorqueNewtonMeters.toFixed(9),
+      snapshot.engineBrakingTorquePerWheelNewtonMeters.toFixed(9),
+      powertrainKinematics.effectiveDriveRatio.toFixed(9),
+      powertrainKinematics.estimatedEngineRpm.toFixed(9),
+      ...wheelFields,
+    ].join('|'))
   }
+
+  const digest = createHash('sha256').update(lines.join('\n')).digest('hex')
+  assert.equal(
+    digest,
+    '384c6ed600e3c6a11544831c2b264f4e17b09eeffced363bd0d573b43687ba89',
+    'zero-response, gate-off physics must match the frozen baseline trace'
+  )
 })
 
 test('pedal ramp reduces peak clutch slip during launch with engine drivetrain model', () => {

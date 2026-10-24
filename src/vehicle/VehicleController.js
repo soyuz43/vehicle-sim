@@ -227,6 +227,11 @@ const GEAR_DIRECTIONS = Object.freeze({
     [GEARS.DRIVE]: 1,
 })
 
+const REAR_DIFFERENTIAL_EQUAL_SHARES = Object.freeze({
+    leftShare01: 0.5,
+    rightShare01: 0.5,
+})
+
 const DEFAULT_CONTROLLER_PARAMS = {
     maxVisualSteeringAngleRadians: Math.PI / 5,
     stopEpsilonMetersPerSecond: 0.03,
@@ -464,6 +469,36 @@ export class VehicleController {
         forces: createEmptyForceSnapshot(),
     }
 
+    const drivenRearWheelStates = []
+    for (const wheelState of state.wheelStates) {
+        if (wheelState.driven && wheelState.axle === 'rear') {
+            drivenRearWheelStates.push(wheelState)
+        }
+    }
+    const engineDrivetrainClutchResult = {
+        torqueNewtonMeters: 0,
+        isLocked: false,
+    }
+    const engineDrivetrainClutchInput = {
+        engineOmegaRadiansPerSecond: 0,
+        transmissionInputOmegaRadiansPerSecond: 0,
+        clutchTorqueCapacityNewtonMeters: 0,
+        desiredTorqueNewtonMeters: 0,
+        result: engineDrivetrainClutchResult,
+    }
+    const engineDrivetrainPumpingTorqueInput = {
+        engineOmegaRadiansPerSecond: 0,
+        baseTorqueNewtonMeters: 0,
+        torquePerRadiansPerSecond: 0,
+    }
+    const engineDrivetrainIntegrationInput = {
+        engineOmegaRadiansPerSecond: 0,
+        netEngineTorqueNewtonMeters: 0,
+        engineInertiaKgMeterSquared: 0,
+        dtSeconds: 0,
+        idleRpm: 0,
+    }
+
     // The listeners that want to know when the running vehicle configuration
     // changes. The vehicle can be reconfigured from outside the catalog API
     // (the browser console, the control panel), so a host that displays the
@@ -537,6 +572,11 @@ export class VehicleController {
         }
     }
 
+    function isEngineDrivetrainModelActive() {
+        return spec.engineDrivetrainModelEnabled === true &&
+            state.transmissionProfile?.transmissionKind !== 'cvt'
+    }
+
     function updatePowertrainKinematics() {
         const gearDirection = getGearDirection(state.gear)
         const averageDrivenWheelAngularVelocityRadiansPerSecond =
@@ -549,21 +589,25 @@ export class VehicleController {
             // The gear the driveline is actually in, resolved for this step.
             selectedForwardGearIndex: state.resolvedForwardGearIndex,
         })
+        if (isEngineDrivetrainModelActive()) {
+            state.powertrainKinematics.estimatedEngineRpm =
+                Math.abs(state.engineDrivetrain.engineOmegaRadiansPerSecond) *
+                (60 / (Math.PI * 2))
+        }
     }
 
-    function updateEngineDrivetrainState(dt) {
+    function updateEngineDrivetrainState(dtSeconds) {
         const gearDirection = getGearDirection(state.gear)
         const averageDrivenWheelAngularVelocityRadiansPerSecond =
             computeAverageDrivenWheelAngularVelocityRadiansPerSecond()
 
-        // Resolve the effective forward gear for this step.
-        let selectedForwardGearIndex = null
+        let automaticForwardGearIndex = null
         if (
             state.manualForwardGearIndex === null &&
             spec.automaticTransmissionEnabled === true &&
             profileSupportsAutomaticShifting(state.transmissionProfile)
         ) {
-            selectedForwardGearIndex = selectForwardGearIndexForSpeed({
+            automaticForwardGearIndex = selectForwardGearIndexForSpeed({
                 wheelAngularVelocityRadiansPerSecond:
                     averageDrivenWheelAngularVelocityRadiansPerSecond,
                 transmissionProfile: state.transmissionProfile,
@@ -573,151 +617,151 @@ export class VehicleController {
         }
         state.resolvedForwardGearIndex = resolveForwardGearIndex({
             transmissionProfile: state.transmissionProfile,
-            automaticGearIndex: selectedForwardGearIndex,
+            automaticGearIndex: automaticForwardGearIndex,
             manualForwardGearIndex: state.manualForwardGearIndex,
         })
+        state.selectedForwardGearIndex = state.resolvedForwardGearIndex
 
-        const effectiveDriveRatio = gearDirection > 0
+        const transmissionGearRatio = gearDirection > 0
             ? state.transmissionProfile?.forwardGearRatios[
                 state.resolvedForwardGearIndex
               ] ?? 1
             : gearDirection < 0
               ? Math.abs(state.transmissionProfile?.reverseGearRatio ?? 1)
               : 0
-        const finalDrive = state.transmissionProfile?.finalDriveRatio ?? 1
-        const totalRatio = effectiveDriveRatio * finalDrive
+        const finalDriveRatio = state.transmissionProfile?.finalDriveRatio ?? 1
+        const totalDriveRatio = transmissionGearRatio * finalDriveRatio
 
-        // Engine torque from the curve at the engine's own integrated omega.
-        const engineOmega = state.engineDrivetrain.engineOmegaRadiansPerSecond
+        const engineOmegaRadiansPerSecond =
+            state.engineDrivetrain.engineOmegaRadiansPerSecond
         const engineRpm = Math.max(
-            engineOmega * (60 / (Math.PI * 2)),
+            engineOmegaRadiansPerSecond * (60 / (Math.PI * 2)),
             state.engineProfile?.idleRpm ?? 800
         )
-        const interpolatedTorque = interpolateEngineTorqueCurve(
+        const interpolatedTorqueNewtonMeters = interpolateEngineTorqueCurve(
             state.engineProfile,
             engineRpm
         )
-        const throttle = state.throttleInput
+        const throttleInput01 = state.throttleInput
         const redlineRpm = state.engineProfile?.redlineRpm ?? 6500
-        const taperBand = spec.powertrainRedlineTorqueTaperRpm ?? 800
-        const taperStart = redlineRpm - taperBand
-        const redlineMultiplier = engineRpm >= redlineRpm ? 0
-            : engineRpm > taperStart
-              ? (redlineRpm - engineRpm) / (redlineRpm - taperStart)
+        const taperBandRpm = spec.powertrainRedlineTorqueTaperRpm ?? 800
+        const taperStartRpm = redlineRpm - taperBandRpm
+        const redlineTorqueMultiplier01 = engineRpm >= redlineRpm ? 0
+            : engineRpm > taperStartRpm
+              ? (redlineRpm - engineRpm) / (redlineRpm - taperStartRpm)
               : 1
-        const engineNetTorque = interpolatedTorque * throttle * redlineMultiplier
-        const pumpingTorque = computePumpingTorqueNewtonMeters({
-            engineOmegaRadiansPerSecond: engineOmega,
-            baseTorqueNewtonMeters: spec.engineBrakingBaseTorqueNewtonMeters,
-            torquePerRadiansPerSecond: spec.engineBrakingTorquePerRadPerSecond,
-        })
-        state.engineDrivetrain.lastNetEngineTorqueNewtonMeters = engineNetTorque
+        const engineTorqueNewtonMeters =
+            interpolatedTorqueNewtonMeters * throttleInput01 * redlineTorqueMultiplier01
 
-        // Transmission input shaft omega is the driven-wheel average projected
-        // through the gear ratio.
-        const transmissionOmega = Math.abs(
-            averageDrivenWheelAngularVelocityRadiansPerSecond * totalRatio
+        engineDrivetrainPumpingTorqueInput.engineOmegaRadiansPerSecond =
+            engineOmegaRadiansPerSecond
+        engineDrivetrainPumpingTorqueInput.baseTorqueNewtonMeters =
+            spec.engineBrakingBaseTorqueNewtonMeters
+        engineDrivetrainPumpingTorqueInput.torquePerRadiansPerSecond =
+            spec.engineBrakingTorquePerRadPerSecond
+        const pumpingTorqueNewtonMeters = computePumpingTorqueNewtonMeters(
+            engineDrivetrainPumpingTorqueInput
+        )
+        state.engineDrivetrain.lastNetEngineTorqueNewtonMeters =
+            engineTorqueNewtonMeters
+
+        const transmissionInputOmegaRadiansPerSecond = Math.abs(
+            averageDrivenWheelAngularVelocityRadiansPerSecond * totalDriveRatio
+        )
+        const clutchTorqueCapacityNewtonMeters =
+            state.transmissionProfile?.clutchTorqueCapacityNewtonMeters ?? 400
+        const desiredClutchTorqueNewtonMeters = gearDirection === 0
+            ? 0
+            : engineTorqueNewtonMeters - pumpingTorqueNewtonMeters
+        engineDrivetrainClutchInput.engineOmegaRadiansPerSecond =
+            engineOmegaRadiansPerSecond
+        engineDrivetrainClutchInput.transmissionInputOmegaRadiansPerSecond =
+            transmissionInputOmegaRadiansPerSecond
+        engineDrivetrainClutchInput.clutchTorqueCapacityNewtonMeters =
+            clutchTorqueCapacityNewtonMeters
+        engineDrivetrainClutchInput.desiredTorqueNewtonMeters =
+            desiredClutchTorqueNewtonMeters
+        const clutchResult = computeClutchTorque(engineDrivetrainClutchInput)
+        const clutchTorqueNewtonMeters = clutchResult.torqueNewtonMeters
+        state.engineDrivetrain.isClutchLocked = clutchResult.isLocked
+        state.engineDrivetrain.clutchTorqueNewtonMeters = clutchTorqueNewtonMeters
+        state.engineDrivetrain.clutchSlipRadiansPerSecond = Math.abs(
+            engineOmegaRadiansPerSecond - transmissionInputOmegaRadiansPerSecond
         )
 
-        // Clutch torque resolution.
-        const clutchCapacity =
-            state.transmissionProfile?.clutchTorqueCapacityNewtonMeters ?? 400
-        const desiredTorque = gearDirection === 0 ? 0 : engineNetTorque
-        const clutchResult = computeClutchTorque({
-            engineOmegaRadiansPerSecond: engineOmega,
-            transmissionInputOmegaRadiansPerSecond: transmissionOmega,
-            clutchTorqueCapacityNewtonMeters: clutchCapacity,
-            desiredTorqueNewtonMeters: desiredTorque,
-        })
-        state.engineDrivetrain.isClutchLocked = clutchResult.isLocked
-        state.engineDrivetrain.clutchTorqueNewtonMeters =
-            clutchResult.torqueNewtonMeters
-        state.engineDrivetrain.clutchSlipRadiansPerSecond =
-            Math.abs(engineOmega - transmissionOmega)
-
-        // Engine ODE integration: net engine torque minus pumping drag and
-        // clutch reaction.
-        const directedClutchTorque = gearDirection > 0
-            ? clutchResult.torqueNewtonMeters
-            : gearDirection < 0
-              ? -clutchResult.torqueNewtonMeters
-              : 0
-        const netEngineTorque =
-            engineNetTorque - pumpingTorque - directedClutchTorque
-
+        const netEngineTorqueNewtonMeters =
+            engineTorqueNewtonMeters -
+            pumpingTorqueNewtonMeters -
+            clutchTorqueNewtonMeters
+        engineDrivetrainIntegrationInput.engineOmegaRadiansPerSecond =
+            engineOmegaRadiansPerSecond
+        engineDrivetrainIntegrationInput.netEngineTorqueNewtonMeters =
+            netEngineTorqueNewtonMeters
+        engineDrivetrainIntegrationInput.engineInertiaKgMeterSquared =
+            state.engineProfile?.engineRotationalInertiaKgMeterSquared ?? 0.2
+        engineDrivetrainIntegrationInput.dtSeconds = dtSeconds
+        engineDrivetrainIntegrationInput.idleRpm =
+            state.engineProfile?.idleRpm ?? 800
         state.engineDrivetrain.engineOmegaRadiansPerSecond =
-            updateEngineAngularVelocity({
-                engineOmegaRadiansPerSecond: engineOmega,
-                netEngineTorqueNewtonMeters: netEngineTorque,
-                engineInertiaKgMeterSquared:
-                    state.engineProfile?.engineRotationalInertiaKgMeterSquared ?? 0.2,
-                dtSeconds: dt,
-                idleRpm: state.engineProfile?.idleRpm ?? 800,
-                pumpingTorqueNewtonMeters: pumpingTorque,
-            })
+            updateEngineAngularVelocity(engineDrivetrainIntegrationInput)
         state.engineAngularVelocityRadiansPerSecond =
             state.engineDrivetrain.engineOmegaRadiansPerSecond
 
-        // Per-wheel axle torque: clutch torque reflected through the driveline.
-        const axleTorque = Math.abs(directedClutchTorque) *
-            totalRatio *
-            (spec.powertrainDrivetrainEfficiency01 ?? 0.9)
-        state.totalAxleDriveTorqueNewtonMeters = gearDirection === 0
-            ? 0
-            : Math.sign(gearDirection) * axleTorque
+        const canDeliverDriveTorque =
+            gearDirection !== 0 &&
+            state.brakeInput <= 0 &&
+            drivenRearWheelStates.length === 2
+        const axleDriveTorqueNewtonMeters = canDeliverDriveTorque
+            ? clutchTorqueNewtonMeters *
+              gearDirection *
+              totalDriveRatio *
+              (spec.powertrainDrivetrainEfficiency01 ?? 0.9)
+            : 0
+        state.totalAxleDriveTorqueNewtonMeters = axleDriveTorqueNewtonMeters
 
-        // Split through the rear differential.
-        const drivenRearWheelStates = state.wheelStates.filter(
-            (wheelState) => wheelState.driven && wheelState.axle === 'rear'
-        )
-        if (drivenRearWheelStates.length === 2) {
+        if (canDeliverDriveTorque) {
             updateRearDifferentialDriveTorqueSplitWithShares(
                 state.rearDifferentialState,
                 drivenRearWheelStates,
-                state.totalAxleDriveTorqueNewtonMeters,
-                { leftShare01: 0.5, rightShare01: 0.5 },
+                axleDriveTorqueNewtonMeters,
+                REAR_DIFFERENTIAL_EQUAL_SHARES,
                 spec
             )
             for (const wheelState of drivenRearWheelStates) {
-                const outputTorque = wheelState.side === 'left'
+                const outputTorqueNewtonMeters = wheelState.side === 'left'
                     ? state.rearDifferentialState.rearDifferentialLeftOutputDriveTorqueNewtonMeters
                     : state.rearDifferentialState.rearDifferentialRightOutputDriveTorqueNewtonMeters
-                wheelState.requestedDriveTorqueNewtonMeters = outputTorque
-                wheelState.appliedDriveTorqueNewtonMeters = outputTorque
-                wheelState.driveTorqueNewtonMeters = outputTorque
-                wheelState.requestedDriveForceNewtons = outputTorque /
+                wheelState.requestedDriveTorqueNewtonMeters = outputTorqueNewtonMeters
+                wheelState.appliedDriveTorqueNewtonMeters = outputTorqueNewtonMeters
+                wheelState.driveTorqueNewtonMeters = outputTorqueNewtonMeters
+                wheelState.requestedDriveForceNewtons = outputTorqueNewtonMeters /
                     getWheelRollingRadiusMeters(wheelState)
                 wheelState.requestedLongitudinalForceNewtons +=
                     wheelState.requestedDriveForceNewtons
             }
         }
 
-        // Engine braking is subsumed by the pumping torque in this path.
         state.engineBrakingTorquePerWheelNewtonMeters = 0
     }
 
     function computeAverageDrivenWheelAngularVelocityRadiansPerSecond() {
-        const drivenWheels = state.wheelStates.filter(
-            (wheelState) => wheelState.driven
-        )
+        let sumAngularVelocityRadiansPerSecond = 0
+        let drivenWheelCount = 0
 
-        if (drivenWheels.length > 0) {
-            let sumAngularVelocityRadiansPerSecond = 0
-
-            for (const wheelState of drivenWheels) {
-                sumAngularVelocityRadiansPerSecond += Number.isFinite(
-                    wheelState.angularVelocityRadiansPerSecond
-                )
-                    ? wheelState.angularVelocityRadiansPerSecond
-                    : 0
-            }
-
-            return sumAngularVelocityRadiansPerSecond / drivenWheels.length
+        for (const wheelState of state.wheelStates) {
+            if (!wheelState.driven) continue
+            sumAngularVelocityRadiansPerSecond += Number.isFinite(
+                wheelState.angularVelocityRadiansPerSecond
+            )
+                ? wheelState.angularVelocityRadiansPerSecond
+                : 0
+            drivenWheelCount += 1
         }
 
-        // Safe fallback: derive an approximate wheel angular velocity from
-        // vehicle forward speed and the base rolling radius when no driven
-        // wheel telemetry is available. Telemetry only; no behavior change.
+        if (drivenWheelCount > 0) {
+            return sumAngularVelocityRadiansPerSecond / drivenWheelCount
+        }
+
         const rollingRadiusMeters =
             spec.baseTireRollingRadiusMeters > 0
                 ? spec.baseTireRollingRadiusMeters
@@ -755,7 +799,7 @@ export class VehicleController {
         updateTerrainSupportAndWheelContactState(safeDt, true)
         applyAeroAndTireThermalState(safeDt)
         updateChassisAttitude(safeDt)
-        if (spec.engineDrivetrainModelEnabled === true) {
+        if (isEngineDrivetrainModelActive()) {
             runEngineDrivetrainStep(safeDt)
         } else {
             runLegacyPowertrainStep(safeDt)
@@ -794,9 +838,8 @@ export class VehicleController {
     }
 
     function runEngineDrivetrainStep(safeDt) {
-        updateEngineDrivetrainState(safeDt)
         calculatePerWheelLongitudinalForces(safeDt)
-        updateWheelRotationalStates(safeDt)
+        updateEngineDrivetrainState(safeDt)
         updateLateralSlipTelemetry()
         updateLongitudinalSlipTelemetry()
         calculatePerWheelLongitudinalTireForces(safeDt)
@@ -809,6 +852,7 @@ export class VehicleController {
             VEHICLE_DYNAMICS_STEP_TRACE_STAGES.INTEGRATION_INPUT
         )
         updateLateralTireForceSummaryState()
+        updateWheelRotationalStates(safeDt)
         updatePowertrainKinematics()
         updateYawState(safeDt)
         updatePlanarMotion(safeDt)
@@ -1560,6 +1604,7 @@ export class VehicleController {
             clutchEngagement01: state.clutchEngagement01,
             engineAngularVelocityRadiansPerSecond: state.engineAngularVelocityRadiansPerSecond,
             clutchSlipRadiansPerSecond: state.engineDrivetrain.clutchSlipRadiansPerSecond,
+            clutchTorqueNewtonMeters: state.engineDrivetrain.clutchTorqueNewtonMeters,
             engineBrakingTorquePerWheelNewtonMeters: state.engineBrakingTorquePerWheelNewtonMeters,
             rearDifferentialInputDriveForceNewtons:
                 state.rearDifferentialState.rearDifferentialInputDriveForceNewtons,
@@ -3220,8 +3265,6 @@ export class VehicleController {
     function calculatePerWheelLongitudinalForces(dt) {
         resetWheelForceAndBrakeTorqueRequests()
         resetRearDifferentialStepState(state.rearDifferentialState, spec)
-        // Clear transient drive-torque telemetry every step so it does not
-        // survive into brake/coast steps where the active source is not called.
         state.totalAxleDriveTorqueNewtonMeters = 0
         updateBrakeTorqueStates(dt)
 
@@ -3238,10 +3281,9 @@ export class VehicleController {
                     state.brakeInput
                 )
             }
-        } else if (
-            spec.powertrainDriveTorqueEnabled &&
-            spec.engineDrivetrainModelEnabled !== true
-        ) {
+        } else if (isEngineDrivetrainModelActive()) {
+            return
+        } else if (spec.powertrainDriveTorqueEnabled) {
             assignActiveDriveTorqueRequest(dt)
         } else {
             distributeDriveForceRequestToWheels(
@@ -3695,10 +3737,6 @@ export class VehicleController {
             resetWheelDifferentialCouplingState(wheelState)
             updateWheelTorqueCoupledRotationalState(wheelState, dt)
         }
-
-        const drivenRearWheelStates = state.wheelStates.filter(
-            (wheelState) => wheelState.driven && wheelState.axle === 'rear'
-        )
 
         if (drivenRearWheelStates.length === 2) {
             updateRearDifferentialWheelSpeedCoupling(

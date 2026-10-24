@@ -25,13 +25,13 @@ function sanitizeNonNegative(value, fallback = 0) {
     return Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
-function idleOmegaFromRpm(idleRpm) {
+function idleOmegaRadiansPerSecondFromRpm(idleRpm) {
     return sanitizeNonNegative(idleRpm) * (TWO_PI / 60)
 }
 
 export function createEngineDrivetrainState({ idleRpm = 800 } = {}) {
     return {
-        engineOmegaRadiansPerSecond: idleOmegaFromRpm(idleRpm),
+        engineOmegaRadiansPerSecond: idleOmegaRadiansPerSecondFromRpm(idleRpm),
         isClutchLocked: false,
         clutchTorqueNewtonMeters: 0,
         clutchSlipRadiansPerSecond: 0,
@@ -40,7 +40,7 @@ export function createEngineDrivetrainState({ idleRpm = 800 } = {}) {
 }
 
 export function resetEngineDrivetrainState(state, { idleRpm = 800 } = {}) {
-    state.engineOmegaRadiansPerSecond = idleOmegaFromRpm(idleRpm)
+    state.engineOmegaRadiansPerSecond = idleOmegaRadiansPerSecondFromRpm(idleRpm)
     state.isClutchLocked = false
     state.clutchTorqueNewtonMeters = 0
     state.clutchSlipRadiansPerSecond = 0
@@ -54,11 +54,17 @@ export function computePumpingTorqueNewtonMeters({
     torquePerRadiansPerSecond = 0.5,
     clutchEngagement01 = 1,
 } = {}) {
-    const omega = Math.abs(sanitizeFinite(engineOmegaRadiansPerSecond))
-    const engagement = Math.min(1, Math.max(0, sanitizeFinite(clutchEngagement01, 1)))
-    return engagement * (
+    const absoluteEngineOmegaRadiansPerSecond = Math.abs(
+        sanitizeFinite(engineOmegaRadiansPerSecond)
+    )
+    const safeClutchEngagement01 = Math.min(
+        1,
+        Math.max(0, sanitizeFinite(clutchEngagement01, 1))
+    )
+    return safeClutchEngagement01 * (
         sanitizeNonNegative(baseTorqueNewtonMeters) +
-        sanitizeNonNegative(torquePerRadiansPerSecond) * omega
+        sanitizeNonNegative(torquePerRadiansPerSecond) *
+            absoluteEngineOmegaRadiansPerSecond
     )
 }
 
@@ -68,29 +74,37 @@ export function updateEngineAngularVelocity({
     engineInertiaKgMeterSquared = 0.2,
     dtSeconds = 0,
     idleRpm = 800,
-    pumpingTorqueNewtonMeters = 0,
 } = {}) {
-    const inertia = sanitizeNonNegative(engineInertiaKgMeterSquared, 0.2)
-    const dt = sanitizeNonNegative(dtSeconds)
-    const idleOmega = idleOmegaFromRpm(idleRpm)
-    let omega = sanitizeFinite(engineOmegaRadiansPerSecond, idleOmega)
+    const safeEngineInertiaKgMeterSquared = sanitizeNonNegative(
+        engineInertiaKgMeterSquared,
+        0.2
+    )
+    const safeDtSeconds = sanitizeNonNegative(dtSeconds)
+    const idleOmegaRadiansPerSecond = idleOmegaRadiansPerSecondFromRpm(idleRpm)
+    let updatedEngineOmegaRadiansPerSecond = sanitizeFinite(
+        engineOmegaRadiansPerSecond,
+        idleOmegaRadiansPerSecond
+    )
 
-    if (inertia <= 0 || dt <= 0) return omega
-
-    omega += (netEngineTorqueNewtonMeters / inertia) * dt
-
-    // Soft idle floor: the engine cannot stall below idle on its own when
-    // the net torque and pumping drag would pull it under.
-    if (
-        omega < idleOmega &&
-        netEngineTorqueNewtonMeters + pumpingTorqueNewtonMeters <= 0
-    ) {
-        omega = idleOmega
+    if (safeEngineInertiaKgMeterSquared <= 0 || safeDtSeconds <= 0) {
+        return updatedEngineOmegaRadiansPerSecond
     }
 
-    if (omega < 0) omega = 0
+    updatedEngineOmegaRadiansPerSecond +=
+        (netEngineTorqueNewtonMeters / safeEngineInertiaKgMeterSquared) * safeDtSeconds
 
-    return omega
+    if (
+        updatedEngineOmegaRadiansPerSecond < idleOmegaRadiansPerSecond &&
+        netEngineTorqueNewtonMeters <= 0
+    ) {
+        updatedEngineOmegaRadiansPerSecond = idleOmegaRadiansPerSecond
+    }
+
+    if (updatedEngineOmegaRadiansPerSecond < 0) {
+        updatedEngineOmegaRadiansPerSecond = 0
+    }
+
+    return updatedEngineOmegaRadiansPerSecond
 }
 
 export function computeClutchTorque({
@@ -98,38 +112,43 @@ export function computeClutchTorque({
     transmissionInputOmegaRadiansPerSecond = 0,
     clutchTorqueCapacityNewtonMeters = 400,
     desiredTorqueNewtonMeters = 0,
+    result = undefined,
 } = {}) {
-    const engineOmega = sanitizeFinite(engineOmegaRadiansPerSecond)
-    const transmissionOmega = sanitizeFinite(transmissionInputOmegaRadiansPerSecond)
-    const capacity = sanitizeNonNegative(clutchTorqueCapacityNewtonMeters, 400)
-    const omegaError = engineOmega - transmissionOmega
-    const isLocked = Math.abs(omegaError) < OMEGA_EPSILON_RADIANS_PER_SECOND
-
-    if (isLocked) {
-        // Locked: engine and transmission are rigidly coupled for this step.
-        // The transmitted torque is whatever is required to keep them locked;
-        // the caller resolves this from the engine net torque and the
-        // driveline reaction. We return the desired torque uncapped.
-        return {
-            torqueNewtonMeters: sanitizeFinite(desiredTorqueNewtonMeters),
-            isLocked: true,
-        }
-    }
-
-    // Slipping: transmitted torque is capped at capacity and always opposes
-    // the relative slip velocity on the engine side. The desired torque is
-    // the torque the clutch would transmit to bring the speeds together;
-    // the capacity clamps it.
-    const sign = Math.sign(omegaError) || 1
-    const slipTorque = sign * Math.min(
-        capacity,
-        Math.abs(sanitizeFinite(desiredTorqueNewtonMeters))
+    const safeEngineOmegaRadiansPerSecond = sanitizeFinite(
+        engineOmegaRadiansPerSecond
     )
+    const safeTransmissionInputOmegaRadiansPerSecond = sanitizeFinite(
+        transmissionInputOmegaRadiansPerSecond
+    )
+    const safeClutchTorqueCapacityNewtonMeters = sanitizeNonNegative(
+        clutchTorqueCapacityNewtonMeters,
+        400
+    )
+    const omegaDifferenceRadiansPerSecond =
+        safeEngineOmegaRadiansPerSecond - safeTransmissionInputOmegaRadiansPerSecond
+    const safeDesiredTorqueNewtonMeters = sanitizeFinite(desiredTorqueNewtonMeters)
+    const canRemainLocked =
+        Math.abs(omegaDifferenceRadiansPerSecond) < OMEGA_EPSILON_RADIANS_PER_SECOND &&
+        Math.abs(safeDesiredTorqueNewtonMeters) <= safeClutchTorqueCapacityNewtonMeters
+    const clutchResult = result ?? { torqueNewtonMeters: 0, isLocked: false }
 
-    return {
-        torqueNewtonMeters: slipTorque,
-        isLocked: false,
+    if (canRemainLocked) {
+        clutchResult.torqueNewtonMeters = safeDesiredTorqueNewtonMeters
+        clutchResult.isLocked = true
+        return clutchResult
     }
+
+    const slipDirection =
+        Math.sign(omegaDifferenceRadiansPerSecond) ||
+        Math.sign(safeDesiredTorqueNewtonMeters) ||
+        1
+    clutchResult.torqueNewtonMeters = slipDirection * Math.min(
+        safeClutchTorqueCapacityNewtonMeters,
+        Math.abs(safeDesiredTorqueNewtonMeters)
+    )
+    clutchResult.isLocked = false
+
+    return clutchResult
 }
 
 export { RPM_PER_RADIAN_PER_SECOND, TWO_PI, OMEGA_EPSILON_RADIANS_PER_SECOND }
