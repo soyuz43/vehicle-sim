@@ -50,6 +50,15 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   camberStaticRadians: 0,
   camberGainRadiansPerMeterCompression: 0,
 
+  // Anti-roll bar (ARB) v1: per-axle torsional stiffness that opposes the
+  // relative suspension compression of the two wheels on one axle. Zero (the
+  // stock default) is a true no-op: no load is transferred and no roll
+  // stiffness is added, so the validated baseline trace is unchanged.
+  // Consumed as a wheel rate in N/m of relative wheel-travel difference; the
+  // equivalent roll stiffness (N*m/rad) is k * track^2, folded into the 3-DOF
+  // roll stiffness so the ODE integrates it consistently with the springs.
+  antiRollBarStiffnessNewtonsPerMeter: 0,
+
   // Vertical chassis dynamics v1 (Phase 0): real 3-DOF sprung-mass heave/pitch/
   // roll solver. It replaces quasi-static load transfer (emergent load transfer
   // from body pitch/roll) and the visual-only chassis attitude with solved ODE

@@ -176,6 +176,18 @@ function resolveAxleSuspensionTravelSpec(axle, spec) {
   return nestedSpec ?? spec
 }
 
+// Reads the per-axle anti-roll bar stiffness (wheel rate, N/m of relative
+// wheel-travel difference). A coupled (rigid) axle does not own a meaningful
+// ARB, so callers skip it themselves; here any non-positive value (including
+// the stock default of 0) yields a no-op bar.
+function resolveAxleAntiRollBarStiffnessNewtonsPerMeter(axle, spec) {
+  const axleSpec = resolveAxleSuspensionTravelSpec(axle, spec)
+  return sanitizePositiveNumber(
+    axleSpec?.antiRollBarStiffnessNewtonsPerMeter,
+    0
+  )
+}
+
 function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
   const axleSpec = resolveAxleSuspensionTravelSpec(wheelState?.axle, spec)
   const suspensionTravelMeters = sanitizePositiveNumber(
@@ -654,6 +666,8 @@ export function updateVerticalChassisDynamics(
         ? -Math.sign(xMeters) * directLateralLoadTransferByAxleNewtons[axle]
         : 0
     corner.axle = axle
+    corner.side = wheelState.side
+    corner.arbLoadTransferNewtons = 0
     corner.rollArmMeters = rollArmMeters
     corner.springRateNewtonsPerMeter = springRateNewtonsPerMeter
     corner.dampingRateNewtonsPerMeterPerSecond =
@@ -676,6 +690,58 @@ export function updateVerticalChassisDynamics(
     Cpp += c * corner.zMeters * corner.zMeters
     Crr += c * corner.rollArmMeters * corner.rollArmMeters
     Cpr += c * corner.rollArmMeters * corner.zMeters
+  }
+
+  // Anti-roll bar (ARB) v1: couples the two wheels of one axle through a
+  // torsional stiffness that opposes their relative suspension compression.
+  // A one-sided deflection twists the bar, which pushes the more-compressed
+  // wheel up and the less-compressed wheel down. The bar is a pure couple, so
+  // it transfers load directly between the two tires (no net heave) and adds a
+  // restoring roll moment that stiffens body roll.
+  //
+  // A coupled (rigid) axle already ties its wheels to one shared leaf, so an
+  // ARB would be redundant and is skipped (the isCoupledAxleCorner guard),
+  // exactly like the direct lateral load transfer above.
+  //
+  // Zero stiffness is a true no-op: F_arb = 0 and the roll-stiffness term is 0,
+  // so the stock 5400-step trace stays byte-identical to the pre-ARB baseline.
+  for (const axle of ['front', 'rear']) {
+    if (coupledAxles[axle] === true) continue
+    const stiffnessNewtonsPerMeter =
+      resolveAxleAntiRollBarStiffnessNewtonsPerMeter(axle, spec)
+    if (stiffnessNewtonsPerMeter <= 0) continue
+
+    const leftCorner = cornerData.find(
+      (corner) => corner.axle === axle && corner.side === 'left'
+    )
+    const rightCorner = cornerData.find(
+      (corner) => corner.axle === axle && corner.side === 'right'
+    )
+    if (!leftCorner || !rightCorner) continue
+
+    const compressionLeftMeters = sanitizeNumber(
+      leftCorner.wheelState.suspensionCompressionMeters
+    )
+    const compressionRightMeters = sanitizeNumber(
+      rightCorner.wheelState.suspensionCompressionMeters
+    )
+    const compressionDeltaMeters =
+      compressionLeftMeters - compressionRightMeters
+    const arbForceNewtons =
+      -stiffnessNewtonsPerMeter * compressionDeltaMeters
+
+    leftCorner.arbLoadTransferNewtons = arbForceNewtons
+    rightCorner.arbLoadTransferNewtons = -arbForceNewtons
+
+    // Equivalent roll stiffness: F_arb * track = -k * (deltaComp) * track, and
+    // deltaComp ~ roll * track, so the roll-restoring term is -k * track^2 *
+    // roll. Folded into Krr so the ODE integrates it consistently with the
+    // springs (a pure couple, so it touches roll only, not heave/pitch).
+    const trackWidthMeters =
+      axle === 'front'
+        ? geometry.chassisGeometry.frontTrackWidthMeters
+        : geometry.chassisGeometry.rearTrackWidthMeters
+    Krr += stiffnessNewtonsPerMeter * trackWidthMeters * trackWidthMeters
   }
 
   const heave = state.heaveMeters
@@ -825,13 +891,16 @@ export function updateVerticalChassisDynamics(
     const normalForceNewtons = Math.max(
       corner.baseNormalForceNewtons +
         loadDeviationNewtons +
-        corner.directLoadTransferNewtons,
+        corner.directLoadTransferNewtons +
+        corner.arbLoadTransferNewtons,
       minimumNormalForceNewtons
     )
     const wheelState = corner.wheelState
     wheelState.verticalDynamicsLoadDeviationNewtons = loadDeviationNewtons
     wheelState.verticalDynamicsDirectLoadTransferNewtons =
       corner.directLoadTransferNewtons
+    wheelState.verticalDynamicsAntiRollBarLoadTransferNewtons =
+      corner.arbLoadTransferNewtons
     wheelState.normalForceNewtons = normalForceNewtons
     wheelState.tractionLimitNewtons =
       sanitizeNumber(wheelState.frictionCoefficient, 0) * normalForceNewtons
@@ -850,11 +919,11 @@ export function updateVerticalChassisDynamics(
       )
       accumulator.minimumDirectTransferNewtons = Math.min(
         accumulator.minimumDirectTransferNewtons,
-        corner.directLoadTransferNewtons
+        corner.directLoadTransferNewtons + corner.arbLoadTransferNewtons
       )
       accumulator.maximumDirectTransferNewtons = Math.max(
         accumulator.maximumDirectTransferNewtons,
-        corner.directLoadTransferNewtons
+        corner.directLoadTransferNewtons + corner.arbLoadTransferNewtons
       )
     }
   }
