@@ -193,7 +193,7 @@ export function createTerrainDeformation(config = {}) {
         cells.delete(key)
         continue
       }
-      if (Math.abs(cell.depthMeters - previousDepth) > DEPTH_EPSILON_METERS) {
+      if (cell.depthMeters !== previousDepth) {
         changedThisStep = true
         markChangedCell(col, row)
       }
@@ -266,20 +266,20 @@ export function createTerrainDeformation(config = {}) {
     )
   }
 
-  function mergeChangedBoundsValues(minX, maxX, minZ, maxZ) {
+  function mergeChangedBoundsValues(minXMeters, maxXMeters, minZMeters, maxZMeters) {
     if (!changedBounds) {
       changedBounds = {
-        minXMeters: minX,
-        maxXMeters: maxX,
-        minZMeters: minZ,
-        maxZMeters: maxZ,
+        minXMeters,
+        maxXMeters,
+        minZMeters,
+        maxZMeters,
       }
       return
     }
-    changedBounds.minXMeters = Math.min(changedBounds.minXMeters, minX)
-    changedBounds.maxXMeters = Math.max(changedBounds.maxXMeters, maxX)
-    changedBounds.minZMeters = Math.min(changedBounds.minZMeters, minZ)
-    changedBounds.maxZMeters = Math.max(changedBounds.maxZMeters, maxZ)
+    changedBounds.minXMeters = Math.min(changedBounds.minXMeters, minXMeters)
+    changedBounds.maxXMeters = Math.max(changedBounds.maxXMeters, maxXMeters)
+    changedBounds.minZMeters = Math.min(changedBounds.minZMeters, minZMeters)
+    changedBounds.maxZMeters = Math.max(changedBounds.maxZMeters, maxZMeters)
   }
 
   function getSnapshot() {

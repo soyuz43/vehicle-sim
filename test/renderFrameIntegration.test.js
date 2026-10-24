@@ -115,7 +115,7 @@ test('runRenderFrame calls renderer.render once', () => {
 test('runRenderFrame follows the car with the directional shadow view', () => {
   const deps = createTestRenderDeps()
   const shadowLight = new THREE.DirectionalLight()
-  shadowLight.userData.shadowFollowOffset = new THREE.Vector3(20, 40, 20)
+  shadowLight.userData.shadowFollowOffsetMeters = new THREE.Vector3(20, 40, 20)
   deps.simulation.car.position.set(360, 2, 420)
   deps.shadowLight = shadowLight
 

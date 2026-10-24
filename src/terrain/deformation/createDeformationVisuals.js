@@ -35,15 +35,23 @@ export function createDeformationVisuals(config = {}) {
 
   // Capture the undeformed heights once; X and Z of a heightfield mesh are fixed.
   const baseHeightMeters = new Float64Array(vertexCount)
+  let hasRenderedDeformation = false
   for (let i = 0; i < vertexCount; i += 1) {
     baseHeightMeters[i] = positionAttribute.getY(i)
   }
 
   function update() {
-    const bounds = typeof deformationField.consumeChangedBounds === 'function'
+    const hasChangedBounds = typeof deformationField.consumeChangedBounds === 'function'
+    const bounds = hasChangedBounds
       ? deformationField.consumeChangedBounds()
       : deformationField.getActiveBounds()
-    if (!bounds) return
+    if (!bounds) {
+      if (!hasChangedBounds && hasRenderedDeformation) {
+        reset()
+        hasRenderedDeformation = false
+      }
+      return
+    }
 
     const influenceMarginMeters = deformationField.cellSizeMeters ?? spacingMeters
     const iMin = clampIndex(
@@ -113,6 +121,7 @@ export function createDeformationVisuals(config = {}) {
       geometry.computeVertexNormals()
       geometry.getAttribute('normal').needsUpdate = true
     }
+    hasRenderedDeformation = true
   }
 
   function restoreAll() {
@@ -172,15 +181,15 @@ function recomputeGridNormals(
               continue
             }
 
-            const cbX = positionAttribute.getX(vertexC) - positionAttribute.getX(vertexB)
-            const cbY = positionAttribute.getY(vertexC) - positionAttribute.getY(vertexB)
-            const cbZ = positionAttribute.getZ(vertexC) - positionAttribute.getZ(vertexB)
-            const abX = positionAttribute.getX(vertexA) - positionAttribute.getX(vertexB)
-            const abY = positionAttribute.getY(vertexA) - positionAttribute.getY(vertexB)
-            const abZ = positionAttribute.getZ(vertexA) - positionAttribute.getZ(vertexB)
-            normalX += cbY * abZ - cbZ * abY
-            normalY += cbZ * abX - cbX * abZ
-            normalZ += cbX * abY - cbY * abX
+            const cbXMeters = positionAttribute.getX(vertexC) - positionAttribute.getX(vertexB)
+            const cbYMeters = positionAttribute.getY(vertexC) - positionAttribute.getY(vertexB)
+            const cbZMeters = positionAttribute.getZ(vertexC) - positionAttribute.getZ(vertexB)
+            const abXMeters = positionAttribute.getX(vertexA) - positionAttribute.getX(vertexB)
+            const abYMeters = positionAttribute.getY(vertexA) - positionAttribute.getY(vertexB)
+            const abZMeters = positionAttribute.getZ(vertexA) - positionAttribute.getZ(vertexB)
+            normalX += cbYMeters * abZMeters - cbZMeters * abYMeters
+            normalY += cbZMeters * abXMeters - cbXMeters * abZMeters
+            normalZ += cbXMeters * abYMeters - cbYMeters * abXMeters
           }
         }
       }

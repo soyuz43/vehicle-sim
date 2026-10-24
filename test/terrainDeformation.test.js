@@ -132,6 +132,54 @@ test('deformation visuals update only changed vertices and local normals', () =>
   assert.equal(positionAttribute.version, positionVersion)
 })
 
+test('deformation visuals restore healed meshes without changed-bounds support', () => {
+  const terrain = createTerrain({
+    surfaceProfile: createTerrainSurfaceProfile({ sizeMeters: 32, profileName: 'flat' }),
+    subdivisions: 64,
+  })
+  let offsetMeters = -0.1
+  let activeBounds = {
+    minXMeters: -2,
+    maxXMeters: 2,
+    minZMeters: -2,
+    maxZMeters: 2,
+  }
+  const deformationField = {
+    cellSizeMeters: 2,
+    getActiveBounds: () => activeBounds,
+    getHeightOffsetAtWorldXZ: () => offsetMeters,
+  }
+  const visuals = createDeformationVisuals({ terrainMesh: terrain, deformationField })
+  const positionAttribute = terrain.geometry.getAttribute('position')
+  const centerVertex = 32 * 65 + 32
+  const baseHeightMeters = positionAttribute.getY(centerVertex)
+
+  visuals.update()
+  assert.ok(Math.abs(positionAttribute.getY(centerVertex) - (baseHeightMeters - 0.1)) < 1e-6)
+
+  offsetMeters = 0
+  activeBounds = null
+  visuals.update()
+  assert.equal(positionAttribute.getY(centerVertex), baseHeightMeters)
+})
+
+test('slow settling emits bounds for sub-epsilon depth changes', () => {
+  const deformation = createTerrainDeformation({ settleRatePerSecond: 0.1 })
+  const wheel = {
+    isGrounded: true,
+    surfaceKind: SURFACE_MATERIAL_KINDS.MUD,
+    suspensionNormalForceNewtons: 4000,
+    contactPointWorldPosition: { x: 0, y: 0, z: 0 },
+  }
+
+  for (let stepIndex = 0; stepIndex < 1200; stepIndex += 1) {
+    deformation.update(1 / 60, [wheel], 0)
+    assert.ok(deformation.consumeChangedBounds(), `step ${stepIndex} reports changed bounds`)
+  }
+
+  assert.ok(deformation.getHeightOffsetAtWorldXZ(0, 0) < -0.01)
+})
+
 test('deformable surface accrues a depression at the contact', () => {
   const d = createTerrainDeformation()
   const wheel = { isGrounded: true, surfaceKind: SURFACE_MATERIAL_KINDS.MUD, suspensionNormalForceNewtons: 4000, contactPointWorldPosition: { x: 3, y: 0, z: 4 } }
