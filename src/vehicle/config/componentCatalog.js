@@ -68,6 +68,7 @@ export const SUSPENSION_OWNED_SPEC_FIELDS = Object.freeze([
   'camberGainRadiansPerMeterCompression',
   'suspensionLinkage',
   'solidAxleRollCenterHeightMeters',
+  'antiRollBarStiffnessNewtonsPerMeter',
 ])
 
 // The coupling mode each suspension slot derives onto the runtime spec.
@@ -248,6 +249,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'independent',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0,
     },
   },
@@ -270,6 +272,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0,
     },
   },
@@ -292,6 +295,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0,
     },
   },
@@ -314,6 +318,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0,
     },
   },
@@ -347,6 +352,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'none',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0.25,
     },
   },
@@ -384,6 +390,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'macphersonStrut',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0,
       suspensionLinkage: {
         kind: 'macpherson-strut',
@@ -434,6 +441,7 @@ const SUSPENSION_COMPONENTS = Object.freeze({
       suspensionVisualKind: 'doubleWishbone',
       camberStaticRadians: 0,
       camberGainRadiansPerMeterCompression: 0,
+      antiRollBarStiffnessNewtonsPerMeter: 0,
       solidAxleRollCenterHeightMeters: 0,
       suspensionLinkage: {
         kind: 'double-wishbone',
