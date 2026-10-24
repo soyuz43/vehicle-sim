@@ -215,10 +215,25 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   engineBrakingEnabled: false,
   engineBrakingBaseTorqueNewtonMeters: 15,
   engineBrakingTorquePerRadPerSecond: 0.5,
-  // Engine rotational inertia for the first-order engine-speed integration.
-  engineInertiaKgMeterSquared: 0.2,
+    // Engine rotational inertia for the first-order engine-speed integration.
+    engineInertiaKgMeterSquared: 0.2,
 
-  // === Phase 5 aero + tire thermal/wear seam (all disabled by default) ========
+    // Pedal response / throttle ramping. Time in seconds for the smoothed
+    // throttle input to travel from 0% to 100% (press) and from 100% to 0%
+    // (release). Release is faster than press, simulating a return spring.
+    // Zero disables smoothing: the input is binary and the behavior is
+    // byte-identical to the pre-ramp baseline.
+    throttleResponseTimeSeconds: 0.3,
+    throttleReleaseTimeSeconds: 0.15,
+
+    // === Slice 2: engine-inertia + clutch-slip powertrain model ================
+    // When enabled, the engine is an integrated flywheel state and the clutch
+    // is a friction element with a torque capacity (not a 0-1 scalar). When
+    // disabled (default), the current wheel-speed-slaved rigid drivetrain is
+    // preserved byte-identically.
+    engineDrivetrainModelEnabled: false,
+
+    // === Phase 5 aero + tire thermal/wear seam (all disabled by default) ========
   // Aerodynamic downforce/lift adds/subtracts vertical load at the contact
   // patches as a speed-squared term. Disabled by default so the baseline normal
   // force (suspension + load transfer) is unchanged.

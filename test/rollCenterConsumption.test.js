@@ -75,7 +75,7 @@ const SOLID_AXLE_ROLL_CENTER_HEIGHT_METERS = 0.25
 // stays the center-of-mass height, and every number in the trace is the
 // behavior the simulation had before roll centers were consumed.
 const STOCK_TRACE_SHA256 =
-  'cf141b8b2fbd88afaf101cb5c79eb56ec398ead7cbbcb7711d4981d5c46c9a81'
+  '960348ad9ec4c2f8f6e39d7391ecc5ff29fcbc5fa10a110fed51f7ad48e3af09'
 
 function makeWheelState({ x, z, axle }) {
   return {

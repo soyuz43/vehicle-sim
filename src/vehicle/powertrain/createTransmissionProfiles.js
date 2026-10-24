@@ -69,6 +69,7 @@ function defineTransmission(raw) {
     // torque-converter models exist.
     hasClutchPedal: raw.hasClutchPedal,
     hasTorqueConverter: raw.hasTorqueConverter,
+    clutchTorqueCapacityNewtonMeters: raw.clutchTorqueCapacityNewtonMeters ?? 400,
     supportsAutomaticShifting: raw.supportsAutomaticShifting,
     supportsManualSelection: raw.supportsManualSelection,
     // CVT ratio band. Only meaningful for transmissionKind === 'cvt'.
@@ -81,6 +82,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'manual-4',
     displayName: '4-Speed Manual',
+    clutchTorqueCapacityNewtonMeters: 350,
     transmissionKind: 'manual',
     forwardGearRatios: [3.45, 1.95, 1.3, 0.97],
     reverseGearRatio: -3.17,
@@ -93,6 +95,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'manual-5',
     displayName: '5-Speed Manual',
+    clutchTorqueCapacityNewtonMeters: 380,
     transmissionKind: 'manual',
     forwardGearRatios: [3.55, 2.05, 1.38, 1.0, 0.82],
     reverseGearRatio: -3.33,
@@ -105,6 +108,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'manual-6',
     displayName: '6-Speed Manual',
+    clutchTorqueCapacityNewtonMeters: 400,
     transmissionKind: 'manual',
     forwardGearRatios: [3.55, 2.16, 1.48, 1.12, 0.89, 0.73],
     reverseGearRatio: -3.25,
@@ -116,6 +120,7 @@ const RAW_TRANSMISSION_PROFILES = [
   },
   {
     transmissionId: 'manual-6-granny',
+    clutchTorqueCapacityNewtonMeters: 500,
     displayName: '6-Speed Manual (Granny 1st)',
     transmissionKind: 'manual',
     forwardGearRatios: [4.6, 2.62, 1.62, 1.12, 0.89, 0.73],
@@ -129,6 +134,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'automatic-6',
     displayName: '6-Speed Automatic',
+    clutchTorqueCapacityNewtonMeters: 400,
     transmissionKind: 'automatic',
     forwardGearRatios: [4.17, 2.34, 1.52, 1.14, 0.87, 0.69],
     reverseGearRatio: -3.4,
@@ -141,6 +147,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'automatic-8',
     displayName: '8-Speed Automatic',
+    clutchTorqueCapacityNewtonMeters: 450,
     transmissionKind: 'automatic',
     forwardGearRatios: [
       4.6, 2.96, 2.05, 1.54, 1.2, 0.95, 0.78, 0.65,
@@ -155,6 +162,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'dct-7',
     displayName: '7-Speed Dual-Clutch',
+    clutchTorqueCapacityNewtonMeters: 500,
     transmissionKind: 'dct',
     forwardGearRatios: [3.45, 2.24, 1.61, 1.24, 0.98, 0.8, 0.66],
     reverseGearRatio: -3.18,
@@ -167,6 +175,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'dct-8',
     displayName: '8-Speed Dual-Clutch',
+    clutchTorqueCapacityNewtonMeters: 550,
     transmissionKind: 'dct',
     forwardGearRatios: [
       3.69, 2.4, 1.71, 1.3, 1.0, 0.8, 0.65, 0.55,
@@ -181,6 +190,7 @@ const RAW_TRANSMISSION_PROFILES = [
   {
     transmissionId: 'cvt',
     displayName: 'Continuously Variable (CVT)',
+    clutchTorqueCapacityNewtonMeters: 0,
     transmissionKind: 'cvt',
     forwardGearRatios: [],
     reverseGearRatio: -2.5,

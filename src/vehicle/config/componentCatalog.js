@@ -125,6 +125,8 @@ export const WHEELS_OWNED_SPEC_FIELDS = Object.freeze([
 // spec fields, so they are applied through their own profile APIs.
 export const DRIVETRAIN_OWNED_SPEC_FIELDS = Object.freeze([
   'rearDifferentialType',
+  'throttleResponseTimeSeconds',
+  'throttleReleaseTimeSeconds',
 ])
 
 // The spec fields the brakes component owns.
@@ -542,6 +544,8 @@ const DRIVETRAIN_COMPONENTS = Object.freeze({
     transmissionId: 'automatic-6',
     spec: {
       rearDifferentialType: 'open',
+      throttleResponseTimeSeconds: 0.3,
+      throttleReleaseTimeSeconds: 0.15,
     },
   },
   'drivetrain-sport': {
