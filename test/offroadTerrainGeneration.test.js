@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { createSimulation } from '../src/createSimulation.js'
 import { createOffroadTerrainGenerationConfig } from '../src/terrain/createOffroadTerrainGenerationConfig.js'
 import { createTerrainSelection } from '../src/terrain/createTerrainSelection.js'
+import { SURFACE_MATERIAL_KINDS } from '../src/terrain/createSurfaceMaterialCatalog.js'
 import {
   createOffroadPlaygroundHeightEvaluator,
   createOffroadPlaygroundProfile,
@@ -316,8 +317,13 @@ test('the proving ground mesh is unchanged by the obstacle rendering', () => {
     maximumMeshDeviationMeters <= 1e-6,
     'the proving ground mesh changed: ' + maximumMeshDeviationMeters + ' m'
   )
+  const bumpCenterHeightMeters = surfaceProfile.getHeightAtWorldXZ(-1.5, 52.2)
+  const renderedBumpHeightMeters = sampleTerrainMeshHeight(simulation.terrain, -1.5, 52.2)
+  assert.ok(bumpCenterHeightMeters > 0.07)
+  assert.ok(renderedBumpHeightMeters > 0.05)
+  assert.ok(Math.abs(renderedBumpHeightMeters - bumpCenterHeightMeters) < 0.02)
   assert.equal(simulation.obstacleVisuals, null)
-  assert.equal(simulation.terrain.userData.terrain.renderSubdivisions, 256)
+  assert.equal(simulation.terrain.userData.terrain.renderSubdivisions, 960)
 })
 
 test('the terrain render grid follows the terrain size', () => {
@@ -325,20 +331,20 @@ test('the terrain render grid follows the terrain size', () => {
   const offroad = createSimulationForSearch('?terrain=offroad')
   const resized = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
 
-  assert.equal(provingGround.terrain.userData.terrain.renderSubdivisions, 256)
+  assert.equal(provingGround.terrain.userData.terrain.renderSubdivisions, 960)
   assert.equal(offroad.terrain.userData.terrain.renderSubdivisions, 960)
   assert.equal(resized.terrain.userData.terrain.renderSubdivisions, 400)
 
   const provingMesh = provingGround.terrain.geometry
   const provingGrid = provingGround.terrain.getObjectByName('terrain-contour-grid')
   assert.equal(provingGround.terrain.userData.terrain.sizeMeters, 1200)
-  assert.equal(provingMesh.getAttribute('position').count, 66049)
+  assert.equal(provingMesh.getAttribute('position').count, 923521)
   assert.equal(provingGrid.userData.gridSpacingMeters, 20)
-  assert.equal(provingGrid.geometry.getAttribute('position').count, 31232)
+  assert.equal(provingGrid.geometry.getAttribute('position').count, 117120)
   assert.equal(
     provingMesh.getAttribute('position').count +
       provingGrid.geometry.getAttribute('position').count,
-    97281
+    1040641
   )
   assert.equal(provingMesh.boundingBox.min.x, -600)
   assert.equal(provingMesh.boundingBox.max.x, 600)
@@ -368,6 +374,45 @@ test('the terrain render grid reports its sample spacing', () => {
     terrain.sizeMeters / terrain.renderSubdivisions
   )
   assert.equal(terrain.renderSampleSpacingMeters, 1.25)
+})
+
+test('simulation deformation bounds follow the selected off-road course', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad&terrainSizeMeters=500')
+  assert.deepEqual(simulation.terrainDeformation.bounds, {
+    minXMeters: -250,
+    maxXMeters: 250,
+    minZMeters: -250,
+    maxZMeters: 250,
+    columns: 250,
+    rows: 250,
+  })
+})
+
+test('deformation reaches newly included sand without aliasing another cell', () => {
+  const simulation = createSimulationForSearch('?terrain=offroad')
+  assert.equal(
+    simulation.terrainSurfaceProfile.querySurfaceAtWorldPosition(360, 2).surfaceKind,
+    SURFACE_MATERIAL_KINDS.SAND
+  )
+  assert.deepEqual(simulation.terrainDeformation.bounds, {
+    minXMeters: -600,
+    maxXMeters: 600,
+    minZMeters: -600,
+    maxZMeters: 600,
+    columns: 600,
+    rows: 600,
+  })
+
+  simulation.terrainDeformation.accrueFromWheelContacts([{
+    isGrounded: true,
+    surfaceKind: SURFACE_MATERIAL_KINDS.SAND,
+    suspensionNormalForceNewtons: 4000,
+    contactPointWorldPosition: { x: 360, y: 0, z: 2 },
+  }], 5)
+  simulation.terrainDeformation.step(1 / 60)
+
+  assert.ok(simulation.terrainDeformation.getHeightOffsetAtWorldXZ(360, 2) < 0)
+  assert.equal(simulation.terrainDeformation.getHeightOffsetAtWorldXZ(40, 4), 0)
 })
 
 test('the 400 m rock garden reference heights match the bounded band', () => {
@@ -1457,4 +1502,30 @@ function selectTerrain(search, config = {}) {
       delete globalThis.location
     }
   }
+}
+
+function sampleTerrainMeshHeight(terrainMesh, worldXMeters, worldZMeters) {
+  const { sizeMeters, renderSubdivisions } = terrainMesh.userData.terrain
+  const spacingMeters = sizeMeters / renderSubdivisions
+  const xCoordinate = (worldXMeters + sizeMeters / 2) / spacingMeters
+  const zCoordinate = (worldZMeters + sizeMeters / 2) / spacingMeters
+  const cellI = Math.floor(xCoordinate)
+  const cellJ = Math.floor(zCoordinate)
+  const fractionX = xCoordinate - cellI
+  const fractionZ = zCoordinate - cellJ
+  const rowLength = renderSubdivisions + 1
+  const positions = terrainMesh.geometry.getAttribute('position')
+  const heightAt = (i, j) => positions.getY(j * rowLength + i)
+  const heightA = heightAt(cellI, cellJ)
+  const heightB = heightAt(cellI, cellJ + 1)
+  const heightC = heightAt(cellI + 1, cellJ + 1)
+  const heightD = heightAt(cellI + 1, cellJ)
+
+  if (fractionX + fractionZ <= 1) {
+    return heightA * (1 - fractionX - fractionZ) +
+      heightB * fractionZ + heightD * fractionX
+  }
+  return heightB * (1 - fractionX) +
+    heightC * (fractionX + fractionZ - 1) +
+    heightD * (1 - fractionZ)
 }

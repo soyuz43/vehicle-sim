@@ -5,7 +5,7 @@ const uiRefreshIntervalSeconds = 1 / 15
 const uiRefreshAccumulators = new WeakMap()
 
 export function runRenderFrame(deps, deltaSeconds) {
-  const { simulation, panels, camera, renderer, cameraManager } = deps
+  const { simulation, panels, camera, renderer, cameraManager, shadowLight } = deps
   const clampedRenderDeltaSeconds = sanitizeRenderDeltaSeconds(deltaSeconds)
   let uiRefreshAccumulatorSeconds =
     (uiRefreshAccumulators.get(simulation) ?? 0) + clampedRenderDeltaSeconds
@@ -13,6 +13,16 @@ export function runRenderFrame(deps, deltaSeconds) {
 
   if (cameraManager) {
     cameraManager.update(clampedRenderDeltaSeconds)
+  }
+  if (shadowLight?.userData?.shadowFollowOffset && simulation.car?.position) {
+    const carPosition = simulation.car.position
+    const shadowFollowOffset = shadowLight.userData.shadowFollowOffset
+    shadowLight.target.position.copy(carPosition)
+    shadowLight.position.set(
+      carPosition.x + shadowFollowOffset.x,
+      carPosition.y + shadowFollowOffset.y,
+      carPosition.z + shadowFollowOffset.z
+    )
   }
   const vehicleSnapshot = simulation.vehicleController.getSnapshot()
 

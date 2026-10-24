@@ -38,11 +38,15 @@ export function createSimulation(deps = {}) {
     deps.createVehicleObstacleInteraction ??
     createDefaultVehicleObstacleInteraction
 
-  const terrainDeformation = createTerrainDeformation()
+  let terrainDeformation = deps.terrainSelectionConfig?.deformationField ?? null
   const terrainSelection = createTerrainSelection({
     ...deps.terrainSelectionConfig,
-    deformationField: terrainDeformation,
+    createDeformationField: (generationConfig) => {
+      terrainDeformation ??= createTerrainDeformation(generationConfig?.boundsMeters)
+      return terrainDeformation
+    },
   })
+  terrainDeformation ??= createTerrainDeformation()
   const terrainSurfaceProfile = terrainSelection.surfaceProfile
   // The ground mesh carries the terrain only. The obstacles are rendered as
   // their own primitive meshes, so the ground grid does not have to
@@ -51,8 +55,6 @@ export function createSimulation(deps = {}) {
   const terrainRenderProfile = terrainSelection.baseProfile
   const terrain = createTerrain({
     surfaceProfile: terrainRenderProfile,
-    subdivisions:
-      terrainSelection.name === 'proving-ground' ? 256 : undefined,
   })
   scene.add(terrain)
 

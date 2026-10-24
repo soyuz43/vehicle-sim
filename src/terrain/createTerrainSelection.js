@@ -32,10 +32,16 @@ export function createTerrainSelection(config = {}) {
   let waterSurface = null
   let weatherState = null
   let generationConfig = null
-  const deformationField = config.deformationField ?? null
-
-  if (name === 'offroad' || name === 'offroad-water') {
+  let deformationField = config.deformationField ?? null
+  const isOffroadTerrain = name === 'offroad' || name === 'offroad-water'
+  if (isOffroadTerrain) {
     generationConfig = resolveGenerationConfig(name, config)
+  }
+  if (!deformationField && typeof config.createDeformationField === 'function') {
+    deformationField = config.createDeformationField(generationConfig)
+  }
+
+  if (isOffroadTerrain) {
     enhancedProfile = createOffroadPlaygroundProfile({
       ...config.offroadProfileConfig,
       ...generationConfig,

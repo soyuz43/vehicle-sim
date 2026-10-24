@@ -8,6 +8,8 @@ import { createObstacleAwareSurfaceProfile } from '../src/terrain/createObstacle
 import { createMovableObstacleField } from '../src/terrain/obstacles/createMovableObstacleField.js'
 import { SURFACE_MATERIAL_KINDS } from '../src/terrain/createSurfaceMaterialCatalog.js'
 import { createFixedTimestepRunner } from '../src/simulation/createFixedTimestepRunner.js'
+import { createTerrain } from '../src/terrain/createTerrain.js'
+import { createDeformationVisuals } from '../src/terrain/deformation/createDeformationVisuals.js'
 
 test('fixed-step vehicle snapshots accrue deformation across moving contacts', () => {
   const deformation = createTerrainDeformation()
@@ -58,6 +60,76 @@ test('no deformation initially; offset is zero', () => {
   assert.equal(d.getHeightOffsetAtWorldXZ(0, 0), 0)
   assert.equal(d.getActiveBounds(), null)
   assert.equal(d.getSnapshot().activeCellCount, 0)
+})
+
+test('wheel contacts outside deformation bounds are rejected without key aliasing', () => {
+  const deformation = createTerrainDeformation()
+  const wheel = {
+    isGrounded: true,
+    surfaceKind: SURFACE_MATERIAL_KINDS.SAND,
+    suspensionNormalForceNewtons: 4000,
+    contactPointWorldPosition: { x: 360, y: 0, z: 2 },
+  }
+
+  deformation.accrueFromWheelContacts([wheel], 5)
+  deformation.step(1 / 60)
+
+  assert.equal(deformation.getSnapshot().activeCellCount, 0)
+  assert.equal(deformation.getHeightOffsetAtWorldXZ(360, 2), 0)
+  assert.equal(deformation.getHeightOffsetAtWorldXZ(40, 4), 0)
+})
+
+test('deformation visuals update only changed vertices and local normals', () => {
+  const terrain = createTerrain({
+    surfaceProfile: createTerrainSurfaceProfile({ sizeMeters: 32, profileName: 'flat' }),
+    subdivisions: 64,
+  })
+  const deformation = createTerrainDeformation({
+    minXMeters: -16,
+    maxXMeters: 16,
+    minZMeters: -16,
+    maxZMeters: 16,
+  })
+  const visuals = createDeformationVisuals({ terrainMesh: terrain, deformationField: deformation })
+  let fullNormalRecomputeCount = 0
+  const computeVertexNormals = terrain.geometry.computeVertexNormals.bind(terrain.geometry)
+  terrain.geometry.computeVertexNormals = () => {
+    fullNormalRecomputeCount += 1
+    return computeVertexNormals()
+  }
+  const wheel = {
+    isGrounded: true,
+    surfaceKind: SURFACE_MATERIAL_KINDS.MUD,
+    suspensionNormalForceNewtons: 4000,
+    contactPointWorldPosition: { x: 0, y: 0, z: 0 },
+  }
+
+  deformation.update(1 / 60, [wheel], 5)
+  visuals.update()
+
+  const positionAttribute = terrain.geometry.getAttribute('position')
+  const normalAttribute = terrain.geometry.getAttribute('normal')
+  const uploadedPositionComponents = positionAttribute.updateRanges.reduce(
+    (total, range) => total + range.count,
+    0
+  )
+  const uploadedNormalComponents = normalAttribute.updateRanges.reduce(
+    (total, range) => total + range.count,
+    0
+  )
+  assert.ok(uploadedPositionComponents < positionAttribute.array.length)
+  assert.ok(uploadedNormalComponents < normalAttribute.array.length)
+  assert.equal(fullNormalRecomputeCount, 0)
+
+  const updatedNormals = normalAttribute.array.slice()
+  computeVertexNormals()
+  for (let index = 0; index < normalAttribute.array.length; index += 1) {
+    assert.ok(Math.abs(normalAttribute.array[index] - updatedNormals[index]) < 1e-6)
+  }
+
+  const positionVersion = positionAttribute.version
+  visuals.update()
+  assert.equal(positionAttribute.version, positionVersion)
 })
 
 test('deformable surface accrues a depression at the contact', () => {

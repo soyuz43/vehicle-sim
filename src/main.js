@@ -37,6 +37,7 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.4))
 const sun = new THREE.DirectionalLight(0xffffff, 1)
 sun.position.set(20, 40, 20)
 sun.castShadow = true
+sun.userData.shadowFollowOffset = new THREE.Vector3(20, 40, 20)
 sun.shadow.mapSize.set(2048, 2048)
 sun.shadow.camera.left = -260
 sun.shadow.camera.right = 260
@@ -47,6 +48,7 @@ sun.shadow.camera.far = 500
 sun.shadow.camera.updateProjectionMatrix()
 sun.shadow.bias = -0.0002
 scene.add(sun)
+scene.add(sun.target)
 initTheme()
 initResponsive()
 
@@ -184,6 +186,6 @@ function animate() {
   requestAnimationFrame(animate)
   const deltaSeconds = clock.getDelta()
   runSimulationFrame(simulation, deltaSeconds)
-  runRenderFrame({ simulation, panels, camera, renderer, cameraManager }, deltaSeconds)
+  runRenderFrame({ simulation, panels, camera, renderer, cameraManager, shadowLight: sun }, deltaSeconds)
 }
 animate()
