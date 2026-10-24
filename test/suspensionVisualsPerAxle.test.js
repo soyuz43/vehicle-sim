@@ -65,6 +65,17 @@ function assertCornerVisibility(vehicle, axle, kind, expected) {
   }
 }
 
+function assertControlArmVisibility(vehicle, axle, expected) {
+  for (const side of ['left', 'right']) {
+    const node = vehicle.getObjectByName(`${axle}-${side}-control-arm-visual`)
+    assert.equal(
+      node?.visible ?? false,
+      expected,
+      `${axle}-${side} control arm`
+    )
+  }
+}
+
 function createSyntheticWheelStates() {
   return WHEEL_IDS.map((id) => {
     const [axle, side] = id.split('-')
@@ -270,6 +281,43 @@ test('case 15: REGRESSION both-slot MacPherson draws four struts', () => {
   assert.equal(countNamedNodesMatching(car, /strut/i), 32)
   assertCornerVisibility(car, 'front', 'strut', true)
   assertCornerVisibility(car, 'rear', 'strut', true)
+})
+
+test('independent and MacPherson corners distinguish control arms by axle', () => {
+  const { car, controller } = createController()
+  selectBothAndUpdate(controller, MACPHERSON_ID, STOCK_ID)
+  assertControlArmVisibility(car, 'front', true)
+  assertControlArmVisibility(car, 'rear', false)
+  assert.equal(
+    car.userData.vehicle.suspension.frontSuspensionVisualKind,
+    'macphersonStrut'
+  )
+  assert.equal(
+    car.userData.vehicle.suspension.rearSuspensionVisualKind,
+    'independent'
+  )
+
+  selectBothAndUpdate(controller, STOCK_ID, MACPHERSON_ID)
+  assertControlArmVisibility(car, 'front', false)
+  assertControlArmVisibility(car, 'rear', true)
+  assert.equal(
+    car.userData.vehicle.suspension.frontSuspensionVisualKind,
+    'independent'
+  )
+  assert.equal(
+    car.userData.vehicle.suspension.rearSuspensionVisualKind,
+    'macphersonStrut'
+  )
+})
+
+test('switching to independent hides stale MacPherson control arms', () => {
+  const { car, controller } = createController()
+  selectBothAndUpdate(controller, MACPHERSON_ID, STOCK_ID)
+  assertControlArmVisibility(car, 'front', true)
+
+  selectBothAndUpdate(controller, STOCK_ID, STOCK_ID)
+  assertControlArmVisibility(car, 'front', false)
+  assertControlArmVisibility(car, 'rear', false)
 })
 
 test('decorrelation: nested kinds route despite finite kinematics on both axles', () => {

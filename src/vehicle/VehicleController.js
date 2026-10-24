@@ -264,6 +264,7 @@ export class VehicleController {
         ...(this.config.spec ?? {}),
     }
     vehicle.userData.vehicle?.updateBodyVisuals?.(spec)
+    syncVehicleSuspensionVisualMetadata()
 
     const params = {
         ...DEFAULT_CONTROLLER_PARAMS,
@@ -473,6 +474,24 @@ export class VehicleController {
             rearDifferentialType:
                 state.rearDifferentialState?.rearDifferentialType ?? null,
         })
+    }
+
+    function syncVehicleSuspensionVisualMetadata() {
+        const suspensionMetadata = vehicle.userData.vehicle?.suspension
+        if (!suspensionMetadata) return
+
+        suspensionMetadata.frontAxleCoupling =
+            spec.suspensionFront?.axleCoupling ?? spec.frontAxleCoupling
+        suspensionMetadata.rearAxleCoupling =
+            spec.suspensionRear?.axleCoupling ?? spec.rearAxleCoupling
+        suspensionMetadata.frontSuspensionVisualKind =
+            spec.suspensionFront?.suspensionVisualKind ??
+            spec.suspensionVisualKind ??
+            'independent'
+        suspensionMetadata.rearSuspensionVisualKind =
+            spec.suspensionRear?.suspensionVisualKind ??
+            spec.suspensionVisualKind ??
+            'independent'
     }
 
     // Subscribe to configuration changes. Returns the unsubscribe function.
@@ -894,6 +913,7 @@ export class VehicleController {
         if (component) {
             spec[slotKey] = buildSuspensionSlotSpec(component)
         }
+        syncVehicleSuspensionVisualMetadata()
 
         if (slotKey === 'suspensionFront') {
             const suspensionSpecChanged = applySuspensionSpec(component.spec)
