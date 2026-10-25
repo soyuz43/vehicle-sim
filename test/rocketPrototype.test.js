@@ -154,8 +154,10 @@ test('separated debris flies ballistically under gravity without thrust', () => 
   assert.ok(debris.body.linearAccelerationMetersPerSecondSquared.y < 0)
 })
 
-test('attitude control drives a tilted rocket back toward vertical', () => {
-  const visual = createRocket()
+test('the opt-in PID seam drives a tilted rocket back toward vertical', () => {
+  // The PID is OFF by default: the fins are the attitude authority now.
+  // This test covers the seam that is still in the code.
+  const visual = createRocket({ spec: { attitudeControlEnabled: true } })
   const rocket = {
     ...visual,
     body: createRocketRigidBody({

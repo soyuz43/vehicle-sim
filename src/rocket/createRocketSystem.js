@@ -2,6 +2,7 @@
 
 import * as THREE from 'three'
 import {
+  applyRocketFinDeflectionVisuals,
   applyRocketMassPropertiesToVisuals,
   computeRocketMassProperties,
   createRocket,
@@ -12,6 +13,13 @@ import {
   createRocketAttitudeControllerState,
   resetRocketAttitudeControllerState,
 } from './rocketAttitudeController.js'
+import {
+  createRocketControlState,
+  resetRocketControlState,
+  setRocketFinsEnabled,
+  toggleRocketFins,
+  updateRocketControlState,
+} from './rocketControls.js'
 import { updateRocketDynamics } from './updateRocketDynamics.js'
 import { updateDebrisDynamics } from './updateDebrisDynamics.js'
 import { separateRocketStage } from './stageSeparation.js'
@@ -41,12 +49,22 @@ export function createRocketSystem(config = {}) {
       inertiaAZKgMeterSquared: rocketVisual.massProperties.inertiaTensorKgMeterSquared.z,
     }),
     attitudeController: createRocketAttitudeControllerState(),
+    controls: createRocketControlState(),
     stageSeparated: false,
     dragApplicationStructuralYMeters: rocketVisual.spec.dragApplicationStructuralYMeters,
   }
   group.add(rocket.group)
 
   const debrisEntities = []
+
+  // The held-key input the pilot is giving the control surfaces. The
+  // keyboard only records which keys are down; the fins read this.
+  const controlInput = {
+    pitchForward: false,
+    pitchBackward: false,
+    rollLeft: false,
+    rollRight: false,
+  }
 
   const telemetry = {
     isActive: false,
@@ -62,6 +80,11 @@ export function createRocketSystem(config = {}) {
     stageSeparated: false,
     debrisCount: 0,
     separationCount: 0,
+    finsEnabled: false,
+    finDeflectionPitchRadians: 0,
+    finDeflectionRollRadians: 0,
+    finTorqueNewtonMeters: 0,
+    dynamicPressurePascals: 0,
   }
 
   const spawnPositionMeters = {
@@ -107,6 +130,7 @@ export function createRocketSystem(config = {}) {
     rocket.body.orientationQuaternion.set(0, 0, 0, 1)
     rocket.body.angularVelocityRadiansPerSecond.set(0, 0, 0)
     resetRocketAttitudeControllerState(rocket.attitudeController)
+    resetRocketControlState(rocket.controls)
     rocket.dragApplicationStructuralYMeters = rocket.spec.dragApplicationStructuralYMeters
     rocket.motorIgnited = false
     rocket.throttle01 = 0
@@ -122,6 +146,12 @@ export function createRocketSystem(config = {}) {
     rocket.group.quaternion.copy(rocket.body.orientationQuaternion)
     // The chase camera reads the velocity from the target it follows.
     rocket.group.userData.velocity = rocket.body.velocityMetersPerSecond
+    // The fin meshes show the commanded deflection.
+    applyRocketFinDeflectionVisuals(
+      rocket,
+      rocket.controls?.finDeflectionPitchRadians ?? 0,
+      rocket.controls?.finDeflectionRollRadians ?? 0
+    )
 
     for (const debris of debrisEntities) {
       debris.group.position.copy(debris.body.positionMeters)
@@ -148,6 +178,11 @@ export function createRocketSystem(config = {}) {
       rocket.attitudeController.appliedTorqueNewtonMeters.length()
     telemetry.stageSeparated = rocket.stageSeparated === true
     telemetry.debrisCount = debrisEntities.length
+    telemetry.finsEnabled = rocket.controls.finsEnabled === true
+    telemetry.finDeflectionPitchRadians = rocket.controls.finDeflectionPitchRadians
+    telemetry.finDeflectionRollRadians = rocket.controls.finDeflectionRollRadians
+    telemetry.finTorqueNewtonMeters = rocket.controls.appliedFinTorqueNewtonMeters.length()
+    telemetry.dynamicPressurePascals = rocket.controls.dynamicPressurePascals
   }
 
   function step(deltaTimeSeconds) {
@@ -155,6 +190,10 @@ export function createRocketSystem(config = {}) {
       stageSeparationRequested = false
       performStageSeparation()
     }
+
+    // The fins move first, so the dynamics read the deflection the
+    // surfaces have actually reached this step.
+    updateRocketControlState(rocket.controls, rocket.spec, controlInput, deltaTimeSeconds)
 
     updateRocketDynamics(rocket, deltaTimeSeconds, { terrainContactQuery })
 
@@ -189,6 +228,35 @@ export function createRocketSystem(config = {}) {
     stageSeparationRequested = true
   }
 
+  // Records which control key is held. The fins read the held keys on
+  // every step, so the input is a state and not an event.
+  function setControlInput(controlName, isActive) {
+    if (!(controlName in controlInput)) return false
+
+    controlInput[controlName] = isActive === true
+
+    return true
+  }
+
+  function clearControlInput() {
+    controlInput.pitchForward = false
+    controlInput.pitchBackward = false
+    controlInput.rollLeft = false
+    controlInput.rollRight = false
+  }
+
+  function setFinsEnabled(isEnabled) {
+    setRocketFinsEnabled(rocket.controls, isEnabled)
+    updateTelemetry()
+  }
+
+  function toggleFins() {
+    toggleRocketFins(rocket.controls)
+    updateTelemetry()
+
+    return rocket.controls.finsEnabled === true
+  }
+
   resetRocket()
 
   return {
@@ -202,6 +270,11 @@ export function createRocketSystem(config = {}) {
     isMotorIgnited: () => rocket.motorIgnited === true,
     requestStageSeparation,
     separateStage: performStageSeparation,
+    setControlInput,
+    clearControlInput,
+    setFinsEnabled,
+    toggleFins,
+    areFinsEnabled: () => rocket.controls.finsEnabled === true,
     getTelemetry: () => telemetry,
     getRocketGroup: () => rocket.group,
     isStageSeparated: () => rocket.stageSeparated === true,

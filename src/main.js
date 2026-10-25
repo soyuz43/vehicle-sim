@@ -73,6 +73,15 @@ const inputKeys = new Map([
   ['ArrowRight', 'right'], ['d', 'right'], ['D', 'right'],
   [' ', 'handbrake'],
 ])
+// The rocket's attitude is controlled by its fins, so the driving keys
+// become fin commands in rocket mode. The fins have to be armed with F
+// before they produce any force.
+const rocketControlKeys = new Map([
+  ['w', 'pitchForward'], ['W', 'pitchForward'],
+  ['s', 'pitchBackward'], ['S', 'pitchBackward'],
+  ['a', 'rollLeft'], ['A', 'rollLeft'],
+  ['d', 'rollRight'], ['D', 'rollRight'],
+])
 // Which simulation owns the fixed step. The rocket prototype and the
 // vehicle never step at the same time.
 function applySimulationMode(mode) {
@@ -80,6 +89,10 @@ function applySimulationMode(mode) {
   simulation.mode = isRocketMode ? 'rocket' : 'car'
   car.visible = !isRocketMode
   rocketSystem.group.visible = isRocketMode
+
+  // A fin key held while the mode changed would keep commanding the
+  // control surfaces.
+  rocketSystem.clearControlInput()
 
   if (isRocketMode) {
     rocketSystem.reset()
@@ -106,7 +119,22 @@ window.addEventListener('keydown', (event) => {
       rocketSystem.setMotorIgnited(!rocketSystem.isMotorIgnited())
       return
     }
-    if (event.key === 's' || event.key === 'S') {
+    // The fins are the attitude authority: WASD commands the control
+    // surfaces, and F arms them.
+    const finControl = rocketControlKeys.get(event.key)
+    if (finControl) {
+      event.preventDefault()
+      rocketSystem.setControlInput(finControl, true)
+      return
+    }
+    if (event.key === 'f' || event.key === 'F') {
+      event.preventDefault()
+      rocketSystem.toggleFins()
+      return
+    }
+    // The stage separation moved off S, which is now a fin command.
+    if (event.key === 'x' || event.key === 'X') {
+      event.preventDefault()
       rocketSystem.requestStageSeparation()
       return
     }
@@ -135,6 +163,14 @@ window.addEventListener('keydown', (event) => {
   }
 })
 window.addEventListener('keyup', (event) => {
+  if (simulation.mode === 'rocket') {
+    const finControl = rocketControlKeys.get(event.key)
+    if (finControl) {
+      rocketSystem.setControlInput(finControl, false)
+      return
+    }
+  }
+
   const control = inputKeys.get(event.key)
   if (control) keyState[control] = false
 })

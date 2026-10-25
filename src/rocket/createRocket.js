@@ -9,6 +9,9 @@ import { createRocketRigidBody } from './rocketRigidBody.js'
 // the mass properties has the BASE of the body at structural y = 0 and the
 // body axis along +Y, so structural y grows toward the nose.
 
+// The airframe carries four fins, spaced evenly around the body axis.
+export const ROCKET_FIN_COUNT = 4
+
 export const DEFAULT_ROCKET_SPEC = Object.freeze({
   bodyRadiusMeters: 1.2,
   bodyLengthMeters: 12,
@@ -29,10 +32,28 @@ export const DEFAULT_ROCKET_SPEC = Object.freeze({
   finHeightMeters: 2.5,
   finSpanMeters: 0.35,
   finThicknessMeters: 0.06,
+  // Fin aerodynamics. The fin reference area and the fin application height
+  // are derived from the fin geometry, so a fin resize cannot desynchronize
+  // them. The lift coefficient is the aerodynamic slope of a deflected fin.
+  finReferenceAreaSquareMeters: 3.5,
+  finLiftCoefficient: 1,
+  finApplicationStructuralYMeters: 1.25,
+  finMaximumDeflectionRadians: 0.35,
+  finActuationRateRadiansPerSecond: 2,
+  // Below this airspeed the fins cannot make a useful side force, so the
+  // control surfaces are inert.
+  finMinimumSpeedMetersPerSecond: 5,
   groundContactStiffnessNewtonsPerMeter: 200000,
   groundContactDampingNewtonSecondsPerMeter: 30000,
   groundContactSampleCount: 8,
-  attitudeControlEnabled: true,
+  // Aerodynamic drag is the airframe's passive restoring force: it acts at
+  // the fin-level centre of pressure, BELOW the centre of mass, so it
+  // swings the rocket back upright. It is on by default.
+  airDragEnabled: true,
+  // The automatic stabilizer is OFF by default. The aerodynamic control
+  // surfaces (the fins) are the attitude authority now, and the pilot
+  // commands them directly.
+  attitudeControlEnabled: false,
   attitudeProportionalGainNewtonMetersPerRadian: 20000,
   attitudeIntegralGainNewtonMetersPerRadianSecond: 5000,
   attitudeDerivativeGainNewtonMetersSecondPerRadian: 40000,
@@ -108,6 +129,38 @@ export function createRocketSpec(config = {}) {
     spec.finThicknessMeters,
     DEFAULT_ROCKET_SPEC.finThicknessMeters
   )
+  spec.finLiftCoefficient = sanitizeNonNegativeNumber(
+    spec.finLiftCoefficient,
+    DEFAULT_ROCKET_SPEC.finLiftCoefficient
+  )
+  spec.finMaximumDeflectionRadians = sanitizePositiveNumber(
+    spec.finMaximumDeflectionRadians,
+    DEFAULT_ROCKET_SPEC.finMaximumDeflectionRadians
+  )
+  spec.finActuationRateRadiansPerSecond = sanitizePositiveNumber(
+    spec.finActuationRateRadiansPerSecond,
+    DEFAULT_ROCKET_SPEC.finActuationRateRadiansPerSecond
+  )
+  spec.finMinimumSpeedMetersPerSecond = sanitizeNonNegativeNumber(
+    spec.finMinimumSpeedMetersPerSecond,
+    DEFAULT_ROCKET_SPEC.finMinimumSpeedMetersPerSecond
+  )
+  // The fin area is the planform of the fin set: every fin contributes its
+  // height times its span. An explicit value in the configuration wins, so
+  // a test or a variant airframe can override the geometry.
+  const configuredFinReferenceAreaSquareMeters = config?.finReferenceAreaSquareMeters
+  spec.finReferenceAreaSquareMeters =
+    Number.isFinite(configuredFinReferenceAreaSquareMeters) &&
+    configuredFinReferenceAreaSquareMeters > 0
+      ? configuredFinReferenceAreaSquareMeters
+      : ROCKET_FIN_COUNT * spec.finHeightMeters * spec.finSpanMeters
+  // The fin force acts at the centroid of the fin set, half a fin height
+  // above the base of the body.
+  const configuredFinApplicationStructuralYMeters = config?.finApplicationStructuralYMeters
+  spec.finApplicationStructuralYMeters =
+    Number.isFinite(configuredFinApplicationStructuralYMeters)
+      ? configuredFinApplicationStructuralYMeters
+      : spec.finHeightMeters * 0.5
   spec.separationLateralImpulseShare01 = clamp01(spec.separationLateralImpulseShare01)
   spec.separationTumbleRadiansPerSecond = sanitizeNonNegativeNumber(
     spec.separationTumbleRadiansPerSecond,
@@ -252,10 +305,12 @@ export function createRocket(config = {}) {
   )
   const finGroup = new THREE.Group()
   finGroup.name = 'rocket-fins'
-  for (let finIndex = 0; finIndex < 4; finIndex += 1) {
+  for (let finIndex = 0; finIndex < ROCKET_FIN_COUNT; finIndex += 1) {
     const finMesh = new THREE.Mesh(finGeometry, finMaterial)
-    const angleRadians = (finIndex / 4) * Math.PI * 2
+    const angleRadians = (finIndex / ROCKET_FIN_COUNT) * Math.PI * 2
     finMesh.rotation.y = -angleRadians
+    // The azimuth is kept so the fin deflection can be applied per fin.
+    finMesh.userData.azimuthRadians = angleRadians
     finMesh.position.set(
       Math.cos(angleRadians) * (spec.bodyRadiusMeters + spec.finSpanMeters * 0.5),
       spec.finHeightMeters * 0.5,
@@ -362,6 +417,49 @@ export function applyRocketMassPropertiesToVisuals(rocket, massProperties) {
   rocket.plumeMesh.position.y =
     -centerOfMassStructuralYMeters - rocket.spec.bodyRadiusMeters * 1.2
   rocket.finGroup.position.y = -centerOfMassStructuralYMeters
+
+  return rocket
+}
+
+const _finBaseQuaternion = new THREE.Quaternion()
+const _finDeflectionQuaternion = new THREE.Quaternion()
+const _finBodyAxis = new THREE.Vector3(0, 1, 0)
+const _finRadialAxis = new THREE.Vector3(1, 0, 0)
+
+// Tilts the fin meshes to match the commanded fin deflection.
+//
+// The fins on the body +X and -X sides carry the side force that swings
+// the long axis in the body Z plane (the pitch channel); the fins on the
+// body +Z and -Z sides carry the side force that swings it in the body X
+// plane (the roll channel). Each pair is deflected in mirrored senses, so
+// the pair produces a NET side force instead of a pure rolling couple.
+//
+// The sign convention follows the physics in updateRocketDynamics: a
+// positive pitch commands the nose toward the body +Z, which needs a
+// side force toward the body -Z, and a positive roll commands the nose
+// toward the body +X, which needs a side force toward the body -X.
+export function applyRocketFinDeflectionVisuals(
+  rocket,
+  pitchDeflectionRadians,
+  rollDeflectionRadians
+) {
+  if (!rocket?.finGroup) return rocket
+
+  const pitchDeflection = Number.isFinite(pitchDeflectionRadians) ? pitchDeflectionRadians : 0
+  const rollDeflection = Number.isFinite(rollDeflectionRadians) ? rollDeflectionRadians : 0
+
+  for (const finMesh of rocket.finGroup.children) {
+    const azimuthRadians = finMesh.userData?.azimuthRadians ?? 0
+    const deflectionRadians =
+      -Math.cos(azimuthRadians) * pitchDeflection +
+      Math.sin(azimuthRadians) * rollDeflection
+
+    // The fin mesh is turned to face out of the body, then the chord is
+    // tilted about the radial axis, which is the fin hinge.
+    _finBaseQuaternion.setFromAxisAngle(_finBodyAxis, -azimuthRadians)
+    _finDeflectionQuaternion.setFromAxisAngle(_finRadialAxis, deflectionRadians)
+    finMesh.quaternion.copy(_finBaseQuaternion).multiply(_finDeflectionQuaternion)
+  }
 
   return rocket
 }

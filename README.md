@@ -125,17 +125,21 @@ A minimum viable rocket (MVR) that demonstrates vertical thrust, aerodynamic sta
 
 ### Rocket Keys (Rocket Mode only)
 - `Space` / `T`: ignite or cut the motor
-- `S`: stage separation
+- `F`: arm or disarm the fin control surfaces (they start disarmed)
+- `W` / `S`: pitch the long axis toward the body +Z / -Z
+- `A` / `D`: swing the long axis toward the body -X / +X
+- `X`: stage separation
 - `R`: reset the rocket (the vehicle is not reset)
 - `M`: return to Car Mode
 - `C`: camera cycle
 
 ### Physics
 - Six-degree-of-freedom rigid body: position, velocity, orientation quaternion, angular rate, and a diagonal body-frame inertia tensor, integrated on the same 1/60 s fixed step as the vehicle.
-- Forces: gravity at the centre of mass, motor thrust along the body +Y axis at the engine bell, quadratic drag at the fin-level centre of pressure, unilateral ground contact, and the PID attitude torque.
+- Forces: gravity at the centre of mass, motor thrust along the body +Y axis at the engine bell, quadratic drag at the fin-level centre of pressure, unilateral ground contact, and the fin control force.
 - The centre of pressure sits BELOW the centre of mass, at the fin level, which is what makes the airframe statically stable. A centre of pressure above the centre of mass produces a destabilising moment at speed instead of a restoring one.
 - Mass properties come from the geometry: the mass, inertia, and centre of mass of the body and the nose cone are combined with the parallel-axis theorem, so the nose cone carries 30% of the mass and the centre of mass sits above the geometric mid-point.
-- PID attitude control drives the body +Y axis toward world +Y, with the derivative taken on the body rate rather than on the setpoint.
+- The attitude is controlled by the fins, not by an autopilot. A deflected fin produces a side force of `q * A * C * sin(deflection)`, where `q = 0.5 * rho * V^2` is the dynamic pressure, and that force is applied at the fin level, below the centre of mass, so it swings the long axis. The fins are rate limited: they slew at `finActuationRateRadiansPerSecond` instead of snapping to the commanded deflection, and they do nothing at all until `F` arms them.
+- The PID attitude controller is still in the code but is `attitudeControlEnabled: false` by default. It is a comparison seam, not the control path: with the fins armed the pilot commands the attitude directly.
 - Stage separation removes the nose cone as an independent body, drops the remaining vehicle's centre of mass to the lower body, replaces its inertia tensor, and applies an equal and opposite impulse pair across the separation plane.
 - A separated stage keeps its own mass and inertia and flies ballistically under gravity and drag, with no motor.
 
@@ -144,7 +148,8 @@ A minimum viable rocket (MVR) that demonstrates vertical thrust, aerodynamic sta
 - Drag is a single lumped quadratic term: body and fin drag are folded into one coefficient and one reference area, and the fin drag that actually sets the centre of pressure is not modelled as a separate side-force curve.
 - Thrust is constant. There is no throttle map, no propellant mass flow, and no mass change over the burn.
 - A separated stage has no aerodynamic torque, so it tumbles only at the angular rate it inherits at separation.
-- The PID assumes the vehicle stays close to vertical, which is where its body rates approximate the tilt rates.
+- The fin model is a lumped side force, not a panel method: one reference area and one lift coefficient cover the whole fin set, the aerodynamic slope is a pure `sin(deflection)`, and the roll coupling that a real differential fin pair would produce is not modelled. The fin force is applied on the body axis at the fin height, so it also translates the rocket sideways.
+- The fins only bite above `finMinimumSpeedMetersPerSecond`, so a rocket on the pad has no attitude authority at all.
 
 ## Terrain Interaction
 - Mathematical heightfield queried directly (not triangle mesh collision)

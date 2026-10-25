@@ -11,7 +11,7 @@ import { createHStack, createVStack } from '../ui/design-system/layout/Stack.js'
 // The physics reasons live in the developer tooling, not here.
 
 const MODE_HINT_TEXT =
-  'SPACE / T ignite  |  S separate stage  |  M switch to car  |  R reset'
+  'SPACE / T ignite  |  X separate stage  |  F arm fins  |  W A S D steer  |  M car  |  R reset'
 
 export function createRocketPanel(config = {}) {
   const panel = createPanel({
@@ -134,7 +134,9 @@ export function createRocketPanel(config = {}) {
     tiltDisplay.setValue((telemetry.attitudeErrorRadians * 180) / Math.PI)
     stageDisplay.setValue(telemetry.debrisCount)
 
-    stateText.textContent = telemetry.motorIgnited ? 'Motor burning' : 'Motor off'
+    const motorText = telemetry.motorIgnited ? 'Motor burning' : 'Motor off'
+    const finText = telemetry.finsEnabled ? 'Fins armed' : 'Fins disarmed'
+    stateText.textContent = `${motorText} | ${finText}`
     stateText.style.color = telemetry.motorIgnited
       ? 'var(--ui-color-semantic-warning)'
       : 'var(--ui-color-text-secondary)'
