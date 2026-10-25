@@ -21,8 +21,8 @@ import { initResponsive } from './ui/design-system/layout/Responsive.js'
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x1a1a1a)
-scene.fog = new THREE.Fog(0x1a1a1a, 50, 200)
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500)
+scene.fog = new THREE.Fog(0x1a1a1a, 120, 1500)
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000)
 camera.position.set(0, 15, 30)
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
