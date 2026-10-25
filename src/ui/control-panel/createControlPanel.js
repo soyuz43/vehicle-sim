@@ -28,6 +28,11 @@ const REAR_DIFF_OPTIONS = [
   { value: 'locked', label: 'Locked' },
 ];
 
+const SIMULATION_MODE_OPTIONS = [
+  { value: 'car', label: 'Car Mode' },
+  { value: 'rocket', label: 'Rocket Mode' },
+];
+
 const DEFAULT_CONFIG = {
   anchor: 'top-right',
   initiallyCollapsed: false,
@@ -37,6 +42,8 @@ const DEFAULT_CONFIG = {
   onDynamicsTuningChange: null,
   onRearDifferentialChange: null,
   onReset: null,
+  onSimulationModeChange: null,
+  simulationMode: 'car',
   tirePressure: { kpa: 220, min: 0, max: 340 },
 };
 
@@ -47,12 +54,14 @@ export function createControlPanel(config = {}) {
   let dynamicsValues = { ...SLIDER_DEFINITIONS.reduce((acc, s) => ({ ...acc, [s.key]: s.defaultValue }), {}) };
   let diffType = 'open';
   let tirePressureKpa = cfg.tirePressure.kpa;
+  let simulationMode = cfg.simulationMode === 'rocket' ? 'rocket' : 'car';
 
   const parsed = readJsonFromStorage('control-panel-state');
   if (parsed) {
     dynamicsValues = { ...dynamicsValues, ...parsed.dynamics };
     diffType = parsed.diffType ?? diffType;
     tirePressureKpa = parsed.tirePressureKpa ?? tirePressureKpa;
+    simulationMode = parsed.simulationMode === 'rocket' ? 'rocket' : simulationMode;
   }
 
   function persistState() {
@@ -60,6 +69,7 @@ export function createControlPanel(config = {}) {
       dynamics: dynamicsValues,
       diffType,
       tirePressureKpa,
+      simulationMode,
     });
   }
 
@@ -83,6 +93,54 @@ export function createControlPanel(config = {}) {
   content.style.display = 'flex';
   content.style.flexDirection = 'column';
   content.style.gap = 'var(--ui-space-sm)';
+
+  // === SIMULATION MODE SECTION ===
+  // Which simulation owns the fixed step: the vehicle or the rocket
+  // prototype. The session starts in car mode unless a stored panel state
+  // says otherwise.
+  const modeSection = createSection({
+    id: 'control-mode',
+    title: 'Simulation Mode',
+    badge: { label: 'PROTO', variant: 'info' },
+    initiallyCollapsed: false,
+  });
+  content.appendChild(modeSection.element);
+
+  const modeContent = modeSection.content;
+  modeContent.style.display = 'flex';
+  modeContent.style.flexDirection = 'column';
+  modeContent.style.gap = 'var(--ui-space-sm)';
+
+  const modeRow = createHStack({ gap: 'var(--ui-space-sm)', align: 'center' });
+  const modeLabel = document.createElement('label');
+  modeLabel.textContent = 'Mode';
+  modeLabel.htmlFor = 'simulation-mode-select';
+  modeLabel.style.fontSize = 'var(--ui-typeScale-sm)';
+  modeLabel.style.fontWeight = 'var(--ui-fontWeight-medium)';
+  modeLabel.style.color = 'var(--ui-color-text-secondary)';
+  modeLabel.style.flex = '0 0 60px';
+
+  const modeSelect = createSelect({
+    id: 'simulation-mode',
+    options: SIMULATION_MODE_OPTIONS,
+    value: simulationMode,
+    onChange: (val) => {
+      simulationMode = val === 'rocket' ? 'rocket' : 'car';
+      cfg.onSimulationModeChange?.(simulationMode);
+      persistState();
+    },
+  });
+  modeSelect.element.style.flex = '1';
+  modeRow.appendChild(modeLabel);
+  modeRow.appendChild(modeSelect.element);
+  modeContent.appendChild(modeRow);
+
+  const modeHint = document.createElement('div');
+  modeHint.textContent = 'Rocket: SPACE/T ignite, S separate, M back to car';
+  modeHint.style.fontSize = 'var(--ui-typeScale-xs)';
+  modeHint.style.color = 'var(--ui-color-text-muted)';
+  modeHint.style.fontFamily = 'var(--ui-font-mono)';
+  modeContent.appendChild(modeHint);
 
   // === TIRE PRESSURE SECTION ===
   const tireSection = createSection({
@@ -329,6 +387,12 @@ export function createControlPanel(config = {}) {
       diffSelect.setValue(type);
     },
     getDiffType: () => diffType,
+    getSimulationMode: () => simulationMode,
+    setSimulationMode: (mode) => {
+      simulationMode = mode === 'rocket' ? 'rocket' : 'car';
+      modeSelect.setValue(simulationMode);
+      persistState();
+    },
     collapse: () => panel.collapse(true),
     expand: () => panel.collapse(false),
     toggle: panel.toggle,

@@ -5,7 +5,15 @@ export function runSimulationFrame(simulation, deltaSeconds) {
 }
 
 export function stepSimulation(simulation, fixedDt) {
-  const { input, keyState, vehicleController } = simulation
+  const { input, keyState, vehicleController, rocketSystem, mode } = simulation
+
+  // Rocket mode runs the rocket instead of the vehicle. Both run at the same
+  // FIXED rate, so exactly one simulation owns the step.
+  if (mode === 'rocket' && rocketSystem) {
+    rocketSystem.step(fixedDt)
+    return
+  }
+
   input.throttle = keyState.forward ? 1 : 0
   input.brake = keyState.backward ? 1 : 0
   input.left = keyState.left

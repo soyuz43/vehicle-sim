@@ -21,6 +21,7 @@ import { createTerrainDeformation as createDefaultTerrainDeformation } from './t
 import { createDeformationVisuals } from './terrain/deformation/createDeformationVisuals.js'
 import { createVehicleObstacleInteraction as createDefaultVehicleObstacleInteraction } from './terrain/obstacles/createVehicleObstacleInteraction.js'
 import { createParticleSystem } from './effects/createParticleSystem.js'
+import { createRocketSystem } from './rocket/createRocketSystem.js'
 import { stepSimulation } from './runSimulationFrame.js'
 
 export function createSimulation(deps = {}) {
@@ -118,6 +119,13 @@ export function createSimulation(deps = {}) {
     })
   }
 
+  // The rocket prototype shares the scene and the terrain contact query,
+  // but it owns its own rigid-body solver. It is dormant until the session
+  // switches to rocket mode.
+  const rocketSystem = createRocketSystem({ terrainContactQuery })
+  rocketSystem.group.visible = false
+  scene.add(rocketSystem.group)
+
   const tireSlipFeedback = createTireSlipFeedback({
     vehicleController,
     car,
@@ -127,6 +135,8 @@ export function createSimulation(deps = {}) {
   const simulation = {
     scene,
     keyState,
+    // 'car' or 'rocket'. Exactly one simulation owns the fixed step.
+    mode: 'car',
     terrain,
     terrainDeformation,
     terrainSelection,
@@ -142,6 +152,7 @@ export function createSimulation(deps = {}) {
     tirePressureVisuals,
     particleSystem,
     vehicleObstacleInteraction,
+    rocketSystem,
     tireSlipFeedback,
     input: {
       throttle: 0,

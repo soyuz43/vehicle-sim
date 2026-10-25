@@ -14,14 +14,19 @@ export function runRenderFrame(deps, deltaSeconds) {
   if (cameraManager) {
     cameraManager.update(clampedRenderDeltaSeconds)
   }
-  if (shadowLight?.userData?.shadowFollowOffsetMeters && simulation.car?.position) {
-    const carPosition = simulation.car.position
+  // The shadow light follows whichever simulation owns the frame.
+  const followTarget =
+    simulation.mode === 'rocket' && simulation.rocketSystem
+      ? simulation.rocketSystem.getRocketGroup()
+      : simulation.car
+  if (shadowLight?.userData?.shadowFollowOffsetMeters && followTarget?.position) {
+    const followPosition = followTarget.position
     const shadowFollowOffsetMeters = shadowLight.userData.shadowFollowOffsetMeters
-    shadowLight.target.position.copy(carPosition)
+    shadowLight.target.position.copy(followPosition)
     shadowLight.position.set(
-      carPosition.x + shadowFollowOffsetMeters.x,
-      carPosition.y + shadowFollowOffsetMeters.y,
-      carPosition.z + shadowFollowOffsetMeters.z
+      followPosition.x + shadowFollowOffsetMeters.x,
+      followPosition.y + shadowFollowOffsetMeters.y,
+      followPosition.z + shadowFollowOffsetMeters.z
     )
   }
   const vehicleSnapshot = simulation.vehicleController.getSnapshot()
@@ -56,6 +61,9 @@ export function runRenderFrame(deps, deltaSeconds) {
     panels.driverHUD.update(vehicleSnapshot)
     panels.telemetryPanel.update(vehicleSnapshot)
     panels.controlPanel.update(vehicleSnapshot)
+    if (panels.rocketPanel && simulation.rocketSystem) {
+      panels.rocketPanel.update(simulation.rocketSystem.getTelemetry())
+    }
   }
 
   renderer.render(simulation.scene, camera)

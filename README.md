@@ -114,6 +114,38 @@ Reachable today via the browser console: `__vehicleSim.vehicleController.setSusp
 - Clutch modeling
 - Various feature flags control advanced behaviors
 
+## Rocket Prototype (Feature-Gated)
+
+A minimum viable rocket (MVR) that demonstrates vertical thrust, aerodynamic stability, and physical stage separation inside the existing fixed-timestep loop. It is a prototype sandbox, not a flight model: there is no guidance law, no propellant model, no throttle map, and no trajectory planning.
+
+### Mode Switching
+- `M`: switch between Car Mode and Rocket Mode. The Controls panel carries the same switch as a select.
+- The modes are exclusive: exactly one simulation owns the fixed step, so the vehicle and the rocket never integrate in the same frame.
+- In Rocket Mode the vehicle is hidden and the camera follows the rocket.
+
+### Rocket Keys (Rocket Mode only)
+- `Space` / `T`: ignite or cut the motor
+- `S`: stage separation
+- `R`: reset the rocket (the vehicle is not reset)
+- `M`: return to Car Mode
+- `C`: camera cycle
+
+### Physics
+- Six-degree-of-freedom rigid body: position, velocity, orientation quaternion, angular rate, and a diagonal body-frame inertia tensor, integrated on the same 1/60 s fixed step as the vehicle.
+- Forces: gravity at the centre of mass, motor thrust along the body +Y axis at the engine bell, quadratic drag at the fin-level centre of pressure, unilateral ground contact, and the PID attitude torque.
+- The centre of pressure sits BELOW the centre of mass, at the fin level, which is what makes the airframe statically stable. A centre of pressure above the centre of mass produces a destabilising moment at speed instead of a restoring one.
+- Mass properties come from the geometry: the mass, inertia, and centre of mass of the body and the nose cone are combined with the parallel-axis theorem, so the nose cone carries 30% of the mass and the centre of mass sits above the geometric mid-point.
+- PID attitude control drives the body +Y axis toward world +Y, with the derivative taken on the body rate rather than on the setpoint.
+- Stage separation removes the nose cone as an independent body, drops the remaining vehicle's centre of mass to the lower body, replaces its inertia tensor, and applies an equal and opposite impulse pair across the separation plane.
+- A separated stage keeps its own mass and inertia and flies ballistically under gravity and drag, with no motor.
+
+### Known Limits
+- The rigid body omits the Euler term omega x (I omega).
+- Drag is a single lumped quadratic term: body and fin drag are folded into one coefficient and one reference area, and the fin drag that actually sets the centre of pressure is not modelled as a separate side-force curve.
+- Thrust is constant. There is no throttle map, no propellant mass flow, and no mass change over the burn.
+- A separated stage has no aerodynamic torque, so it tumbles only at the angular rate it inherits at separation.
+- The PID assumes the vehicle stays close to vertical, which is where its body rates approximate the tilt rates.
+
 ## Terrain Interaction
 - Mathematical heightfield queried directly (not triangle mesh collision)
 - Stable normal calculation via central differences
