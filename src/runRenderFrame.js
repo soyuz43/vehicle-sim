@@ -59,7 +59,9 @@ export function runRenderFrame(deps, deltaSeconds) {
     uiRefreshAccumulatorSeconds %= uiRefreshIntervalSeconds
     uiRefreshAccumulators.set(simulation, uiRefreshAccumulatorSeconds)
     panels.driverHUD.update(vehicleSnapshot)
+    const rocketTelemetry = simulation.rocketSystem ? simulation.rocketSystem.getTelemetry() : null;
     panels.telemetryPanel.update(vehicleSnapshot)
+    panels.telemetryPanel.updateRocketTelemetry?.(rocketTelemetry)
     panels.controlPanel.update(vehicleSnapshot)
     if (panels.rocketPanel && simulation.rocketSystem) {
       panels.rocketPanel.update(simulation.rocketSystem.getTelemetry())

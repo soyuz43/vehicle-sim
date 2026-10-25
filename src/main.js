@@ -114,6 +114,18 @@ window.addEventListener('keydown', (event) => {
   // Rocket mode owns its keys: the driving keys would fight the rocket, and
   // the brake key doubles as the stage-separation key.
   if (simulation.mode === 'rocket') {
+    // The toggles are one-press actions. A held key produces repeated
+    // keydown events, and honoring those would rapidly arm/disarm or
+    // switch/reset the vehicle while the pilot is only holding the key.
+    const isOnePressToggle =
+      event.key === ' ' ||
+      event.key === 't' || event.key === 'T' ||
+      event.key === 'f' || event.key === 'F' ||
+      event.key === 'x' || event.key === 'X' ||
+      event.key === 'm' || event.key === 'M' ||
+      event.key === 'r' || event.key === 'R'
+    if (isOnePressToggle && event.repeat) return
+
     if (event.key === ' ' || event.key === 't' || event.key === 'T') {
       event.preventDefault()
       rocketSystem.setMotorIgnited(!rocketSystem.isMotorIgnited())

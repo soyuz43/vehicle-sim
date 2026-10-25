@@ -35,6 +35,11 @@ const DEFAULT_SPAWN_POSITION_METERS = { x: 0, y: 0, z: 0 }
 
 export function createRocketSystem(config = {}) {
   const terrainContactQuery = config.terrainContactQuery ?? null
+  // The shared physics options object is created once; putting an object
+  // literal into every dynamics update would allocate in the hot loop.
+  const rocketUpdateOptions = {
+    terrainContactQuery,
+  }
 
   const group = new THREE.Group()
   group.name = 'rocket-system'
@@ -106,6 +111,11 @@ export function createRocketSystem(config = {}) {
 
   function resetRocket() {
     for (const debris of debrisEntities) {
+      // A separated nose is freshly allocated GPU data. Release it before
+      // dropping the scene graph reference, otherwise repeated separation
+      // and reset cycles leak geometry and materials.
+      debris.coneMesh.geometry.dispose()
+      debris.coneMesh.material.dispose()
       debris.group.removeFromParent()
     }
     debrisEntities.length = 0
@@ -135,6 +145,7 @@ export function createRocketSystem(config = {}) {
     rocket.motorIgnited = false
     rocket.throttle01 = 0
     rocket.stageSeparated = false
+    rocket.noseMesh.visible = true
     stageSeparationRequested = false
     setRocketPlumeVisible(rocket, false, 0)
     syncRocketVisuals()
@@ -195,10 +206,10 @@ export function createRocketSystem(config = {}) {
     // surfaces have actually reached this step.
     updateRocketControlState(rocket.controls, rocket.spec, controlInput, deltaTimeSeconds)
 
-    updateRocketDynamics(rocket, deltaTimeSeconds, { terrainContactQuery })
+    updateRocketDynamics(rocket, deltaTimeSeconds, rocketUpdateOptions)
 
     for (const debris of debrisEntities) {
-      updateDebrisDynamics(debris, deltaTimeSeconds, { terrainContactQuery })
+      updateDebrisDynamics(debris, deltaTimeSeconds, rocketUpdateOptions)
     }
 
     syncRocketVisuals()

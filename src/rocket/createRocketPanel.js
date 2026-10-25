@@ -71,15 +71,6 @@ export function createRocketPanel(config = {}) {
     precision: 0,
     format: (value) => (Number.isFinite(value) ? value.toFixed(0) : '--'),
   })
-  const thrustDisplay = createValueDisplay({
-    id: 'rocket-thrust',
-    label: 'Thrust',
-    value: 0,
-    unit: 'N',
-    size: 'md',
-    precision: 0,
-    format: (value) => (Number.isFinite(value) ? value.toFixed(0) : '--'),
-  })
   const tiltDisplay = createValueDisplay({
     id: 'rocket-tilt',
     label: 'Tilt',
@@ -103,7 +94,7 @@ export function createRocketPanel(config = {}) {
   topRow.appendChild(verticalSpeedDisplay.element)
   bottomRow.appendChild(speedDisplay.element)
   bottomRow.appendChild(massDisplay.element)
-  bottomRow.appendChild(thrustDisplay.element)
+
   bottomRow.appendChild(tiltDisplay.element)
   bottomRow.appendChild(stageDisplay.element)
   content.appendChild(topRow)
@@ -130,7 +121,7 @@ export function createRocketPanel(config = {}) {
     verticalSpeedDisplay.setValue(telemetry.verticalSpeedMetersPerSecond)
     speedDisplay.setValue(telemetry.speedMetersPerSecond)
     massDisplay.setValue(telemetry.massKg)
-    thrustDisplay.setValue(telemetry.thrustNewtons)
+
     tiltDisplay.setValue((telemetry.attitudeErrorRadians * 180) / Math.PI)
     stageDisplay.setValue(telemetry.debrisCount)
 

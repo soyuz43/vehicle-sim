@@ -73,10 +73,12 @@ export class CameraManager {
    */
   setTarget(targetObject) {
     if (!targetObject) return
-    const mode = this.modes[this.activeMode]
-    if (!mode?.setTarget) return
-    mode.setTarget(targetObject)
-    mode.enter?.()
+    // Every mode must know the current target, otherwise cycling away from
+    // the active view can follow a stale vehicle after entering rocket mode.
+    for (const mode of Object.values(this.modes)) {
+      mode.setTarget?.(targetObject)
+    }
+    this.modes[this.activeMode]?.enter?.()
   }
 
   /**

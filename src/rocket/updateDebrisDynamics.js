@@ -16,8 +16,8 @@ import {
 // tumbling moment; that coupling is not modelled here, so the debris
 // tumbles only because it inherits angular rate at separation.
 
-const _gravityForce = new THREE.Vector3()
-const _dragForce = new THREE.Vector3()
+const _gravityForceNewtons = new THREE.Vector3()
+const _dragForceNewtons = new THREE.Vector3()
 const _surfaceResult = {
   normalWorld: new THREE.Vector3(0, 1, 0),
   terrainHeightMeters: 0,
@@ -33,8 +33,8 @@ export function updateDebrisDynamics(debris, deltaTimeSeconds, options = {}) {
 
   clearRocketForceAccumulator(body)
 
-  _gravityForce.set(0, -EARTH_GRAVITY.standardMetersPerSecondSquared * body.massKg, 0)
-  addRocketForceAtPoint(body, _gravityForce, body.positionMeters)
+  _gravityForceNewtons.set(0, -EARTH_GRAVITY.standardMetersPerSecondSquared * body.massKg, 0)
+  addRocketForceAtPoint(body, _gravityForceNewtons, body.positionMeters)
 
   const speedMetersPerSecond = body.velocityMetersPerSecond.length()
   if (speedMetersPerSecond > 1e-4) {
@@ -45,10 +45,10 @@ export function updateDebrisDynamics(debris, deltaTimeSeconds, options = {}) {
       spec.referenceAreaSquareMeters *
       speedMetersPerSecond *
       speedMetersPerSecond
-    _dragForce
+    _dragForceNewtons
       .copy(body.velocityMetersPerSecond)
       .multiplyScalar(-dragMagnitudeNewtons / speedMetersPerSecond)
-    addRocketForceAtPoint(body, _dragForce, body.positionMeters)
+    addRocketForceAtPoint(body, _dragForceNewtons, body.positionMeters)
   }
 
   integrateRocketRigidBody(body, deltaSeconds)

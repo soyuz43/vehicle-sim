@@ -445,14 +445,14 @@ export function applyRocketFinDeflectionVisuals(
 ) {
   if (!rocket?.finGroup) return rocket
 
-  const pitchDeflection = Number.isFinite(pitchDeflectionRadians) ? pitchDeflectionRadians : 0
-  const rollDeflection = Number.isFinite(rollDeflectionRadians) ? rollDeflectionRadians : 0
+  const safePitchDeflectionRadians = Number.isFinite(pitchDeflectionRadians) ? pitchDeflectionRadians : 0
+  const safeRollDeflectionRadians = Number.isFinite(rollDeflectionRadians) ? rollDeflectionRadians : 0
 
   for (const finMesh of rocket.finGroup.children) {
     const azimuthRadians = finMesh.userData?.azimuthRadians ?? 0
     const deflectionRadians =
-      -Math.cos(azimuthRadians) * pitchDeflection +
-      Math.sin(azimuthRadians) * rollDeflection
+      -Math.cos(azimuthRadians) * safePitchDeflectionRadians +
+      Math.sin(azimuthRadians) * safeRollDeflectionRadians
 
     // The fin mesh is turned to face out of the body, then the chord is
     // tilted about the radial axis, which is the fin hinge.

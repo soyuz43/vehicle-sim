@@ -167,7 +167,7 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
     forward.copy(params.forwardAxisLocal).applyQuaternion(_quat).normalize()
     lastForward.copy(forward)
 
-    const v = targetObject.userData?.velocity
+    const v = currentTargetObject.userData?.velocity
     if (v && v.isVector3) lastVel.copy(v)
     else lastVel.set(0, 0, 0)
 
@@ -239,7 +239,7 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
 
     // --- 2. Determine Velocity ---
     // Prefer explicit velocity from physics engine/main logic
-    const vUser = targetObject.userData?.velocity
+    const vUser = currentTargetObject.userData?.velocity
     if (vUser && vUser.isVector3) {
       vel.copy(vUser)
     } else {

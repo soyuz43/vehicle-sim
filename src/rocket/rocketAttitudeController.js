@@ -30,7 +30,7 @@ import {
 // frame rates as the tilt rates. That is accurate while the rocket is close
 // to vertical, which is the regime this prototype flies in.
 
-const _upWorld = new THREE.Vector3()
+const _upWorldUnit = new THREE.Vector3()
 const _worldUp = new THREE.Vector3(0, 1, 0)
 const _errorAxisWorld = new THREE.Vector3()
 const _errorLocal = new THREE.Vector3()
@@ -68,10 +68,10 @@ export function updateRocketAttitudeControl(body, controllerState, spec, deltaTi
 
   const deltaSeconds = Number.isFinite(deltaTimeSeconds) && deltaTimeSeconds > 0 ? deltaTimeSeconds : 0
 
-  getRocketUpVectorWorld(body, _upWorld)
-  _errorAxisWorld.crossVectors(_upWorld, _worldUp)
+  getRocketUpVectorWorld(body, _upWorldUnit)
+  _errorAxisWorld.crossVectors(_upWorldUnit, _worldUp)
 
-  const angleCosine = Math.min(1, Math.max(-1, _upWorld.dot(_worldUp)))
+  const angleCosine = Math.min(1, Math.max(-1, _upWorldUnit.dot(_worldUp)))
   const attitudeErrorRadians = Math.atan2(_errorAxisWorld.length(), angleCosine)
   controllerState.attitudeErrorRadians = attitudeErrorRadians
 

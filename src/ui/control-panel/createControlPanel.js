@@ -1,4 +1,4 @@
-﻿// src/ui/control-panel/createControlPanel.js
+// src/ui/control-panel/createControlPanel.js
 /**
  * ControlPanel — Unified developer controls for tire inflation, tuning, and dynamics.
  * Composes from design system Panel, Section, Slider, Select, Button components.
@@ -136,7 +136,7 @@ export function createControlPanel(config = {}) {
   modeContent.appendChild(modeRow);
 
   const modeHint = document.createElement('div');
-  modeHint.textContent = 'Rocket: SPACE/T ignite, S separate, M back to car';
+  modeHint.textContent = 'Rocket: SPACE/T ignite, X separate, M back to car';
   modeHint.style.fontSize = 'var(--ui-typeScale-xs)';
   modeHint.style.color = 'var(--ui-color-text-muted)';
   modeHint.style.fontFamily = 'var(--ui-font-mono)';

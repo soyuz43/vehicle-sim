@@ -32,17 +32,17 @@ import { applyRocketGroundContact } from './rocketGroundContact.js'
 // Every force is accumulated in the rigid body and integrated once, at the
 // fixed step, by the rocket's own integrator.
 
-const _gravityForce = new THREE.Vector3()
-const _thrustForce = new THREE.Vector3()
-const _thrustApplicationPoint = new THREE.Vector3()
-const _dragForce = new THREE.Vector3()
-const _dragApplicationPoint = new THREE.Vector3()
-const _finForceLocal = new THREE.Vector3()
-const _finForceWorld = new THREE.Vector3()
-const _finApplicationPointWorld = new THREE.Vector3()
-const _finLeverArmWorld = new THREE.Vector3()
-const _finTorqueWorld = new THREE.Vector3()
-const _upWorld = new THREE.Vector3()
+const _gravityForceNewtonsNewtons = new THREE.Vector3()
+const _thrustForceNewtons = new THREE.Vector3()
+const _thrustApplicationPointMeters = new THREE.Vector3()
+const _dragForceNewtonsNewtons = new THREE.Vector3()
+const _dragApplicationPointMeters = new THREE.Vector3()
+const _finForceLocalNewtons = new THREE.Vector3()
+const _finForceWorldNewtons = new THREE.Vector3()
+const _finApplicationPointWorldMeters = new THREE.Vector3()
+const _finLeverArmWorldMeters = new THREE.Vector3()
+const _finTorqueWorldNewtonMeters = new THREE.Vector3()
+const _upWorldUnit = new THREE.Vector3()
 
 export function updateRocketDynamics(rocket, deltaTimeSeconds, options = {}) {
   if (!rocket?.body || !rocket.spec) return rocket
@@ -54,26 +54,26 @@ export function updateRocketDynamics(rocket, deltaTimeSeconds, options = {}) {
   clearRocketForceAccumulator(body)
 
   // Gravity at the centre of mass.
-  _gravityForce.set(0, -EARTH_GRAVITY.standardMetersPerSecondSquared * body.massKg, 0)
-  addRocketForceAtPoint(body, _gravityForce, body.positionMeters)
+  _gravityForceNewtonsNewtons.set(0, -EARTH_GRAVITY.standardMetersPerSecondSquared * body.massKg, 0)
+  addRocketForceAtPoint(body, _gravityForceNewtonsNewtons, body.positionMeters)
 
   // The body up axis is needed by the thrust, by the drag application
   // point, by the fin application point, and by the attitude controller, so
   // it is resolved once per step.
-  getRocketUpVectorWorld(body, _upWorld)
+  getRocketUpVectorWorld(body, _upWorldUnit)
 
   // Thrust along the body up axis, applied at the engine bell.
   const throttle01 = rocket.throttle01 ?? (rocket.motorIgnited ? 1 : 0)
   if (rocket.motorIgnited && spec.thrustNewtons > 0) {
-    _thrustForce.copy(_upWorld).multiplyScalar(spec.thrustNewtons * throttle01)
-    _thrustApplicationPoint
+    _thrustForceNewtons.copy(_upWorldUnit).multiplyScalar(spec.thrustNewtons * throttle01)
+    _thrustApplicationPointMeters
       .copy(body.positionMeters)
       .addScaledVector(
-        _upWorld,
+        _upWorldUnit,
         spec.thrustApplicationStructuralYMeters -
           rocket.massProperties.centerOfMassStructuralYMeters
       )
-    addRocketForceAtPoint(body, _thrustForce, _thrustApplicationPoint)
+    addRocketForceAtPoint(body, _thrustForceNewtons, _thrustApplicationPointMeters)
   }
 
   // Quadratic drag at the centre of pressure. The drag is the airframe's
@@ -87,19 +87,19 @@ export function updateRocketDynamics(rocket, deltaTimeSeconds, options = {}) {
       spec.referenceAreaSquareMeters *
       speedMetersPerSecond *
       speedMetersPerSecond
-    _dragForce
+    _dragForceNewtonsNewtons
       .copy(body.velocityMetersPerSecond)
       .multiplyScalar(-dragMagnitudeNewtons / speedMetersPerSecond)
     const dragApplicationStructuralYMeters =
       rocket.dragApplicationStructuralYMeters ?? spec.dragApplicationStructuralYMeters
-    _dragApplicationPoint
+    _dragApplicationPointMeters
       .copy(body.positionMeters)
       .addScaledVector(
-        _upWorld,
+        _upWorldUnit,
         dragApplicationStructuralYMeters -
           rocket.massProperties.centerOfMassStructuralYMeters
       )
-    addRocketForceAtPoint(body, _dragForce, _dragApplicationPoint)
+    addRocketForceAtPoint(body, _dragForceNewtonsNewtons, _dragApplicationPointMeters)
   }
 
   // Unilateral ground contact.
@@ -167,23 +167,23 @@ function applyRocketFinControl(rocket, body, spec) {
 
   // The side force points opposite to the commanded nose swing: the fins
   // push the tail one way and the nose the other.
-  _finForceLocal
+  _finForceLocalNewtons
     .set(-Math.sin(rollDeflectionRadians), 0, -Math.sin(pitchDeflectionRadians))
     .multiplyScalar(forceScaleNewtons)
-  getRocketLocalVectorToWorld(body, _finForceLocal, _finForceWorld)
+  getRocketLocalVectorToWorld(body, _finForceLocalNewtons, _finForceWorldNewtons)
 
   const finApplicationStructuralYMeters = spec.finApplicationStructuralYMeters
-  _finApplicationPointWorld
+  _finApplicationPointWorldMeters
     .copy(body.positionMeters)
     .addScaledVector(
-      _upWorld,
+      _upWorldUnit,
       finApplicationStructuralYMeters - rocket.massProperties.centerOfMassStructuralYMeters
     )
 
   // The moment the fin force produces about the centre of mass.
-  _finLeverArmWorld.copy(_finApplicationPointWorld).sub(body.positionMeters)
-  _finTorqueWorld.crossVectors(_finLeverArmWorld, _finForceWorld)
-  controls.appliedFinTorqueNewtonMeters.copy(_finTorqueWorld)
+  _finLeverArmWorldMeters.copy(_finApplicationPointWorldMeters).sub(body.positionMeters)
+  _finTorqueWorldNewtonMeters.crossVectors(_finLeverArmWorldMeters, _finForceWorldNewtons)
+  controls.appliedFinTorqueNewtonMeters.copy(_finTorqueWorldNewtonMeters)
 
-  addRocketForceAtPoint(body, _finForceWorld, _finApplicationPointWorld)
+  addRocketForceAtPoint(body, _finForceWorldNewtons, _finApplicationPointWorldMeters)
 }

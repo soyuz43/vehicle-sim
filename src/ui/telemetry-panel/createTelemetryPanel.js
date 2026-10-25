@@ -25,6 +25,7 @@ const SECTIONS = [
   { id: 'brakes', title: 'Brakes', icon: 'alertTriangle' },
   { id: 'aero', title: 'Aero', icon: 'activity' },
   { id: 'suspension', title: 'Suspension', icon: 'trendingUp' },
+  { id: 'rocket', title: 'Rocket', icon: 'database' },
 ];
 
 const DEFAULT_CONFIG = {
@@ -160,6 +161,9 @@ export function createTelemetryPanel(config = {}) {
         break;
       case 'suspension':
         addSuspensionTelemetry(sectionContent);
+        break;
+      case 'rocket':
+        addRocketTelemetry(sectionContent);
         break;
     }
   }
@@ -548,8 +552,32 @@ export function createTelemetryPanel(config = {}) {
       valueDisplays.get('travel-' + ws.id)?.setValue(ws.suspensionTravelMeters);
       valueDisplays.get('spring-' + ws.id)?.setValue(ws.springForceNewtons);
     }
+
   }
 
+  function updateRocketTelemetry(rocketTelemetry) {
+    if (!rocketTelemetry) {
+      valueDisplays.get('rocketThrust')?.setValue(0);
+      return;
+    }
+    valueDisplays.get('rocketThrust')?.setValue(rocketTelemetry.thrustNewtons);
+  }
+
+  function addRocketTelemetry(container) {
+    const grid = createVStack({ gap: 'var(--ui-space-xs)' });
+
+    const thrustVD = createValueDisplay({
+      label: 'Thrust',
+      value: 0,
+      unit: 'N',
+      precision: 0,
+      size: 'sm',
+    });
+    valueDisplays.set('rocketThrust', thrustVD);
+    grid.appendChild(thrustVD.element);
+
+    container.appendChild(grid);
+  }
   // Mobile bottom sheet
   let mobileSheet = null;
   if (typeof window !== 'undefined') {
@@ -561,6 +589,7 @@ export function createTelemetryPanel(config = {}) {
     element: panel.element,
     panel,
     update,
+    updateRocketTelemetry,
     collapse: () => panel.collapse(true),
     expand: () => panel.collapse(false),
     toggle: panel.toggle,

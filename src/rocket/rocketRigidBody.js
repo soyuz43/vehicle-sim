@@ -21,12 +21,12 @@ import * as THREE from 'three'
 //   local +Z = body forward
 // The stored position is always the CENTER OF MASS, not the visual origin.
 
-const _scratchForce = new THREE.Vector3()
-const _scratchLeverArm = new THREE.Vector3()
-const _scratchTorque = new THREE.Vector3()
-const _scratchBodyTorque = new THREE.Vector3()
-const _scratchBodyAngularAcceleration = new THREE.Vector3()
-const _scratchWorldAngularAcceleration = new THREE.Vector3()
+const _scratchForceNewtons = new THREE.Vector3()
+const _scratchLeverArmMeters = new THREE.Vector3()
+const _scratchTorqueNewtonMeters = new THREE.Vector3()
+const _scratchBodyTorqueNewtonMeters = new THREE.Vector3()
+const _scratchBodyAngularAccelerationRadiansPerSecondSquared = new THREE.Vector3()
+const _scratchWorldAngularAccelerationRadiansPerSecondSquared = new THREE.Vector3()
 const _scratchInverseQuaternion = new THREE.Quaternion()
 const _scratchOmegaQuaternion = new THREE.Quaternion()
 const _scratchDeltaQuaternion = new THREE.Quaternion()
@@ -105,11 +105,11 @@ export function addRocketForceAtPoint(body, forceNewtons, applicationPointWorldM
 
   // torque = r x F, where r runs from the CENTER OF MASS to the point of
   // application.
-  _scratchLeverArm
+  _scratchLeverArmMeters
     .copy(applicationPointWorldMeters)
     .sub(body.positionMeters)
-  _scratchTorque.crossVectors(_scratchLeverArm, forceNewtons)
-  body.torqueAccumulatorNewtonMeters.add(_scratchTorque)
+  _scratchTorqueNewtonMeters.crossVectors(_scratchLeverArmMeters, forceNewtons)
+  body.torqueAccumulatorNewtonMeters.add(_scratchTorqueNewtonMeters)
 
   return body
 }
@@ -133,9 +133,9 @@ export function applyRocketImpulse(body, impulseNewtonsSecond, applicationPointW
 
   if (!applicationPointWorldMeters) return body
 
-  _scratchLeverArm.copy(applicationPointWorldMeters).sub(body.positionMeters)
-  _scratchTorque.crossVectors(_scratchLeverArm, impulseNewtonsSecond)
-  applyRocketAngularImpulseInWorldFrame(body, _scratchTorque)
+  _scratchLeverArmMeters.copy(applicationPointWorldMeters).sub(body.positionMeters)
+  _scratchTorqueNewtonMeters.crossVectors(_scratchLeverArmMeters, impulseNewtonsSecond)
+  applyRocketAngularImpulseInWorldFrame(body, _scratchTorqueNewtonMeters)
 
   return body
 }
@@ -146,18 +146,18 @@ export function applyRocketAngularImpulseInWorldFrame(body, angularImpulseNewton
   // Angular impulse arrives in the world frame; the inverse inertia tensor
   // is diagonal in the BODY frame, so rotate in, scale, rotate out.
   _scratchInverseQuaternion.copy(body.orientationQuaternion).invert()
-  _scratchBodyTorque
+  _scratchBodyTorqueNewtonMeters
     .copy(angularImpulseNewtonMeterSeconds)
     .applyQuaternion(_scratchInverseQuaternion)
-  _scratchBodyTorque.set(
-    _scratchBodyTorque.x / body.inertiaTensorKgMeterSquared.x,
-    _scratchBodyTorque.y / body.inertiaTensorKgMeterSquared.y,
-    _scratchBodyTorque.z / body.inertiaTensorKgMeterSquared.z
+  _scratchBodyTorqueNewtonMeters.set(
+    _scratchBodyTorqueNewtonMeters.x / body.inertiaTensorKgMeterSquared.x,
+    _scratchBodyTorqueNewtonMeters.y / body.inertiaTensorKgMeterSquared.y,
+    _scratchBodyTorqueNewtonMeters.z / body.inertiaTensorKgMeterSquared.z
   )
-  _scratchWorldAngularAcceleration
-    .copy(_scratchBodyTorque)
+  _scratchWorldAngularAccelerationRadiansPerSecondSquared
+    .copy(_scratchBodyTorqueNewtonMeters)
     .applyQuaternion(body.orientationQuaternion)
-  body.angularVelocityRadiansPerSecond.add(_scratchWorldAngularAcceleration)
+  body.angularVelocityRadiansPerSecond.add(_scratchWorldAngularAccelerationRadiansPerSecondSquared)
 
   return body
 }
@@ -185,22 +185,22 @@ export function integrateRocketRigidBody(body, deltaTimeSeconds) {
 
   // Torque -> body frame -> divide by the diagonal inertia -> back to world.
   _scratchInverseQuaternion.copy(body.orientationQuaternion).invert()
-  _scratchBodyTorque
+  _scratchBodyTorqueNewtonMeters
     .copy(body.torqueAccumulatorNewtonMeters)
     .applyQuaternion(_scratchInverseQuaternion)
-  _scratchBodyAngularAcceleration.set(
-    _scratchBodyTorque.x / body.inertiaTensorKgMeterSquared.x,
-    _scratchBodyTorque.y / body.inertiaTensorKgMeterSquared.y,
-    _scratchBodyTorque.z / body.inertiaTensorKgMeterSquared.z
+  _scratchBodyAngularAccelerationRadiansPerSecondSquared.set(
+    _scratchBodyTorqueNewtonMeters.x / body.inertiaTensorKgMeterSquared.x,
+    _scratchBodyTorqueNewtonMeters.y / body.inertiaTensorKgMeterSquared.y,
+    _scratchBodyTorqueNewtonMeters.z / body.inertiaTensorKgMeterSquared.z
   )
-  _scratchWorldAngularAcceleration
-    .copy(_scratchBodyAngularAcceleration)
+  _scratchWorldAngularAccelerationRadiansPerSecondSquared
+    .copy(_scratchBodyAngularAccelerationRadiansPerSecondSquared)
     .applyQuaternion(body.orientationQuaternion)
   body.angularAccelerationRadiansPerSecondSquared.copy(
-    _scratchWorldAngularAcceleration
+    _scratchWorldAngularAccelerationRadiansPerSecondSquared
   )
   body.angularVelocityRadiansPerSecond.addScaledVector(
-    _scratchWorldAngularAcceleration,
+    _scratchWorldAngularAccelerationRadiansPerSecondSquared,
     deltaSeconds
   )
 
