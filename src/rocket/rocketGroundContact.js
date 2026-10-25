@@ -122,17 +122,23 @@ export function applyRocketGroundContact(rocket, options = {}, deltaTimeSeconds 
 
   // Feet / base ring.
   addContactSamples(0, baseRadiusMeters, sampleCount)
-  // Body midpoint, body top / nose base, nose midpoint, and nose tip. These
-  // extra stations catch an inverted rocket's nose and a horizontal body
-  // resting on its side.
+  // Body midpoint and body top / nose base. These extra stations catch an
+  // inverted rocket and a horizontal body resting on its side.
   addContactSamples(bodyLengthMeters * 0.5, bodyRadiusMeters, sampleCount)
   addContactSamples(bodyLengthMeters, bodyRadiusMeters, sampleCount)
-  addContactSamples(
-    bodyLengthMeters + noseLengthMeters * 0.5,
-    bodyRadiusMeters * 0.5,
-    sampleCount
-  )
-  addContactSamples(bodyLengthMeters + noseLengthMeters, 0, 1)
+
+  // A separated remaining body has no attached nose even though the shared
+  // specification still contains the nose dimensions. Skip the nose stations
+  // after separation so invisible geometry cannot touch the terrain before
+  // the surviving body does.
+  if (!rocket.stageSeparated) {
+    addContactSamples(
+      bodyLengthMeters + noseLengthMeters * 0.5,
+      bodyRadiusMeters * 0.5,
+      sampleCount
+    )
+    addContactSamples(bodyLengthMeters + noseLengthMeters, 0, 1)
+  }
 
   if (activeContactCount === 0) return rocket
 

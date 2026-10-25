@@ -7,6 +7,7 @@ import { updateRocketDynamics } from '../src/rocket/updateRocketDynamics.js'
 import { createRocketRigidBody } from '../src/rocket/rocketRigidBody.js'
 import { createRocketAttitudeControllerState } from '../src/rocket/rocketAttitudeController.js'
 import { separateRocketStage } from '../src/rocket/stageSeparation.js'
+import { applyRocketGroundContact } from '../src/rocket/rocketGroundContact.js'
 import { createFlatTerrainContactQuery } from '../src/terrain/createFlatTerrainContactQuery.js'
 import { createSimulation } from '../src/createSimulation.js'
 import { runSimulationFrame } from '../src/runSimulationFrame.js'
@@ -287,4 +288,42 @@ test('separating a stage twice is refused', () => {
   assert.ok(system.separateStage())
   assert.equal(system.separateStage(), null)
   assert.equal(system.debrisEntities.length, 1)
+})
+
+test('separated rocket ignores phantom nose contact while inverted', () => {
+  const terrainContactQuery = createFlatTerrainContactQuery({
+    groundHeightMeters: 0,
+    surfaceKind: 'asphalt',
+  })
+  const system = createTestRocketSystem({ terrainContactQuery })
+  const rocket = system.rocket
+
+  assert.ok(system.separateStage())
+  assert.equal(rocket.stageSeparated, true)
+
+  // Place the remaining body high enough that its visible end is above the
+  // ground. With the default 12 m body, 3.5 m nose, and post-separation
+  // centre of mass at structural y = 6 m, this inverted configuration puts
+  // the visible body end at world y = 2 m while the removed nose's phantom
+  // tip would be at world y = -1.5 m.
+  rocket.body.positionMeters.set(0, 8, 0)
+  rocket.body.orientationQuaternion.setFromAxisAngle(
+    new THREE.Vector3(1, 0, 0),
+    Math.PI
+  )
+  rocket.body.velocityMetersPerSecond.set(0, 0, 0)
+  rocket.body.angularVelocityRadiansPerSecond.set(0, 0, 0)
+  rocket.body.forceAccumulatorNewtons.set(0, 0, 0)
+  rocket.body.torqueAccumulatorNewtonMeters.set(0, 0, 0)
+
+  applyRocketGroundContact(rocket, { terrainContactQuery }, FIXED_STEP_SECONDS)
+
+  assert.ok(
+    rocket.body.forceAccumulatorNewtons.lengthSq() === 0,
+    `expected no ground force from the phantom nose, got ${rocket.body.forceAccumulatorNewtons.toArray()}`
+  )
+  assert.ok(
+    rocket.body.torqueAccumulatorNewtonMeters.lengthSq() === 0,
+    `expected no ground torque from the phantom nose, got ${rocket.body.torqueAccumulatorNewtonMeters.toArray()}`
+  )
 })
