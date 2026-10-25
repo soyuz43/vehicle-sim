@@ -67,6 +67,21 @@ export class CameraManager {
   }
 
   /**
+   * Point the camera at a different object (vehicle <-> rocket).
+   * The active mode is re-entered so the camera snaps to the new target
+   * instead of flying across the scene.
+   */
+  setTarget(targetObject) {
+    if (!targetObject) return
+    // Every mode must know the current target, otherwise cycling away from
+    // the active view can follow a stale vehicle after entering rocket mode.
+    for (const mode of Object.values(this.modes)) {
+      mode.setTarget?.(targetObject)
+    }
+    this.modes[this.activeMode]?.enter?.()
+  }
+
+  /**
    * Cycle to the next camera mode (used by 'C' key)
    */
   cycleMode() {

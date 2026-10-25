@@ -13,6 +13,7 @@ import { createDriverHUD } from './ui/driver-hud/createDriverHUD.js'
 import { createTelemetryPanel } from './ui/telemetry-panel/createTelemetryPanel.js'
 import { createControlPanel } from './ui/control-panel/createControlPanel.js'
 import { createConfigPanel } from './ui/config-panel/createConfigPanel.js'
+import { createRocketPanel } from './rocket/createRocketPanel.js'
 import { applySessionConfiguration } from './vehicle/config/applySessionConfiguration.js'
 import { resolveInitialVehicleConfiguration } from './vehicle/config/vehicleConfigurationStorage.js'
 import { initTheme } from './ui/design-system/theme.js'
@@ -62,7 +63,7 @@ const simulation = createSimulation({
   keyState,
   vehicleConfiguration: resolveInitialVehicleConfiguration(),
 })
-const { terrainSelection, vehicleController, car, initialVehicleConfig } = simulation
+const { terrainSelection, vehicleController, car, initialVehicleConfig, rocketSystem } = simulation
 const cameraManager = new CameraManager(camera, renderer, car)
 
 const inputKeys = new Map([
@@ -72,15 +73,116 @@ const inputKeys = new Map([
   ['ArrowRight', 'right'], ['d', 'right'], ['D', 'right'],
   [' ', 'handbrake'],
 ])
+// The rocket's attitude is controlled by its fins, so the driving keys
+// become fin commands in rocket mode. The fins have to be armed with F
+// before they produce any force.
+const rocketControlKeys = new Map([
+  ['w', 'pitchForward'], ['W', 'pitchForward'],
+  ['s', 'pitchBackward'], ['S', 'pitchBackward'],
+  ['a', 'rollLeft'], ['A', 'rollLeft'],
+  ['d', 'rollRight'], ['D', 'rollRight'],
+])
+// Which simulation owns the fixed step. The rocket prototype and the
+// vehicle never step at the same time.
+function applySimulationMode(mode) {
+  const isRocketMode = mode === 'rocket'
+  simulation.mode = isRocketMode ? 'rocket' : 'car'
+  car.visible = !isRocketMode
+  rocketSystem.group.visible = isRocketMode
+
+  // A fin key held while the mode changed would keep commanding the
+  // control surfaces.
+  rocketSystem.clearControlInput()
+
+  if (isRocketMode) {
+    rocketSystem.reset()
+    cameraManager.setTarget(rocketSystem.getRocketGroup())
+    // A driving key held while the mode changed would keep the vehicle
+    // accelerating the moment the mode switches back.
+    inputKeys.forEach((control) => {
+      keyState[control] = false
+    })
+  } else {
+    cameraManager.setTarget(car)
+  }
+
+  if (isRocketMode) rocketPanel.expand()
+  else rocketPanel.collapse()
+}
+
 window.addEventListener('keydown', (event) => {
+  // Rocket mode owns its keys: the driving keys would fight the rocket, and
+  // the brake key doubles as the stage-separation key.
+  if (simulation.mode === 'rocket') {
+    // The toggles are one-press actions. A held key produces repeated
+    // keydown events, and honoring those would rapidly arm/disarm or
+    // switch/reset the vehicle while the pilot is only holding the key.
+    const isOnePressToggle =
+      event.key === ' ' ||
+      event.key === 't' || event.key === 'T' ||
+      event.key === 'f' || event.key === 'F' ||
+      event.key === 'x' || event.key === 'X' ||
+      event.key === 'm' || event.key === 'M' ||
+      event.key === 'r' || event.key === 'R'
+    if (isOnePressToggle && event.repeat) return
+
+    if (event.key === ' ' || event.key === 't' || event.key === 'T') {
+      event.preventDefault()
+      rocketSystem.setMotorIgnited(!rocketSystem.isMotorIgnited())
+      return
+    }
+    // The fins are the attitude authority: WASD commands the control
+    // surfaces, and F arms them.
+    const finControl = rocketControlKeys.get(event.key)
+    if (finControl) {
+      event.preventDefault()
+      rocketSystem.setControlInput(finControl, true)
+      return
+    }
+    if (event.key === 'f' || event.key === 'F') {
+      event.preventDefault()
+      rocketSystem.toggleFins()
+      return
+    }
+    // The stage separation moved off S, which is now a fin command.
+    if (event.key === 'x' || event.key === 'X') {
+      event.preventDefault()
+      rocketSystem.requestStageSeparation()
+      return
+    }
+    if (event.key === 'm' || event.key === 'M') {
+      applySimulationMode('car')
+      controlPanel.setSimulationMode('car')
+      return
+    }
+    if (event.key === 'r' || event.key === 'R') {
+      rocketSystem.reset()
+      return
+    }
+    if (event.key === 'c' || event.key === 'C') cameraManager.cycleMode()
+    return
+  }
+
   const control = inputKeys.get(event.key)
   if (control) keyState[control] = true
   else if (event.key === '[') vehicleController.requestShiftDown()
   else if (event.key === ']') vehicleController.requestShiftUp()
   else if (event.key === 'c' || event.key === 'C') cameraManager.cycleMode()
   else if (event.key === 'r' || event.key === 'R') vehicleController.reset()
+  else if (event.key === 'm' || event.key === 'M') {
+    applySimulationMode('rocket')
+    controlPanel.setSimulationMode('rocket')
+  }
 })
 window.addEventListener('keyup', (event) => {
+  if (simulation.mode === 'rocket') {
+    const finControl = rocketControlKeys.get(event.key)
+    if (finControl) {
+      rocketSystem.setControlInput(finControl, false)
+      return
+    }
+  }
+
   const control = inputKeys.get(event.key)
   if (control) keyState[control] = false
 })
@@ -93,6 +195,7 @@ const controlPanel = createControlPanel({
   onDynamicsTuningChange: (values) => vehicleController.setDynamicsTuning?.(values),
   onRearDifferentialChange: (type) => vehicleController.setRearDifferentialType?.(type),
   onReset: () => vehicleController.resetDynamicsTuning?.(),
+  onSimulationModeChange: (mode) => applySimulationMode(mode),
 })
 // The configuration the running controller actually carries. An Apply that
 // changes nothing is a no-op instead of a redundant re-apply.
@@ -168,7 +271,14 @@ function commitTerrainSelection(terrain) {
   configPanel.markTerrainApplied(terrain)
 }
 
-const panels = { driverHUD, telemetryPanel, controlPanel }
+const rocketPanel = createRocketPanel({ anchor: 'bottom-center' })
+rocketPanel.collapse()
+
+// The stored panel state carries the simulation mode, so a reload can come
+// back into the simulation it was left in.
+applySimulationMode(controlPanel.getSimulationMode())
+
+const panels = { driverHUD, telemetryPanel, controlPanel, rocketPanel }
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
@@ -179,7 +289,7 @@ window.addEventListener('resize', () => {
 // Example: __vehicleSim.vehicleController.setTransmission('manual-6')
 // Example: __vehicleSim.vehicleController.setSuspension('front', 'susp-double-wishbone')
 // Example: __vehicleSim.vehicleController.setSuspension('rear', 'susp-solid-axle')
-window.__vehicleSim = { vehicleController, simulation, camera, renderer, cameraManager, panels }
+window.__vehicleSim = { vehicleController, rocketSystem, simulation, camera, renderer, cameraManager, panels }
 
 const clock = new THREE.Clock()
 function animate() {

@@ -17,6 +17,9 @@ const _up = new THREE.Vector3(0, 1, 0)
  * Interactive mouse control that loosely follows the car.
  */
 export function createOrbitCameraControls(camera, renderer, targetObject, config = {}) {
+  // The followed object can be swapped at runtime (vehicle <-> rocket), so
+  // it is held in a mutable binding instead of a closure constant.
+  let currentTargetObject = targetObject
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.enablePan = false
@@ -45,8 +48,8 @@ export function createOrbitCameraControls(camera, renderer, targetObject, config
   const desiredCamPos = new THREE.Vector3()
 
   function computeDesiredPose() {
-    targetObject.getWorldPosition(_v3_1) // Car Pos
-    targetObject.getWorldQuaternion(_quat)
+    currentTargetObject.getWorldPosition(_v3_1) // Car Pos
+    currentTargetObject.getWorldQuaternion(_quat)
     
     // Calculate Forward World Direction
     _v3_2.copy(forwardAxisLocal).applyQuaternion(_quat).normalize()
@@ -96,7 +99,16 @@ export function createOrbitCameraControls(camera, renderer, targetObject, config
     controls.update()
   }
 
-  return { enter, exit, update, zoom, controls }
+  return {
+    enter,
+    exit,
+    update,
+    zoom,
+    controls,
+    setTarget: (nextTargetObject) => {
+      currentTargetObject = nextTargetObject
+    },
+  }
 }
 
 /**
@@ -104,6 +116,8 @@ export function createOrbitCameraControls(camera, renderer, targetObject, config
  * Physics-based spring arm that reacts to speed and acceleration.
  */
 export function createChaseCameraControls(camera, targetObject, config = {}) {
+  // The followed object can be swapped at runtime (vehicle <-> rocket).
+  let currentTargetObject = targetObject
   // Tunables (Tuned for seconds-based dt)
   const params = {
     baseHeight: config.baseHeight ?? 5.5,
@@ -148,12 +162,12 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
 
   function enter() {
     // Initialize state to prevent jump on first frame
-    targetObject.getWorldPosition(lastCarPos)
-    targetObject.getWorldQuaternion(_quat)
+    currentTargetObject.getWorldPosition(lastCarPos)
+    currentTargetObject.getWorldQuaternion(_quat)
     forward.copy(params.forwardAxisLocal).applyQuaternion(_quat).normalize()
     lastForward.copy(forward)
 
-    const v = targetObject.userData?.velocity
+    const v = currentTargetObject.userData?.velocity
     if (v && v.isVector3) lastVel.copy(v)
     else lastVel.set(0, 0, 0)
 
@@ -219,13 +233,13 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
     if (dt <= 0.0001) return
 
     // --- 1. Read Car State ---
-    targetObject.getWorldPosition(carPos)
-    targetObject.getWorldQuaternion(_quat)
+    currentTargetObject.getWorldPosition(carPos)
+    currentTargetObject.getWorldQuaternion(_quat)
     forward.copy(params.forwardAxisLocal).applyQuaternion(_quat).normalize()
 
     // --- 2. Determine Velocity ---
     // Prefer explicit velocity from physics engine/main logic
-    const vUser = targetObject.userData?.velocity
+    const vUser = currentTargetObject.userData?.velocity
     if (vUser && vUser.isVector3) {
       vel.copy(vUser)
     } else {
@@ -293,7 +307,15 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
     )
   }
 
-  return { enter, exit, update, zoom }
+  return {
+    enter,
+    exit,
+    update,
+    zoom,
+    setTarget: (nextTargetObject) => {
+      currentTargetObject = nextTargetObject
+    },
+  }
 }
 
 /**
@@ -303,13 +325,15 @@ export function createChaseCameraControls(camera, targetObject, config = {}) {
 export function createFirstPersonCameraControls(camera, targetObject, config = {}) {
   const localOffset = config.offset || new THREE.Vector3(0, 0.8, 1.0)
   const offset = new THREE.Vector3()
+  // The followed object can be swapped at runtime (vehicle <-> rocket).
+  let currentTargetObject = targetObject
 
   function enter() {}
   function exit() {}
   
   function update(dt) {
-    targetObject.getWorldPosition(_v3_1)
-    targetObject.getWorldQuaternion(_quat)
+    currentTargetObject.getWorldPosition(_v3_1)
+    currentTargetObject.getWorldQuaternion(_quat)
     
     offset.copy(localOffset).applyQuaternion(_quat)
     
@@ -317,5 +341,12 @@ export function createFirstPersonCameraControls(camera, targetObject, config = {
     camera.quaternion.copy(_quat)
   }
   
-  return { enter, exit, update }
+  return {
+    enter,
+    exit,
+    update,
+    setTarget: (nextTargetObject) => {
+      currentTargetObject = nextTargetObject
+    },
+  }
 }
