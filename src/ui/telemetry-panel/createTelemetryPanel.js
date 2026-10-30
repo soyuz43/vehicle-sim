@@ -426,6 +426,30 @@ export function createTelemetryPanel(config = {}) {
     }
     grid.appendChild(sfGrid);
 
+    for (const [field, label] of [
+      ['bumpStopForceNewtons', 'Bump Stop'],
+      ['reboundStopForceNewtons', 'Rebound Stop'],
+    ]) {
+      const stopGrid = createVStack({ gap: 'var(--ui-space-xs)' });
+      for (const wheel of [
+        'front-left',
+        'front-right',
+        'rear-left',
+        'rear-right',
+      ]) {
+        const stopDisplay = createValueDisplay({
+          label: `${label} ${wheel.toUpperCase()}`,
+          value: 0,
+          unit: 'N',
+          precision: 0,
+          size: 'sm',
+        });
+        valueDisplays.set(`${field}-${wheel}`, stopDisplay);
+        stopGrid.appendChild(stopDisplay.element);
+      }
+      grid.appendChild(stopGrid);
+    }
+
     container.appendChild(grid);
   }
 
@@ -551,6 +575,12 @@ export function createTelemetryPanel(config = {}) {
     for (const ws of wheelStates) {
       valueDisplays.get('travel-' + ws.id)?.setValue(ws.suspensionTravelMeters);
       valueDisplays.get('spring-' + ws.id)?.setValue(ws.springForceNewtons);
+      valueDisplays
+        .get('bumpStopForceNewtons-' + ws.id)
+        ?.setValue(ws.bumpStopForceNewtons);
+      valueDisplays
+        .get('reboundStopForceNewtons-' + ws.id)
+        ?.setValue(ws.reboundStopForceNewtons);
     }
 
   }

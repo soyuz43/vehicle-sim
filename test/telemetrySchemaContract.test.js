@@ -40,6 +40,8 @@ const REQUIRED_TELEMETRY_FIELDS = [
   'chassisAttitude.heaveOffsetMeters',
   'wheelStates[0].suspensionTravelMeters',
   'wheelStates[0].springForceNewtons',
+  'wheelStates[0].bumpStopForceNewtons',
+  'wheelStates[0].reboundStopForceNewtons',
 ]
 
 function resolveSnapshotPath(snapshot, path) {

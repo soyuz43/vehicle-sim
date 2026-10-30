@@ -2,6 +2,7 @@
 
 import { EARTH_GRAVITY } from '../../simulation/simulationConstants.js'
 import { resolveSuspensionTravelLimits } from './suspensionTravelLimits.js'
+import { computeProgressiveSuspensionStopForceNewtons } from './suspensionStopForces.js'
 
 const DEFAULT_SUSPENSION_SPEC = Object.freeze({
   suspensionEnabled: true,
@@ -9,6 +10,10 @@ const DEFAULT_SUSPENSION_SPEC = Object.freeze({
   suspensionTravelMeters: 0.22,
   suspensionTargetStaticCompressionRatio01: 0.4,
   suspensionDampingRatio: 0.35,
+  suspensionBumpStopEngagementMeters: 0.05,
+  suspensionBumpStopMaximumForceNewtons: 10000,
+  suspensionReboundStopEngagementMeters: 0.04,
+  suspensionReboundStopMaximumForceNewtons: 5000,
   minimumNormalForceNewtons: 0,
 })
 
@@ -21,6 +26,8 @@ export function createSuspensionNormalForceSummary() {
     airborneWheelCount: 0,
     totalSpringForceNewtons: 0,
     totalDamperForceNewtons: 0,
+    totalBumpStopForceNewtons: 0,
+    totalReboundStopForceNewtons: 0,
     totalRawSuspensionNormalForceNewtons: 0,
     totalBaseNormalForceNewtons: 0,
     vehicleWeightReferenceNewtons: 0,
@@ -39,6 +46,8 @@ export function resetSuspensionNormalForceSummary(summary) {
   summary.airborneWheelCount = 0
   summary.totalSpringForceNewtons = 0
   summary.totalDamperForceNewtons = 0
+  summary.totalBumpStopForceNewtons = 0
+  summary.totalReboundStopForceNewtons = 0
   summary.totalRawSuspensionNormalForceNewtons = 0
   summary.totalBaseNormalForceNewtons = 0
   summary.vehicleWeightReferenceNewtons = 0
@@ -61,9 +70,14 @@ export function resetWheelSuspensionNormalForceState(wheelState) {
   wheelState.suspensionTravelMeters = 0
   wheelState.suspensionMaximumCompressionMeters = 0
   wheelState.suspensionMaximumDroopMeters = 0
+  wheelState.suspensionBumpStopEngagementMeters = 0
+  wheelState.suspensionBumpStopMaximumForceNewtons = 0
+  wheelState.suspensionReboundStopEngagementMeters = 0
+  wheelState.suspensionReboundStopMaximumForceNewtons = 0
   wheelState.suspensionCurrentLengthMeters = 0
   wheelState.previousSuspensionLengthMeters = 0
   wheelState.suspensionCompressionMeters = 0
+  wheelState.suspensionDroopMeters = 0
   wheelState.previousSuspensionCompressionMeters = 0
   wheelState.suspensionCompressionRatio01 = 0
   wheelState.suspensionCompressionVelocityMetersPerSecond = 0
@@ -73,6 +87,8 @@ export function resetWheelSuspensionNormalForceState(wheelState) {
   wheelState.suspensionReboundDampingNewtonsPerMeterPerSecond = 0
   wheelState.springForceNewtons = 0
   wheelState.damperForceNewtons = 0
+  wheelState.bumpStopForceNewtons = 0
+  wheelState.reboundStopForceNewtons = 0
   wheelState.dampingForceNewtons = 0
   wheelState.rawSuspensionNormalForceNewtons = 0
   wheelState.baseNormalForceNewtons = 0
@@ -131,6 +147,8 @@ export function updateSuspensionNormalForceState(
     activeSummary.groundedWheelCount += 1
     activeSummary.totalSpringForceNewtons += wheelState.springForceNewtons
     activeSummary.totalDamperForceNewtons += wheelState.damperForceNewtons
+    activeSummary.totalBumpStopForceNewtons += wheelState.bumpStopForceNewtons
+    activeSummary.totalReboundStopForceNewtons += wheelState.reboundStopForceNewtons
     activeSummary.totalRawSuspensionNormalForceNewtons +=
       wheelState.rawSuspensionNormalForceNewtons
     totalRawSuspensionNormalForceNewtons +=
@@ -217,6 +235,11 @@ function updateWheelSuspensionNormalForceState(
     0,
     suspensionConfig.travelMeters
   )
+  const droopMeters = clamp(
+    currentLengthMeters - suspensionConfig.restLengthMeters,
+    0,
+    suspensionConfig.maximumDroopMeters
+  )
   const hasPreviousSample =
     wheelState.hasSuspensionCompressionSample === true
   const previousCompressionMeters = clamp(
@@ -241,8 +264,26 @@ function updateWheelSuspensionNormalForceState(
     dampingCoefficientNewtonsPerMeterPerSecond *
       compressionVelocityMetersPerSecond
   )
+  const bumpStopForceNewtons = computeProgressiveSuspensionStopForceNewtons(
+    compressionMeters,
+    suspensionConfig.maximumCompressionMeters,
+    suspensionConfig.bumpStopEngagementMeters,
+    suspensionConfig.bumpStopMaximumForceNewtons
+  )
+  const reboundStopForceNewtons = computeProgressiveSuspensionStopForceNewtons(
+    droopMeters,
+    suspensionConfig.maximumDroopMeters,
+    suspensionConfig.reboundStopEngagementMeters,
+    suspensionConfig.reboundStopMaximumForceNewtons
+  )
   const rawSuspensionNormalForceNewtons = clamp(
-    Math.max(0, springForceNewtons + damperForceNewtons),
+    Math.max(
+      0,
+      springForceNewtons +
+        bumpStopForceNewtons -
+        reboundStopForceNewtons +
+        damperForceNewtons
+    ),
     0,
     suspensionConfig.maximumNormalForceNewtons
   )
@@ -250,6 +291,7 @@ function updateWheelSuspensionNormalForceState(
   wheelState.suspensionCurrentLengthMeters = currentLengthMeters
   wheelState.previousSuspensionLengthMeters = currentLengthMeters
   wheelState.suspensionCompressionMeters = compressionMeters
+  wheelState.suspensionDroopMeters = droopMeters
   wheelState.previousSuspensionCompressionMeters = compressionMeters
   wheelState.suspensionCompressionRatio01 = clamp01(
     compressionMeters / suspensionConfig.travelMeters
@@ -260,6 +302,8 @@ function updateWheelSuspensionNormalForceState(
     compressionVelocityMetersPerSecond
   wheelState.springForceNewtons = springForceNewtons
   wheelState.damperForceNewtons = damperForceNewtons
+  wheelState.bumpStopForceNewtons = bumpStopForceNewtons
+  wheelState.reboundStopForceNewtons = reboundStopForceNewtons
   wheelState.dampingForceNewtons = damperForceNewtons
   wheelState.rawSuspensionNormalForceNewtons =
     rawSuspensionNormalForceNewtons
@@ -282,11 +326,14 @@ function setWheelAirborneSuspensionState(wheelState, suspensionConfig) {
   wheelState.previousSuspensionLengthMeters =
     suspensionConfig.maximumLengthMeters
   wheelState.suspensionCompressionMeters = 0
+  wheelState.suspensionDroopMeters = 0
   wheelState.previousSuspensionCompressionMeters = 0
   wheelState.suspensionCompressionRatio01 = 0
   wheelState.suspensionCompressionVelocityMetersPerSecond = 0
   wheelState.suspensionVelocityMetersPerSecond = 0
   wheelState.springForceNewtons = 0
+  wheelState.bumpStopForceNewtons = 0
+  wheelState.reboundStopForceNewtons = 0
   wheelState.damperForceNewtons = 0
   wheelState.dampingForceNewtons = 0
   wheelState.rawSuspensionNormalForceNewtons = 0
@@ -368,6 +415,14 @@ function applySuspensionConfigToWheelState(wheelState, suspensionConfig) {
     suspensionConfig.maximumCompressionMeters
   wheelState.suspensionMaximumDroopMeters =
     suspensionConfig.maximumDroopMeters
+  wheelState.suspensionBumpStopEngagementMeters =
+    suspensionConfig.bumpStopEngagementMeters
+  wheelState.suspensionBumpStopMaximumForceNewtons =
+    suspensionConfig.bumpStopMaximumForceNewtons
+  wheelState.suspensionReboundStopEngagementMeters =
+    suspensionConfig.reboundStopEngagementMeters
+  wheelState.suspensionReboundStopMaximumForceNewtons =
+    suspensionConfig.reboundStopMaximumForceNewtons
   wheelState.suspensionSpringRateNewtonsPerMeter =
     suspensionConfig.springRateNewtonsPerMeter
   wheelState.suspensionCompressionDampingNewtonsPerMeterPerSecond =
@@ -450,6 +505,22 @@ function resolveAxleSuspensionConfig(
       vehicleWeightReferenceNewtons
     )
   )
+  const bumpStopEngagementMeters = sanitizeNonNegativeNumber(
+    sourceSpec.suspensionBumpStopEngagementMeters,
+    DEFAULT_SUSPENSION_SPEC.suspensionBumpStopEngagementMeters
+  )
+  const bumpStopMaximumForceNewtons = sanitizeNonNegativeNumber(
+    sourceSpec.suspensionBumpStopMaximumForceNewtons,
+    DEFAULT_SUSPENSION_SPEC.suspensionBumpStopMaximumForceNewtons
+  )
+  const reboundStopEngagementMeters = sanitizeNonNegativeNumber(
+    sourceSpec.suspensionReboundStopEngagementMeters,
+    DEFAULT_SUSPENSION_SPEC.suspensionReboundStopEngagementMeters
+  )
+  const reboundStopMaximumForceNewtons = sanitizeNonNegativeNumber(
+    sourceSpec.suspensionReboundStopMaximumForceNewtons,
+    DEFAULT_SUSPENSION_SPEC.suspensionReboundStopMaximumForceNewtons
+  )
 
   return {
     enabled: sourceSpec.suspensionEnabled !== false,
@@ -462,6 +533,10 @@ function resolveAxleSuspensionConfig(
     reboundDampingNewtonsPerMeterPerSecond,
     minimumNormalForceNewtons,
     maximumNormalForceNewtons,
+    bumpStopEngagementMeters,
+    bumpStopMaximumForceNewtons,
+    reboundStopEngagementMeters,
+    reboundStopMaximumForceNewtons,
     maximumCompressionMeters: travelLimits.maximumCompressionMeters,
     maximumDroopMeters: travelLimits.maximumDroopMeters,
     vehicleWeightReferenceNewtons,

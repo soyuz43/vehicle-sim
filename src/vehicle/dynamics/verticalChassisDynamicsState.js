@@ -13,8 +13,8 @@
 //     are now solved ODE state, not a smoothed estimate of wheel offsets.
 //
 // Honest limitations (documented seams, not fake realism):
-//   - Linear suspension: no nonlinear bump stops, anti-roll bars, or linkage
-//     kinematics.
+//   - Suspension rates remain linear away from configurable travel-stop
+//     force zones; linkage kinematics are not resolved.
 //   - Sprung mass only: unsprung mass and tire radial compliance are omitted
 //     (verticalDynamicsSprungMassFraction01 defaults to 1).
 //   - Roll-center geometry: the roll axis runs through the front and rear
@@ -54,6 +54,10 @@ import {
   resolveAxleRollCenterHeightsMeters,
   resolveRollAxisHeightMeters,
 } from './rollCenterGeometry.js'
+import {
+  computeProgressiveSuspensionStopForceNewtons,
+  computeProgressiveSuspensionStopRateNewtonsPerMeter,
+} from './suspensionStopForces.js'
 
 const VERTICAL_DYNAMICS_EPSILON = 1e-6
 const MAX_CHASSIS_ATTITUDE_RADIANS = (80 * Math.PI) / 180
@@ -74,6 +78,11 @@ function sanitizePositiveNumber(value, fallback = 0) {
 function sanitizeNumber(value, fallback = 0) {
   const n = Number(value)
   return Number.isFinite(n) ? n : fallback
+}
+
+function sanitizeNonNegativeNumber(value, fallback = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 ? n : fallback
 }
 
 function clamp(value, minimum, maximum) {
@@ -215,11 +224,22 @@ function resolveAxleAntiRollBarStiffnessNewtonsPerMeter(axle, spec) {
   )
 }
 
-function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
+function resolveStaticSignedTravelReferenceMeters(wheelState, spec = {}) {
   const axleSpec = resolveAxleSuspensionTravelSpec(wheelState?.axle, spec)
   const suspensionTravelMeters = sanitizePositiveNumber(
     axleSpec.suspensionTravelMeters,
     0.22
+  )
+  const maximumCompressionMeters = sanitizeNonNegativeNumber(
+    wheelState.suspensionMaximumCompressionMeters,
+    sanitizeNonNegativeNumber(
+      axleSpec.suspensionMaximumCompressionMeters,
+      suspensionTravelMeters
+    )
+  )
+  const maximumDroopMeters = sanitizeNonNegativeNumber(
+    wheelState.suspensionMaximumDroopMeters,
+    sanitizeNonNegativeNumber(axleSpec.suspensionMaximumDroopMeters, 0)
   )
   const nominalStaticCompressionMeters =
     suspensionTravelMeters *
@@ -252,8 +272,8 @@ function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
   ) {
     return clamp(
       nominalStaticCompressionMeters - chassisSupportBaselineOffsetMeters,
-      0,
-      suspensionTravelMeters
+      -maximumDroopMeters,
+      maximumCompressionMeters
     )
   }
 
@@ -262,7 +282,11 @@ function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
     (suspensionMountHeightMeters - effectiveRollingRadiusMeters) -
     chassisSupportBaselineOffsetMeters
 
-  return clamp(geometricStaticCompressionMeters, 0, suspensionTravelMeters)
+  return clamp(
+    geometricStaticCompressionMeters,
+    -maximumDroopMeters,
+    maximumCompressionMeters
+  )
 }
 
 export function createVerticalChassisDynamicsState(spec = {}) {
@@ -641,10 +665,12 @@ export function updateVerticalChassisDynamics(
     // Terrain heave forcing: the spring force this corner carries beyond the
     // authored static ride height. The compression is produced by the existing
     // raycast suspension path; nothing here re-derives the contact state.
-    const staticCompressionMeters = resolveStaticCompressionReferenceMeters(
+    const staticSignedTravelMeters = resolveStaticSignedTravelReferenceMeters(
       wheelState,
       spec
     )
+    const staticCompressionMeters = Math.max(0, staticSignedTravelMeters)
+    const staticDroopMeters = Math.max(0, -staticSignedTravelMeters)
     const terrainCompressionDeviationMeters =
       applyCompressionNoiseFloor(
         sanitizeNumber(wheelState.suspensionCompressionMeters) -
@@ -654,27 +680,107 @@ export function updateVerticalChassisDynamics(
     // authored static ride height. It is the same per-corner term the heave
     // forcing uses, and it also acts at the corner's moment arm about the
     // roll and pitch axes.
-    const terrainForcingForceNewtons =
+    const maximumCompressionMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionMaximumCompressionMeters
+    )
+    const maximumDroopMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionMaximumDroopMeters
+    )
+    const bumpStopEngagementMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionBumpStopEngagementMeters
+    )
+    const bumpStopMaximumForceNewtons = sanitizeNonNegativeNumber(
+      wheelState.suspensionBumpStopMaximumForceNewtons
+    )
+    const reboundStopEngagementMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionReboundStopEngagementMeters
+    )
+    const reboundStopMaximumForceNewtons = sanitizeNonNegativeNumber(
+      wheelState.suspensionReboundStopMaximumForceNewtons
+    )
+    const currentCompressionMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionCompressionMeters
+    )
+    const currentDroopMeters = sanitizeNonNegativeNumber(
+      wheelState.suspensionDroopMeters
+    )
+    const cornerBodyDisplacementMeters =
+      state.heaveMeters +
+      state.pitchRadians * zMeters +
+      state.rollRadians * rollArmMeters
+    const adjustedSignedTravelMeters =
+      currentCompressionMeters -
+      currentDroopMeters -
+      cornerBodyDisplacementMeters
+    const adjustedCompressionMeters = Math.max(
+      0,
+      adjustedSignedTravelMeters
+    )
+    const adjustedDroopMeters = Math.max(0, -adjustedSignedTravelMeters)
+    const bumpStopForceNewtons = computeProgressiveSuspensionStopForceNewtons(
+      adjustedCompressionMeters,
+      maximumCompressionMeters,
+      bumpStopEngagementMeters,
+      bumpStopMaximumForceNewtons
+    )
+    const reboundStopForceNewtons = computeProgressiveSuspensionStopForceNewtons(
+      adjustedDroopMeters,
+      maximumDroopMeters,
+      reboundStopEngagementMeters,
+      reboundStopMaximumForceNewtons
+    )
+    const staticBumpStopForceNewtons =
+      computeProgressiveSuspensionStopForceNewtons(
+        staticCompressionMeters,
+        maximumCompressionMeters,
+        bumpStopEngagementMeters,
+        bumpStopMaximumForceNewtons
+      )
+    const staticReboundStopForceNewtons =
+      computeProgressiveSuspensionStopForceNewtons(
+        staticDroopMeters,
+        maximumDroopMeters,
+        reboundStopEngagementMeters,
+        reboundStopMaximumForceNewtons
+      )
+    const stopTangentRateNewtonsPerMeter =
+      computeProgressiveSuspensionStopRateNewtonsPerMeter(
+        adjustedCompressionMeters,
+        maximumCompressionMeters,
+        bumpStopEngagementMeters,
+        bumpStopMaximumForceNewtons
+      ) +
+      computeProgressiveSuspensionStopRateNewtonsPerMeter(
+        adjustedDroopMeters,
+        maximumDroopMeters,
+        reboundStopEngagementMeters,
+        reboundStopMaximumForceNewtons
+      )
+    const stopTerrainForcingResidualNewtons =
+      bumpStopForceNewtons -
+      reboundStopForceNewtons -
+      staticBumpStopForceNewtons +
+      staticReboundStopForceNewtons +
+      stopTangentRateNewtonsPerMeter * cornerBodyDisplacementMeters
+    const effectiveSpringRateNewtonsPerMeter =
+      springRateNewtonsPerMeter + stopTangentRateNewtonsPerMeter
+    const terrainSpringForcingForceNewtons =
       springRateNewtonsPerMeter * terrainCompressionDeviationMeters
+    const terrainForcingForceNewtons =
+      terrainSpringForcingForceNewtons + stopTerrainForcingResidualNewtons
     heaveForcingForceNewtons += terrainForcingForceNewtons
 
-    // The moment rows use the generalized force convention
-    // momentRoll = sum(x_i * F_i) and momentPitch = sum(z_i * F_i), where
-    // F_i is the upward force the terrain applies to the body through that
-    // corner. That matches the stiffness and damping terms of the same rows
-    // (for example -Krr * roll = sum(x_i * (-k_i * roll * x_i))).
-    // +X is the car's left side and +Z is forward, so a terrain rise under
-    // the left corners lifts the left side of the body, and a terrain rise
-    // under the front corners lifts the nose.
-    terrainRollMomentNewtonMeters += xMeters * terrainForcingForceNewtons
+    terrainRollMomentNewtonMeters +=
+      xMeters * terrainSpringForcingForceNewtons +
+      rollArmMeters * stopTerrainForcingResidualNewtons
     terrainPitchMomentNewtonMeters += zMeters * terrainForcingForceNewtons
 
-    Khh += springRateNewtonsPerMeter
-    Khp += springRateNewtonsPerMeter * zMeters
-    Khr += springRateNewtonsPerMeter * rollArmMeters
-    Kpp += springRateNewtonsPerMeter * zMeters * zMeters
-    Krr += springRateNewtonsPerMeter * rollArmMeters * rollArmMeters
-    Kpr += springRateNewtonsPerMeter * rollArmMeters * zMeters
+    Khh += effectiveSpringRateNewtonsPerMeter
+    Khp += effectiveSpringRateNewtonsPerMeter * zMeters
+    Khr += effectiveSpringRateNewtonsPerMeter * rollArmMeters
+    Kpp += effectiveSpringRateNewtonsPerMeter * zMeters * zMeters
+    Krr += effectiveSpringRateNewtonsPerMeter * rollArmMeters * rollArmMeters
+    Kpr += effectiveSpringRateNewtonsPerMeter * rollArmMeters * zMeters
 
     // The direct transfer lands on the outside corner and leaves the
     // inside corner. A positive lateral acceleration points toward the
@@ -696,7 +802,7 @@ export function updateVerticalChassisDynamics(
     corner.side = wheelState.side
     corner.arbLoadTransferNewtons = 0
     corner.rollArmMeters = rollArmMeters
-    corner.springRateNewtonsPerMeter = springRateNewtonsPerMeter
+    corner.springRateNewtonsPerMeter = effectiveSpringRateNewtonsPerMeter
     corner.dampingRateNewtonsPerMeterPerSecond =
       dampingRateNewtonsPerMeterPerSecond
     corner.baseNormalForceNewtons = baseNormalForceNewtons
