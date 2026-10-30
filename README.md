@@ -33,7 +33,7 @@
 
 ### Wheel Systems
 - **Contact**: Individual suspension raycasts determine ground contact and normal forces
-- **Suspension**: Spring/damper model with terrain-aware contact geometry
+- **Suspension**: Spring/damper model with terrain-aware contact geometry; smooth progressive bump/rebound stop forces ramp through configurable per-axle engagement distances and maximum forces. Defaults engage over the final 0.05 m of compression (10,000 N cap) and 0.04 m of droop (5,000 N cap); rebound stops require configured droop travel.
 - **Rotation**: Angular velocity integrates from applied torques and wheel inertia
 - **Slip**: Longitudinal slip ratio calculated from wheel surface vs ground speed
 

@@ -22,9 +22,10 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   loadTransferEnabled: true,
 
   // Raycast suspension contact v1 derives spring rate from static load, wheel
-  // count, travel, and target static compression. Spring/damper support is
-  // normalized before quasi-static load transfer; it has no dynamic chassis
-  // heave, pitch, roll, landing impulse, or suspension-geometry solver.
+  // count, and target static compression. Spring, damper, and stop support
+  // are normalized before quasi-static load transfer; this stage does not
+  // integrate chassis heave, pitch, roll, or landing impulses, or resolve
+  // suspension geometry.
   suspensionEnabled: true,
   // Rest length is the fully extended wheel-center distance below the authored
   // suspension mount. Minimum length and travel bound this raycast v1 model;
@@ -35,6 +36,10 @@ export const DEFAULT_VEHICLE_SPEC = Object.freeze({
   suspensionTravelMeters: 0.22,
   suspensionTargetStaticCompressionRatio01: 0.4,
   suspensionDampingRatio: 0.35,
+  suspensionBumpStopEngagementMeters: 0.05,
+  suspensionBumpStopMaximumForceNewtons: 10000,
+  suspensionReboundStopEngagementMeters: 0.04,
+  suspensionReboundStopMaximumForceNewtons: 5000,
   suspensionContactAcquireSlopMeters: 0.004,
   suspensionContactReleaseSlopMeters: 0.012,
   minimumSuspensionNormalAlignmentCosine: 0.25,
