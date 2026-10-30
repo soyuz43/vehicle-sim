@@ -164,7 +164,7 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 - Fixed-timestep physics (1/60 s) decoupled from render (`src/simulation/createFixedTimestepRunner.js`, `src/main.js`).
 - Deterministic heightfield terrain plus per-wheel suspension raycast contact with hysteresis (`src/terrain/*`, `src/vehicle/createVehicleController.js`).
 - Torque-coupled wheel rotational dynamics (angular velocity, inertia, net torque).
-- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap, with a feature-gated brush/Fiala combined-slip tire seam (default `combinedSlipTireModelEnabled: false` at `src/vehicle/defaultVehicleSpec.js`; includes a kinetic-friction floor and a controller-level validation harness).
+- Basic longitudinal (slip-ratio) and lateral (slip-angle) tire-force models joined by a simple friction-circle combined cap, with a feature-gated brush/Fiala combined-slip tire seam (default `combinedSlipTireModelEnabled: false` at `src/vehicle/defaultVehicleSpec.js`; includes a kinetic-friction floor and test-suite validation).
 - Quasi-static longitudinal and lateral load transfer redistributing normal force, with a feature-gated 3-DOF sprung-mass heave/pitch/roll vertical-dynamics seam (currently ENABLED by default: `verticalDynamicsEnabled: true`). Forcing terms are gated separately by `verticalDynamicsForcingEnabled`.
 - **Anti-Roll Bars (ARBs)**: Modeled as per-axle wheel-rate friction elements (`antiRollBarStiffnessNewtonsPerMeter`). Applies equal/opposite load transfer to left/right wheels and folds into the vertical dynamics roll stiffness matrix (`Krr`). Correctly no-ops on coupled/rigid axles.
 - Planar chassis motion: world/local velocity, yaw, yaw rate, summed planar force and yaw moment.
@@ -185,10 +185,9 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 
 ### 3.2 Documented Unfinished Seams
 The genuine next-layer gaps, self-identified in source comments and `README.md`. Any "future work" claim must map to one of these or be evidenced in code:
-- **Suspension Hard Limits (Bump/Droop Stops)**: Suspension currently lacks physical hard limits for extreme compression or droop, causing visual/numerical instability (infinite stretching, chassis clipping) when the car flips or drives off steep edges.
 - Pacejka/professional tire model: the default model remains a staged brush/Fiala-style model, not a full validated tire library.
 - True multibody chassis dynamics beyond the gated 3-DOF vertical seam (landing impulses, nonlinear bump stops, detailed pitch/roll coupling).
-- Roll-center depth: the roll-center height is consumed, but the linkage schema has no per-axle designation. Per-axle roll-center overrides and longitudinal roll center (anti-dive/anti-squat) are not modelled.
+- Roll-center depth: the roll-center height is consumed per-axle (front/rear from linkage geometry or solid-axle declaration). Longitudinal roll center (anti-dive/anti-squat) is not modelled.
 - Solid axle lateral transfer: a coupled axle still takes no lateral load transfer across its own tires. The beam articulation and leaf torsional stiffness that would produce it are not modelled.
 - Full production ABS/TC/ESC behavior: currently feature-gated staged seams, not a complete hydraulic/production stability-control system.
 - Drift models and rich tire audio/visual effects (squeal, smoke, persistent skid marks).
