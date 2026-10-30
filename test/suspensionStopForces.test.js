@@ -51,6 +51,42 @@ function makeFourWheelStates(lengthMeters) {
   ]
 }
 
+function makeStopDynamicsWheelStates(compressionMeters, staticCompressionMeters = 0.088) {
+  const cornerPositions = [
+    { axle: 'front', x: -1.25, z: 1.45 },
+    { axle: 'front', x: 1.25, z: 1.45 },
+    { axle: 'rear', x: -1.25, z: -1.45 },
+    { axle: 'rear', x: 1.25, z: -1.45 },
+  ]
+  return cornerPositions.map(({ axle, x, z }) => ({
+    isGrounded: true,
+    axle,
+    side: x > 0 ? 'left' : 'right',
+    localPosition: { x, y: 0, z },
+    baseNormalForceNewtons: 4000,
+    normalForceNewtons: 4000,
+    frictionCoefficient: 1,
+    tractionLimitNewtons: 4000,
+    suspensionRestLengthMeters: 0.4,
+    suspensionMountLocalPosition: {
+      y: 0.9 - staticCompressionMeters,
+    },
+    effectiveTireRollingRadiusMeters: 0.5,
+    suspensionCompressionMeters: compressionMeters,
+    suspensionDroopMeters: 0,
+    suspensionMaximumCompressionMeters: 0.22,
+    suspensionMaximumDroopMeters: 0.1,
+    suspensionBumpStopEngagementMeters: 0.05,
+    suspensionBumpStopMaximumForceNewtons: 30000,
+    suspensionReboundStopEngagementMeters: 0.04,
+    suspensionReboundStopMaximumForceNewtons: 5000,
+    suspensionSpringRateNewtonsPerMeter: 39000,
+    suspensionCompressionDampingNewtonsPerMeterPerSecond: 0,
+    suspensionReboundDampingNewtonsPerMeterPerSecond: 0,
+    verticalDynamicsLoadDeviationNewtons: 0,
+  }))
+}
+
 test('progressive stop force is zero before engagement and rises quadratically', () => {
   const forceAtEntryNewtons = computeProgressiveSuspensionStopForceNewtons(
     0.1, 0.2, 0.1, 8000
@@ -142,5 +178,143 @@ test('stop force and tangent stiffness reach vertical chassis dynamics', () => {
     Math.abs(
       stopHeaveForcingNewtons - baselineHeaveForcingNewtons - 8000
     ) < 1e-8
+  )
+})
+
+test('bump-stop force and tangent follow body-adjusted corner travel', () => {
+  function resolveStateAtHeave(heaveMeters, bumpStopMaximumForceNewtons) {
+    const wheelStates = makeStopDynamicsWheelStates(0.19)
+    for (const wheelState of wheelStates) {
+      wheelState.suspensionBumpStopMaximumForceNewtons =
+        bumpStopMaximumForceNewtons
+    }
+    const spec = {
+      ...BASE_SUSPENSION_SPEC,
+      verticalDynamicsEnabled: true,
+      verticalDynamicsForcingEnabled: true,
+      wheelbaseMeters: 2.9,
+      frontTrackWidthMeters: 2.5,
+      rearTrackWidthMeters: 2.5,
+      centerOfMassHeightMeters: 0.55,
+      suspensionTravelMeters: 0.22,
+      suspensionTargetStaticCompressionRatio01: 0.4,
+    }
+    const state = createVerticalChassisDynamicsState(spec)
+    state.heaveMeters = heaveMeters
+    updateVerticalChassisDynamics(state, wheelStates, spec, 0)
+    return { state, wheelStates }
+  }
+
+  const activeStop = resolveStateAtHeave(0.019, 30000)
+  const activeStopWithoutForce = resolveStateAtHeave(0.019, 0)
+  const clearStop = resolveStateAtHeave(0.021, 30000)
+  const clearStopWithoutForce = resolveStateAtHeave(0.021, 0)
+  const bodyClearOfStop = resolveStateAtHeave(0.04, 30000)
+  const bodyClearWithoutStop = resolveStateAtHeave(0.04, 0)
+
+  assert.ok(
+    activeStop.state.heaveAccelerationMetersPerSecondSquared >
+      activeStopWithoutForce.state.heaveAccelerationMetersPerSecondSquared,
+    'the stop should add force while adjusted travel is inside its engagement zone'
+  )
+  assert.ok(
+    Math.abs(
+      clearStop.state.heaveAccelerationMetersPerSecondSquared -
+        clearStopWithoutForce.state.heaveAccelerationMetersPerSecondSquared
+    ) < 1e-9,
+    'force and tangent should both be zero after adjusted travel clears engagement'
+  )
+  assert.ok(
+    Math.abs(
+      bodyClearOfStop.state.heaveAccelerationMetersPerSecondSquared -
+        bodyClearWithoutStop.state.heaveAccelerationMetersPerSecondSquared
+    ) < 1e-9
+  )
+  for (const wheelState of bodyClearOfStop.wheelStates) {
+    assert.ok(wheelState.normalForceNewtons > 0)
+    assert.ok(
+      Math.abs(
+        wheelState.verticalDynamicsLoadDeviationNewtons + 39000 * 0.04
+      ) < 1e-8
+    )
+  }
+})
+
+test('static droop rebound-stop force is removed at the ride-height reference', () => {
+  const staticDroopMeters = 0.082
+  const wheelStates = makeFourWheelStates(0.4 + staticDroopMeters)
+  for (const wheelState of wheelStates) {
+    wheelState.suspensionMountLocalPosition = { y: 0.982 }
+    wheelState.effectiveTireRollingRadiusMeters = 0.5
+  }
+  const spec = {
+    ...BASE_SUSPENSION_SPEC,
+    verticalDynamicsEnabled: true,
+    verticalDynamicsForcingEnabled: true,
+    wheelbaseMeters: 2.9,
+    frontTrackWidthMeters: 2.5,
+    rearTrackWidthMeters: 2.5,
+    centerOfMassHeightMeters: 0.55,
+    suspensionRestLengthMeters: 0.4,
+    suspensionMinimumLengthMeters: 0.2,
+    suspensionMaximumLengthMeters: 0.5,
+    suspensionMaximumDroopMeters: 0.1,
+    suspensionMaximumCompressionMeters: 0.2,
+    suspensionTravelMeters: 0.3,
+    suspensionReboundStopEngagementMeters: 0.04,
+    suspensionReboundStopMaximumForceNewtons: 5000,
+  }
+  updateSuspensionNormalForceState(wheelStates, spec, 0)
+  const state = createVerticalChassisDynamicsState(spec)
+
+  updateVerticalChassisDynamics(state, wheelStates, spec, 0)
+
+  assert.ok(
+    Math.abs(state.heaveForcingForceNewtons) < 1e-8,
+    `parked static droop must not create heave forcing, got ${state.heaveForcingForceNewtons}`
+  )
+})
+
+test('rebound-stop follows body-adjusted travel across engagement', () => {
+  function resolveStateAtHeave(heaveMeters, reboundStopMaximumForceNewtons) {
+    const wheelStates = makeStopDynamicsWheelStates(0)
+    for (const wheelState of wheelStates) {
+      wheelState.suspensionDroopMeters = 0.09
+      wheelState.suspensionReboundStopMaximumForceNewtons =
+        reboundStopMaximumForceNewtons
+    }
+    const spec = {
+      ...BASE_SUSPENSION_SPEC,
+      verticalDynamicsEnabled: true,
+      verticalDynamicsForcingEnabled: true,
+      wheelbaseMeters: 2.9,
+      frontTrackWidthMeters: 2.5,
+      rearTrackWidthMeters: 2.5,
+      centerOfMassHeightMeters: 0.55,
+      suspensionTravelMeters: 0.22,
+      suspensionTargetStaticCompressionRatio01: 0.4,
+    }
+    const state = createVerticalChassisDynamicsState(spec)
+    state.heaveMeters = heaveMeters
+    updateVerticalChassisDynamics(state, wheelStates, spec, 0)
+    return state
+  }
+
+  const activeStop = resolveStateAtHeave(-0.029, 30000)
+  const activeStopWithoutForce = resolveStateAtHeave(-0.029, 0)
+  const clearStop = resolveStateAtHeave(-0.031, 30000)
+  const clearStopWithoutForce = resolveStateAtHeave(-0.031, 0)
+
+  assert.ok(
+    activeStop.heaveAccelerationMetersPerSecondSquared <
+      activeStopWithoutForce.heaveAccelerationMetersPerSecondSquared,
+    'the rebound stop should pull downward while adjusted droop is engaged'
+  )
+  assert.ok(
+    Math.abs(
+      clearStop.heaveAccelerationMetersPerSecondSquared -
+        clearStopWithoutForce.heaveAccelerationMetersPerSecondSquared
+    ) < 1e-9,
+    'rebound force and tangent should clear when adjusted droop exits engagement'
   )
 })

@@ -224,11 +224,22 @@ function resolveAxleAntiRollBarStiffnessNewtonsPerMeter(axle, spec) {
   )
 }
 
-function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
+function resolveStaticSignedTravelReferenceMeters(wheelState, spec = {}) {
   const axleSpec = resolveAxleSuspensionTravelSpec(wheelState?.axle, spec)
   const suspensionTravelMeters = sanitizePositiveNumber(
     axleSpec.suspensionTravelMeters,
     0.22
+  )
+  const maximumCompressionMeters = sanitizeNonNegativeNumber(
+    wheelState.suspensionMaximumCompressionMeters,
+    sanitizeNonNegativeNumber(
+      axleSpec.suspensionMaximumCompressionMeters,
+      suspensionTravelMeters
+    )
+  )
+  const maximumDroopMeters = sanitizeNonNegativeNumber(
+    wheelState.suspensionMaximumDroopMeters,
+    sanitizeNonNegativeNumber(axleSpec.suspensionMaximumDroopMeters, 0)
   )
   const nominalStaticCompressionMeters =
     suspensionTravelMeters *
@@ -261,8 +272,8 @@ function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
   ) {
     return clamp(
       nominalStaticCompressionMeters - chassisSupportBaselineOffsetMeters,
-      0,
-      suspensionTravelMeters
+      -maximumDroopMeters,
+      maximumCompressionMeters
     )
   }
 
@@ -271,7 +282,11 @@ function resolveStaticCompressionReferenceMeters(wheelState, spec = {}) {
     (suspensionMountHeightMeters - effectiveRollingRadiusMeters) -
     chassisSupportBaselineOffsetMeters
 
-  return clamp(geometricStaticCompressionMeters, 0, suspensionTravelMeters)
+  return clamp(
+    geometricStaticCompressionMeters,
+    -maximumDroopMeters,
+    maximumCompressionMeters
+  )
 }
 
 export function createVerticalChassisDynamicsState(spec = {}) {
@@ -650,10 +665,12 @@ export function updateVerticalChassisDynamics(
     // Terrain heave forcing: the spring force this corner carries beyond the
     // authored static ride height. The compression is produced by the existing
     // raycast suspension path; nothing here re-derives the contact state.
-    const staticCompressionMeters = resolveStaticCompressionReferenceMeters(
+    const staticSignedTravelMeters = resolveStaticSignedTravelReferenceMeters(
       wheelState,
       spec
     )
+    const staticCompressionMeters = Math.max(0, staticSignedTravelMeters)
+    const staticDroopMeters = Math.max(0, -staticSignedTravelMeters)
     const terrainCompressionDeviationMeters =
       applyCompressionNoiseFloor(
         sanitizeNumber(wheelState.suspensionCompressionMeters) -
@@ -687,14 +704,27 @@ export function updateVerticalChassisDynamics(
     const currentDroopMeters = sanitizeNonNegativeNumber(
       wheelState.suspensionDroopMeters
     )
+    const cornerBodyDisplacementMeters =
+      state.heaveMeters +
+      state.pitchRadians * zMeters +
+      state.rollRadians * rollArmMeters
+    const adjustedSignedTravelMeters =
+      currentCompressionMeters -
+      currentDroopMeters -
+      cornerBodyDisplacementMeters
+    const adjustedCompressionMeters = Math.max(
+      0,
+      adjustedSignedTravelMeters
+    )
+    const adjustedDroopMeters = Math.max(0, -adjustedSignedTravelMeters)
     const bumpStopForceNewtons = computeProgressiveSuspensionStopForceNewtons(
-      currentCompressionMeters,
+      adjustedCompressionMeters,
       maximumCompressionMeters,
       bumpStopEngagementMeters,
       bumpStopMaximumForceNewtons
     )
     const reboundStopForceNewtons = computeProgressiveSuspensionStopForceNewtons(
-      currentDroopMeters,
+      adjustedDroopMeters,
       maximumDroopMeters,
       reboundStopEngagementMeters,
       reboundStopMaximumForceNewtons
@@ -706,28 +736,37 @@ export function updateVerticalChassisDynamics(
         bumpStopEngagementMeters,
         bumpStopMaximumForceNewtons
       )
-    const stopForceDeviationNewtons =
-      bumpStopForceNewtons -
-      reboundStopForceNewtons -
-      staticBumpStopForceNewtons
+    const staticReboundStopForceNewtons =
+      computeProgressiveSuspensionStopForceNewtons(
+        staticDroopMeters,
+        maximumDroopMeters,
+        reboundStopEngagementMeters,
+        reboundStopMaximumForceNewtons
+      )
     const stopTangentRateNewtonsPerMeter =
       computeProgressiveSuspensionStopRateNewtonsPerMeter(
-        currentCompressionMeters,
+        adjustedCompressionMeters,
         maximumCompressionMeters,
         bumpStopEngagementMeters,
         bumpStopMaximumForceNewtons
       ) +
       computeProgressiveSuspensionStopRateNewtonsPerMeter(
-        currentDroopMeters,
+        adjustedDroopMeters,
         maximumDroopMeters,
         reboundStopEngagementMeters,
         reboundStopMaximumForceNewtons
       )
+    const stopTerrainForcingResidualNewtons =
+      bumpStopForceNewtons -
+      reboundStopForceNewtons -
+      staticBumpStopForceNewtons +
+      staticReboundStopForceNewtons +
+      stopTangentRateNewtonsPerMeter * cornerBodyDisplacementMeters
     const effectiveSpringRateNewtonsPerMeter =
       springRateNewtonsPerMeter + stopTangentRateNewtonsPerMeter
     const terrainForcingForceNewtons =
       springRateNewtonsPerMeter * terrainCompressionDeviationMeters +
-      stopForceDeviationNewtons
+      stopTerrainForcingResidualNewtons
     heaveForcingForceNewtons += terrainForcingForceNewtons
 
     // The moment rows use the generalized force convention
