@@ -318,3 +318,37 @@ test('rebound-stop follows body-adjusted travel across engagement', () => {
     'rebound force and tangent should clear when adjusted droop exits engagement'
   )
 })
+
+test('single grounded rigid-axle wheel creates no stop roll moment', () => {
+  const wheelStates = makeStopDynamicsWheelStates(0.088, 0.088)
+  for (const wheelState of wheelStates) {
+    wheelState.isGrounded = false
+    wheelState.suspensionBumpStopMaximumForceNewtons = 10000
+  }
+  wheelStates[3].isGrounded = true
+  const spec = {
+    ...BASE_SUSPENSION_SPEC,
+    verticalDynamicsEnabled: true,
+    verticalDynamicsForcingEnabled: true,
+    wheelbaseMeters: 2.9,
+    frontTrackWidthMeters: 2.5,
+    rearTrackWidthMeters: 2.5,
+    centerOfMassHeightMeters: 0.55,
+    suspensionTravelMeters: 0.22,
+    suspensionTargetStaticCompressionRatio01: 0.4,
+    rearAxleCoupling: 'rigidAxle',
+  }
+  const state = createVerticalChassisDynamicsState(spec)
+  state.heaveMeters = -0.085
+
+  updateVerticalChassisDynamics(state, wheelStates, spec, 1 / 60)
+
+  assert.ok(
+    Math.abs(state.terrainRollMomentNewtonMeters) < 1e-9,
+    'a centered rigid-axle stop must not create roll moment, got ' +
+      state.terrainRollMomentNewtonMeters +
+      ' Nm'
+  )
+  assert.ok(Math.abs(state.rollAccelerationRadiansPerSecondSquared) < 1e-9)
+  assert.ok(Math.abs(state.rollRadians) < 1e-9)
+})

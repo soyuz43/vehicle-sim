@@ -764,20 +764,15 @@ export function updateVerticalChassisDynamics(
       stopTangentRateNewtonsPerMeter * cornerBodyDisplacementMeters
     const effectiveSpringRateNewtonsPerMeter =
       springRateNewtonsPerMeter + stopTangentRateNewtonsPerMeter
+    const terrainSpringForcingForceNewtons =
+      springRateNewtonsPerMeter * terrainCompressionDeviationMeters
     const terrainForcingForceNewtons =
-      springRateNewtonsPerMeter * terrainCompressionDeviationMeters +
-      stopTerrainForcingResidualNewtons
+      terrainSpringForcingForceNewtons + stopTerrainForcingResidualNewtons
     heaveForcingForceNewtons += terrainForcingForceNewtons
 
-    // The moment rows use the generalized force convention
-    // momentRoll = sum(x_i * F_i) and momentPitch = sum(z_i * F_i), where
-    // F_i is the upward force the terrain applies to the body through that
-    // corner. That matches the stiffness and damping terms of the same rows
-    // (for example -Krr * roll = sum(x_i * (-k_i * roll * x_i))).
-    // +X is the car's left side and +Z is forward, so a terrain rise under
-    // the left corners lifts the left side of the body, and a terrain rise
-    // under the front corners lifts the nose.
-    terrainRollMomentNewtonMeters += xMeters * terrainForcingForceNewtons
+    terrainRollMomentNewtonMeters +=
+      xMeters * terrainSpringForcingForceNewtons +
+      rollArmMeters * stopTerrainForcingResidualNewtons
     terrainPitchMomentNewtonMeters += zMeters * terrainForcingForceNewtons
 
     Khh += effectiveSpringRateNewtonsPerMeter
