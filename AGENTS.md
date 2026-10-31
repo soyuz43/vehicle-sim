@@ -244,11 +244,11 @@ Phase 0.3 of the unified physics migration. The solver is the impulse-resolution
   point: THREE.Vector3,           // world-space contact point
   restitution: number | undefined,
   frictionCoefficient: number | undefined,
-  // Solver-owned warm-start accumulators (N*s):
-  accumulatedNormalImpulse: number,
-  accumulatedFrictionImpulse: number,              // magnitude of the friction impulse
-  accumulatedFrictionImpulseTangent1: number,
-  accumulatedFrictionImpulseTangent2: number,
+  // Solver-owned warm-start accumulators:
+  accumulatedNormalImpulseNewtonSeconds: number,
+  accumulatedFrictionImpulseNewtonSeconds: number, // magnitude in N*s
+  accumulatedFrictionImpulseTangent1NewtonSeconds: number,
+  accumulatedFrictionImpulseTangent2NewtonSeconds: number,
 }
 ```
 
@@ -259,9 +259,9 @@ Phase 0.3 of the unified physics migration. The solver is the impulse-resolution
 **Algorithm**: Projected Gauss-Seidel (sequential impulses).
 
 1. Prepare: cache the restitution target (derived from the pre-solve approach velocity and only applied above `restitutionVelocityThresholdMetersPerSecond`) plus the effective mass of the normal and of the two tangent directions.
-2. Warm start: re-apply the impulses accumulated during the previous frame, then reset the accumulators for this frame.
-3. Velocity iterations (default 10): per contact, the normal impulse is clamped so the accumulated normal impulse stays `>= 0` (a contact pushes, it never pulls), and the friction impulse is clamped to the Coulomb cone `|jt| <= mu * jn`.
-4. Positional correction (default 1 pass): penetrations deeper than `slopMeters` are reduced by `positionCorrectionFactor` of the excess. The correction reuses the effective-mass formulation of the velocity constraint, so it also produces the matching rotation of both bodies.
+2. Warm start: re-apply the impulses accumulated during the previous frame and retain them in the accumulators. Later normal and friction iterations can reduce an over-applied accumulated impulse as constraints converge.
+3. Velocity iterations (default 10): per contact, the normal impulse is clamped so the accumulated normal impulse stays `>= 0` (a contact pushes, it never pulls), and the friction impulse is clamped to the Coulomb cone `|jt| <= mu * jn`. A zero friction limit removes any previously applied friction rather than leaving it in place.
+4. Positional correction (default 1 pass): derive the remaining penetration from the body transforms changed by earlier passes, then reduce the part deeper than `slopMeters` by `positionCorrectionFactor`. The correction reuses the effective-mass formulation of the velocity constraint, so it also produces the matching rotation of both bodies.
 
 **Effect**: the solver writes velocity changes directly into `velocityMetersPerSecond` and `angularVelocityRadiansPerSecond`, and adjusts `positionMeters` and `orientationQuaternion` directly. It never touches the force accumulators, so it composes with the symplectic Euler integration of `integrateRigidBody`.
 

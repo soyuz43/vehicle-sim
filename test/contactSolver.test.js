@@ -257,18 +257,24 @@ test('a sliding body decelerates at the Coulomb limit and rolls without slipping
     solveContacts([contact])
     const velocityAfterSolveMetersPerSecond = body.velocityMetersPerSecond.x
 
-    const coulombLimitImpulse =
-      frictionCoefficient * contact.accumulatedNormalImpulse
+    const coulombLimitImpulseNewtonSeconds =
+      frictionCoefficient * contact.accumulatedNormalImpulseNewtonSeconds
 
     // The friction impulse never exceeds the Coulomb cone.
-    assert.ok(contact.accumulatedFrictionImpulse <= coulombLimitImpulse + 1e-15)
+    assert.ok(
+      contact.accumulatedFrictionImpulseNewtonSeconds <=
+        coulombLimitImpulseNewtonSeconds + 1e-15
+    )
 
     if (rollingVelocityX !== null) {
       // Once the contact patch stops sliding the body rolls without
       // slipping and the tangential velocity stays constant.
       assert.strictEqual(velocityAfterSolveMetersPerSecond, rollingVelocityX)
     } else if (
-      Math.abs(contact.accumulatedFrictionImpulse - coulombLimitImpulse) < 1e-15
+      Math.abs(
+        contact.accumulatedFrictionImpulseNewtonSeconds -
+          coulombLimitImpulseNewtonSeconds
+      ) < 1e-15
     ) {
       // While the friction impulse is clamped by the Coulomb cone the
       // tangential velocity decreases by exactly the Coulomb limit.
@@ -299,8 +305,8 @@ test('a separating contact produces no impulse and never pulls the bodies togeth
 
   solveContacts([contact])
 
-  assert.strictEqual(contact.accumulatedNormalImpulse, 0)
-  assert.strictEqual(contact.accumulatedFrictionImpulse, 0)
+  assert.strictEqual(contact.accumulatedNormalImpulseNewtonSeconds, 0)
+  assert.strictEqual(contact.accumulatedFrictionImpulseNewtonSeconds, 0)
   assert.strictEqual(body.velocityMetersPerSecond.y, 3)
 })
 
@@ -334,24 +340,18 @@ test('warm starting reduces the residual velocity error of a stacked chain', () 
       ].filter(Boolean)
 
       if (warmStart && contacts) {
-        for (const contact of contacts) {
-          const fresh = freshContacts.find(
+        contacts = freshContacts.map((fresh) => {
+          const carried = contacts.find(
             (candidate) =>
-              candidate.bodyA === contact.bodyA &&
-              candidate.bodyB === contact.bodyB
+              candidate.bodyA === fresh.bodyA &&
+              candidate.bodyB === fresh.bodyB
           )
-          if (fresh) {
-            contact.depth = fresh.depth
-            contact.point.copy(fresh.point)
+          if (carried) {
+            carried.depth = fresh.depth
+            carried.point.copy(fresh.point)
           }
-        }
-        contacts = contacts.filter((contact) =>
-          freshContacts.some(
-            (candidate) =>
-              candidate.bodyA === contact.bodyA &&
-              candidate.bodyB === contact.bodyB
-          )
-        )
+          return carried || fresh
+        })
       } else {
         contacts = freshContacts
       }
@@ -486,8 +486,11 @@ test('the solver instance exposes the resolved settings and honours its override
 })
 
 function createStackContact(bodyA, bodyB, surfaceHeightMeters) {
+  const bodyBSurfaceHeightMeters = bodyB
+    ? bodyB.positionMeters.y + BOX_HALF_HEIGHT_METERS
+    : surfaceHeightMeters
   const penetrationMeters =
-    surfaceHeightMeters - (bodyA.positionMeters.y - BOX_HALF_HEIGHT_METERS)
+    bodyBSurfaceHeightMeters - (bodyA.positionMeters.y - BOX_HALF_HEIGHT_METERS)
   if (penetrationMeters <= 0) return null
 
   return createContactConstraint(
@@ -497,7 +500,7 @@ function createStackContact(bodyA, bodyB, surfaceHeightMeters) {
     penetrationMeters,
     new THREE.Vector3(
       bodyA.positionMeters.x,
-      surfaceHeightMeters,
+      bodyBSurfaceHeightMeters,
       bodyA.positionMeters.z
     ),
     { restitution: 0, frictionCoefficient: 0 }

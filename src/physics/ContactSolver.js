@@ -73,10 +73,14 @@ export function createContactConstraint(
     point,
     restitution: overrides.restitution,
     frictionCoefficient: overrides.frictionCoefficient,
-    accumulatedNormalImpulse: 0,
-    accumulatedFrictionImpulse: 0,
-    accumulatedFrictionImpulseTangent1: 0,
-    accumulatedFrictionImpulseTangent2: 0,
+    accumulatedNormalImpulseNewtonSeconds: 0,
+    accumulatedFrictionImpulseNewtonSeconds: 0,
+    accumulatedFrictionImpulseTangent1NewtonSeconds: 0,
+    accumulatedFrictionImpulseTangent2NewtonSeconds: 0,
+    solverInitialPositionAMeters: new THREE.Vector3(),
+    solverInitialPositionBMeters: new THREE.Vector3(),
+    solverInitialOrientationAQuaternion: new THREE.Quaternion(),
+    solverInitialOrientationBQuaternion: new THREE.Quaternion(),
     solverRestitutionTargetVelocityMetersPerSecond: 0,
     solverNormalEffectiveMassKg: 0,
     solverTangent1EffectiveMassKg: 0,
@@ -162,6 +166,19 @@ function prepareContact(contact, settings) {
 
   _scratchNormal.copy(contact.normal).normalize()
 
+  if (bodyA) {
+    contact.solverInitialPositionAMeters.copy(bodyA.positionMeters)
+    contact.solverInitialOrientationAQuaternion.copy(
+      bodyA.orientationQuaternion
+    )
+  }
+  if (bodyB) {
+    contact.solverInitialPositionBMeters.copy(bodyB.positionMeters)
+    contact.solverInitialOrientationBQuaternion.copy(
+      bodyB.orientationQuaternion
+    )
+  }
+
   if (bodyA) _scratchLeverArmA.subVectors(point, bodyA.positionMeters)
   if (bodyB) _scratchLeverArmB.subVectors(point, bodyB.positionMeters)
 
@@ -200,40 +217,48 @@ function prepareContact(contact, settings) {
   )
 }
 
-// Applies the impulses accumulated during the previous frame so that the
-// first iteration starts from a converged state, then resets the
-// accumulators for the current frame.
+// Applies the impulses accumulated during the previous frame and leaves them
+// in the accumulators so the current solve can start from a converged state
+// and reduce an over-applied impulse if later constraints require it.
 function warmStartContact(contact) {
   const bodyA = contact.bodyA
   const bodyB = contact.bodyB
   const point = contact.point
 
-  const previousNormalImpulse = contact.accumulatedNormalImpulse || 0
-  const previousTangent1Impulse = contact.accumulatedFrictionImpulseTangent1 || 0
-  const previousTangent2Impulse = contact.accumulatedFrictionImpulseTangent2 || 0
+  const previousNormalImpulseNewtonSeconds =
+    contact.accumulatedNormalImpulseNewtonSeconds || 0
+  const previousTangent1ImpulseNewtonSeconds =
+    contact.accumulatedFrictionImpulseTangent1NewtonSeconds || 0
+  const previousTangent2ImpulseNewtonSeconds =
+    contact.accumulatedFrictionImpulseTangent2NewtonSeconds || 0
 
   _scratchNormal.copy(contact.normal).normalize()
 
-  if (previousNormalImpulse !== 0) {
-    _scratchImpulse.copy(_scratchNormal).multiplyScalar(previousNormalImpulse)
+  if (previousNormalImpulseNewtonSeconds !== 0) {
+    _scratchImpulse
+      .copy(_scratchNormal)
+      .multiplyScalar(previousNormalImpulseNewtonSeconds)
     applyImpulse(bodyB, _scratchImpulse, point)
     applyImpulse(bodyA, _scratchOppositeImpulse.copy(_scratchImpulse).negate(), point)
   }
 
-  if (previousTangent1Impulse !== 0 || previousTangent2Impulse !== 0) {
+  if (
+    previousTangent1ImpulseNewtonSeconds !== 0 ||
+    previousTangent2ImpulseNewtonSeconds !== 0
+  ) {
     computeTangentBasis(_scratchNormal, _scratchTangent1, _scratchTangent2)
     _scratchImpulse
       .copy(_scratchTangent1)
-      .multiplyScalar(previousTangent1Impulse)
-      .addScaledVector(_scratchTangent2, previousTangent2Impulse)
+      .multiplyScalar(previousTangent1ImpulseNewtonSeconds)
+      .addScaledVector(_scratchTangent2, previousTangent2ImpulseNewtonSeconds)
     applyImpulse(bodyB, _scratchImpulse, point)
     applyImpulse(bodyA, _scratchOppositeImpulse.copy(_scratchImpulse).negate(), point)
   }
 
-  contact.accumulatedNormalImpulse = 0
-  contact.accumulatedFrictionImpulse = 0
-  contact.accumulatedFrictionImpulseTangent1 = 0
-  contact.accumulatedFrictionImpulseTangent2 = 0
+  contact.accumulatedFrictionImpulseNewtonSeconds = Math.hypot(
+    previousTangent1ImpulseNewtonSeconds,
+    previousTangent2ImpulseNewtonSeconds
+  )
 }
 
 // Normal (non-penetration) constraint.
@@ -250,17 +275,26 @@ function solveContactNormal(contact) {
   const targetVelocityMetersPerSecond =
     contact.solverRestitutionTargetVelocityMetersPerSecond || 0
 
-  const previousImpulse = contact.accumulatedNormalImpulse || 0
-  let accumulatedImpulse =
-    previousImpulse + (targetVelocityMetersPerSecond - normalVelocityMetersPerSecond) * effectiveMassKg
+  const previousNormalImpulseNewtonSeconds =
+    contact.accumulatedNormalImpulseNewtonSeconds || 0
+  let accumulatedNormalImpulseNewtonSeconds =
+    previousNormalImpulseNewtonSeconds +
+    (targetVelocityMetersPerSecond - normalVelocityMetersPerSecond) *
+      effectiveMassKg
   // A contact can push but never pull: the accumulated impulse is clamped
   // at zero.
-  if (accumulatedImpulse < 0) accumulatedImpulse = 0
-  const deltaImpulse = accumulatedImpulse - previousImpulse
-  contact.accumulatedNormalImpulse = accumulatedImpulse
-  if (deltaImpulse === 0) return
+  if (accumulatedNormalImpulseNewtonSeconds < 0) {
+    accumulatedNormalImpulseNewtonSeconds = 0
+  }
+  const deltaNormalImpulseNewtonSeconds =
+    accumulatedNormalImpulseNewtonSeconds - previousNormalImpulseNewtonSeconds
+  contact.accumulatedNormalImpulseNewtonSeconds =
+    accumulatedNormalImpulseNewtonSeconds
+  if (deltaNormalImpulseNewtonSeconds === 0) return
 
-  _scratchImpulse.copy(_scratchNormal).multiplyScalar(deltaImpulse)
+  _scratchImpulse
+    .copy(_scratchNormal)
+    .multiplyScalar(deltaNormalImpulseNewtonSeconds)
   applyImpulse(bodyB, _scratchImpulse, point)
   applyImpulse(bodyA, _scratchOppositeImpulse.copy(_scratchImpulse).negate(), point)
 }
@@ -271,13 +305,14 @@ function solveContactFriction(contact, settings) {
   const bodyB = contact.bodyB
   const point = contact.point
 
-  const normalImpulse = contact.accumulatedNormalImpulse || 0
+  const normalImpulseNewtonSeconds =
+    contact.accumulatedNormalImpulseNewtonSeconds || 0
   const frictionCoefficient = Math.max(
     0,
     contact.frictionCoefficient ?? settings.frictionCoefficient
   )
-  const maxFrictionImpulse = frictionCoefficient * normalImpulse
-  if (maxFrictionImpulse <= 0) return
+  const maxFrictionImpulseNewtonSeconds =
+    frictionCoefficient * normalImpulseNewtonSeconds
 
   _scratchNormal.copy(contact.normal).normalize()
   computeTangentBasis(_scratchNormal, _scratchTangent1, _scratchTangent2)
@@ -286,36 +321,58 @@ function solveContactFriction(contact, settings) {
   const tangentVelocity1MetersPerSecond = _scratchRelativeVelocity.dot(_scratchTangent1)
   const tangentVelocity2MetersPerSecond = _scratchRelativeVelocity.dot(_scratchTangent2)
 
-  const previousTangent1Impulse = contact.accumulatedFrictionImpulseTangent1 || 0
-  const previousTangent2Impulse = contact.accumulatedFrictionImpulseTangent2 || 0
+  const previousTangent1ImpulseNewtonSeconds =
+    contact.accumulatedFrictionImpulseTangent1NewtonSeconds || 0
+  const previousTangent2ImpulseNewtonSeconds =
+    contact.accumulatedFrictionImpulseTangent2NewtonSeconds || 0
 
-  let tangent1Impulse =
-    previousTangent1Impulse - tangentVelocity1MetersPerSecond * contact.solverTangent1EffectiveMassKg
-  let tangent2Impulse =
-    previousTangent2Impulse - tangentVelocity2MetersPerSecond * contact.solverTangent2EffectiveMassKg
+  let tangent1ImpulseNewtonSeconds =
+    previousTangent1ImpulseNewtonSeconds -
+    tangentVelocity1MetersPerSecond * contact.solverTangent1EffectiveMassKg
+  let tangent2ImpulseNewtonSeconds =
+    previousTangent2ImpulseNewtonSeconds -
+    tangentVelocity2MetersPerSecond * contact.solverTangent2EffectiveMassKg
 
   // Coulomb clamp: the magnitude of the friction impulse may never exceed
   // mu times the accumulated normal impulse.
 
-  const frictionImpulseMagnitude = Math.hypot(tangent1Impulse, tangent2Impulse)
-  if (frictionImpulseMagnitude > maxFrictionImpulse) {
-    const clampScale = maxFrictionImpulse / frictionImpulseMagnitude
-    tangent1Impulse *= clampScale
-    tangent2Impulse *= clampScale
+  const frictionImpulseMagnitudeNewtonSeconds = Math.hypot(
+    tangent1ImpulseNewtonSeconds,
+    tangent2ImpulseNewtonSeconds
+  )
+  if (
+    frictionImpulseMagnitudeNewtonSeconds > maxFrictionImpulseNewtonSeconds
+  ) {
+    const clampScale =
+      maxFrictionImpulseNewtonSeconds / frictionImpulseMagnitudeNewtonSeconds
+    tangent1ImpulseNewtonSeconds *= clampScale
+    tangent2ImpulseNewtonSeconds *= clampScale
   }
 
-  const deltaTangent1Impulse = tangent1Impulse - previousTangent1Impulse
-  const deltaTangent2Impulse = tangent2Impulse - previousTangent2Impulse
-  contact.accumulatedFrictionImpulseTangent1 = tangent1Impulse
-  contact.accumulatedFrictionImpulseTangent2 = tangent2Impulse
-  contact.accumulatedFrictionImpulse = Math.hypot(tangent1Impulse, tangent2Impulse)
+  const deltaTangent1ImpulseNewtonSeconds =
+    tangent1ImpulseNewtonSeconds - previousTangent1ImpulseNewtonSeconds
+  const deltaTangent2ImpulseNewtonSeconds =
+    tangent2ImpulseNewtonSeconds - previousTangent2ImpulseNewtonSeconds
+  contact.accumulatedFrictionImpulseTangent1NewtonSeconds =
+    tangent1ImpulseNewtonSeconds
+  contact.accumulatedFrictionImpulseTangent2NewtonSeconds =
+    tangent2ImpulseNewtonSeconds
+  contact.accumulatedFrictionImpulseNewtonSeconds = Math.hypot(
+    tangent1ImpulseNewtonSeconds,
+    tangent2ImpulseNewtonSeconds
+  )
 
-  if (deltaTangent1Impulse === 0 && deltaTangent2Impulse === 0) return
+  if (
+    deltaTangent1ImpulseNewtonSeconds === 0 &&
+    deltaTangent2ImpulseNewtonSeconds === 0
+  ) {
+    return
+  }
 
   _scratchImpulse
     .copy(_scratchTangent1)
-    .multiplyScalar(deltaTangent1Impulse)
-    .addScaledVector(_scratchTangent2, deltaTangent2Impulse)
+    .multiplyScalar(deltaTangent1ImpulseNewtonSeconds)
+    .addScaledVector(_scratchTangent2, deltaTangent2ImpulseNewtonSeconds)
   applyImpulse(bodyB, _scratchImpulse, point)
   applyImpulse(bodyA, _scratchOppositeImpulse.copy(_scratchImpulse).negate(), point)
 }
@@ -327,11 +384,17 @@ function solveContactFriction(contact, settings) {
 // formulation as the velocity constraint, so it also produces the matching
 // rotation of both bodies.
 function correctContactPosition(contact, settings) {
-  const depthMeters = contact.depth
-  if (!Number.isFinite(depthMeters) || depthMeters <= settings.slopMeters) return
+  const remainingDepthMeters = computeRemainingDepthMeters(contact)
+  if (
+    !Number.isFinite(remainingDepthMeters) ||
+    remainingDepthMeters <= settings.slopMeters
+  ) {
+    return
+  }
 
   const correctionMeters =
-    (depthMeters - settings.slopMeters) * settings.positionCorrectionFactor
+    (remainingDepthMeters - settings.slopMeters) *
+    settings.positionCorrectionFactor
   if (correctionMeters <= 0) return
 
   const bodyA = contact.bodyA
@@ -347,18 +410,26 @@ function correctContactPosition(contact, settings) {
   const effectiveMassKg = computeEffectiveMassKg(bodyA, bodyB, _scratchNormal)
   if (effectiveMassKg <= 0) return
 
-  const pseudoImpulse = correctionMeters * effectiveMassKg
-  _scratchImpulse.copy(_scratchNormal).multiplyScalar(pseudoImpulse)
+  const pseudoImpulseKilogramMeters = correctionMeters * effectiveMassKg
+  _scratchImpulse
+    .copy(_scratchNormal)
+    .multiplyScalar(pseudoImpulseKilogramMeters)
 
   if (bodyB) {
-    bodyB.positionMeters.addScaledVector(_scratchNormal, pseudoImpulse / bodyB.massKg)
+    bodyB.positionMeters.addScaledVector(
+      _scratchNormal,
+      pseudoImpulseKilogramMeters / bodyB.massKg
+    )
     _scratchCrossProductB.crossVectors(_scratchLeverArmB, _scratchImpulse)
     applyInverseInertiaWorld(bodyB, _scratchCrossProductB, _scratchInverseInertiaB)
     applyAngularDisplacement(bodyB, _scratchInverseInertiaB)
   }
 
   if (bodyA) {
-    bodyA.positionMeters.addScaledVector(_scratchNormal, -pseudoImpulse / bodyA.massKg)
+    bodyA.positionMeters.addScaledVector(
+      _scratchNormal,
+      -pseudoImpulseKilogramMeters / bodyA.massKg
+    )
     _scratchCrossProductA.crossVectors(
       _scratchLeverArmA,
       _scratchOppositeImpulse.copy(_scratchImpulse).negate()
@@ -366,6 +437,54 @@ function correctContactPosition(contact, settings) {
     applyInverseInertiaWorld(bodyA, _scratchCrossProductA, _scratchInverseInertiaA)
     applyAngularDisplacement(bodyA, _scratchInverseInertiaA)
   }
+}
+
+// Derive penetration from the body transforms changed by earlier position
+// corrections instead of repeatedly using the depth measured before solving.
+function computeRemainingDepthMeters(contact) {
+  const initialDepthMeters = contact.depth
+  if (!Number.isFinite(initialDepthMeters)) return initialDepthMeters
+
+  _scratchNormal.copy(contact.normal).normalize()
+  let separationMeters = 0
+
+  if (contact.bodyA) {
+    _scratchInverseQuaternion
+      .copy(contact.solverInitialOrientationAQuaternion)
+      .invert()
+    _scratchOrientationDeltaQuaternion
+      .copy(contact.bodyA.orientationQuaternion)
+      .multiply(_scratchInverseQuaternion)
+    _scratchLeverArmA
+      .copy(contact.point)
+      .sub(contact.solverInitialPositionAMeters)
+      .applyQuaternion(_scratchOrientationDeltaQuaternion)
+    _scratchAngularContribution
+      .copy(contact.bodyA.positionMeters)
+      .add(_scratchLeverArmA)
+      .sub(contact.point)
+    separationMeters -= _scratchAngularContribution.dot(_scratchNormal)
+  }
+
+  if (contact.bodyB) {
+    _scratchInverseQuaternion
+      .copy(contact.solverInitialOrientationBQuaternion)
+      .invert()
+    _scratchOrientationDeltaQuaternion
+      .copy(contact.bodyB.orientationQuaternion)
+      .multiply(_scratchInverseQuaternion)
+    _scratchLeverArmB
+      .copy(contact.point)
+      .sub(contact.solverInitialPositionBMeters)
+      .applyQuaternion(_scratchOrientationDeltaQuaternion)
+    _scratchAngularContribution
+      .copy(contact.bodyB.positionMeters)
+      .add(_scratchLeverArmB)
+      .sub(contact.point)
+    separationMeters += _scratchAngularContribution.dot(_scratchNormal)
+  }
+
+  return Math.max(0, initialDepthMeters - separationMeters)
 }
 
 // Relative velocity of B with respect to A at the contact point.
