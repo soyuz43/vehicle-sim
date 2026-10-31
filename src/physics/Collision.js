@@ -30,15 +30,26 @@ const _scratchSegmentOffset = new THREE.Vector3()
 const _scratchClosestPointA = new THREE.Vector3()
 const _scratchClosestPointB = new THREE.Vector3()
 const _scratchPerpendicularSeed = new THREE.Vector3()
-const _scratchHalfExtentsA = new THREE.Vector3()
-const _scratchHalfExtentsB = new THREE.Vector3()
+const _scratchHalfExtentsAMeters = new THREE.Vector3()
+const _scratchHalfExtentsBMeters = new THREE.Vector3()
 const _scratchCandidateAxis = new THREE.Vector3()
 const _scratchBestNormal = new THREE.Vector3()
-const _scratchSupportPointA = new THREE.Vector3()
-const _scratchSupportPointB = new THREE.Vector3()
+const _scratchFaceCenter = new THREE.Vector3()
+const _scratchOppositeFaceCenter = new THREE.Vector3()
+const _scratchOppositeFaceNormal = new THREE.Vector3()
+const _scratchIncidentFaceCenter = new THREE.Vector3()
+const _scratchSupportEdgeCenter = new THREE.Vector3()
+const _scratchClipEdge = new THREE.Vector3()
+const _scratchClipRelative = new THREE.Vector3()
+const _scratchClipPolygonA = Array.from({ length: 16 }, () => new THREE.Vector3())
+const _scratchClipPolygonB = Array.from({ length: 16 }, () => new THREE.Vector3())
 const _scratchBoxAxesA = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
 const _scratchBoxAxesB = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
-let _minimumPenetrationDepth = Infinity
+const BOX_FACE_CORNER_SIGNS = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+let _minimumPenetrationDepthMeters = Infinity
+let _minimumPenetrationFeature = 0
+let _minimumPenetrationAxisA = 0
+let _minimumPenetrationAxisB = 0
 
 export function testCollision(shapeA, transformA, shapeB, transformB) {
   const typeA = shapeA?.type
@@ -76,21 +87,21 @@ function collideSphereSphere(sphereA, transformA, sphereB, transformB) {
   _scratchCenterB.copy(getPosition(resolveTransform(sphereB, transformB)))
   _scratchCenterDelta.subVectors(_scratchCenterB, _scratchCenterA)
 
-  const radiusSum = sphereA.radius + sphereB.radius
-  const distanceSquared = _scratchCenterDelta.lengthSq()
-  if (distanceSquared > radiusSum * radiusSum) return null
+  const radiusSumMeters = sphereA.radiusMeters + sphereB.radiusMeters
+  const distanceMetersSquared = _scratchCenterDelta.lengthSq()
+  if (distanceMetersSquared > radiusSumMeters * radiusSumMeters) return null
 
-  const distance = Math.sqrt(distanceSquared)
-  if (distance > 0) {
-    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distance)
+  const distanceMeters = Math.sqrt(distanceMetersSquared)
+  if (distanceMeters > 0) {
+    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distanceMeters)
   } else {
     _scratchNormal.set(1, 0, 0)
   }
 
-  const depth = radiusSum - distance
+  const depth = radiusSumMeters - distanceMeters
   _scratchContactPoint
     .copy(_scratchCenterA)
-    .addScaledVector(_scratchNormal, sphereA.radius - depth * 0.5)
+    .addScaledVector(_scratchNormal, sphereA.radiusMeters - depth * 0.5)
   return createContact(depth)
 }
 
@@ -105,11 +116,11 @@ function collideSphereBox(sphere, sphereTransform, box, boxTransform) {
       _scratchInverseOrientation.copy(getOrientation(worldBoxTransform)).invert()
     )
 
-  const halfExtents = box.halfExtents
+  const halfExtentsMeters = box.halfExtentsMeters
   _scratchBoxPointLocal.set(
-    THREE.MathUtils.clamp(_scratchSphereCenterLocal.x, -halfExtents.x, halfExtents.x),
-    THREE.MathUtils.clamp(_scratchSphereCenterLocal.y, -halfExtents.y, halfExtents.y),
-    THREE.MathUtils.clamp(_scratchSphereCenterLocal.z, -halfExtents.z, halfExtents.z)
+    THREE.MathUtils.clamp(_scratchSphereCenterLocal.x, -halfExtentsMeters.x, halfExtentsMeters.x),
+    THREE.MathUtils.clamp(_scratchSphereCenterLocal.y, -halfExtentsMeters.y, halfExtentsMeters.y),
+    THREE.MathUtils.clamp(_scratchSphereCenterLocal.z, -halfExtentsMeters.z, halfExtentsMeters.z)
   )
   _scratchTemporary
     .copy(_scratchBoxPointLocal)
@@ -117,37 +128,42 @@ function collideSphereBox(sphere, sphereTransform, box, boxTransform) {
     .add(_scratchCenterB)
   _scratchCenterDelta.subVectors(_scratchTemporary, _scratchCenterA)
 
-  const distanceSquared = _scratchCenterDelta.lengthSq()
-  const radiusSquared = sphere.radius * sphere.radius
-  if (distanceSquared > radiusSquared) return null
+  const distanceMetersSquared = _scratchCenterDelta.lengthSq()
+  const radiusMetersSquared = sphere.radiusMeters * sphere.radiusMeters
+  if (distanceMetersSquared > radiusMetersSquared) return null
 
-  if (distanceSquared > 0) {
-    const distance = Math.sqrt(distanceSquared)
-    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distance)
+  const sphereCenterIsInsideBox =
+    Math.abs(_scratchSphereCenterLocal.x) <= halfExtentsMeters.x &&
+    Math.abs(_scratchSphereCenterLocal.y) <= halfExtentsMeters.y &&
+    Math.abs(_scratchSphereCenterLocal.z) <= halfExtentsMeters.z
+
+  if (!sphereCenterIsInsideBox) {
+    const distanceMeters = Math.sqrt(distanceMetersSquared)
+    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distanceMeters)
     _scratchContactPoint.copy(_scratchTemporary)
-    return createContact(sphere.radius - distance)
+    return createContact(sphere.radiusMeters - distanceMeters)
   }
 
-  const distanceToXFace = halfExtents.x - Math.abs(_scratchSphereCenterLocal.x)
-  const distanceToYFace = halfExtents.y - Math.abs(_scratchSphereCenterLocal.y)
-  const distanceToZFace = halfExtents.z - Math.abs(_scratchSphereCenterLocal.z)
+  const distanceToXFaceMeters = halfExtentsMeters.x - Math.abs(_scratchSphereCenterLocal.x)
+  const distanceToYFaceMeters = halfExtentsMeters.y - Math.abs(_scratchSphereCenterLocal.y)
+  const distanceToZFaceMeters = halfExtentsMeters.z - Math.abs(_scratchSphereCenterLocal.z)
   _scratchBoxPointLocal.copy(_scratchSphereCenterLocal)
 
-  if (distanceToXFace <= distanceToYFace && distanceToXFace <= distanceToZFace) {
+  if (distanceToXFaceMeters <= distanceToYFaceMeters && distanceToXFaceMeters <= distanceToZFaceMeters) {
     const faceSign = _scratchSphereCenterLocal.x < 0 ? -1 : 1
-    _scratchBoxPointLocal.x = faceSign * halfExtents.x
+    _scratchBoxPointLocal.x = faceSign * halfExtentsMeters.x
     _scratchNormal.set(-faceSign, 0, 0)
-    _scratchTemporary.x = distanceToXFace
-  } else if (distanceToYFace <= distanceToZFace) {
+    _scratchTemporary.x = distanceToXFaceMeters
+  } else if (distanceToYFaceMeters <= distanceToZFaceMeters) {
     const faceSign = _scratchSphereCenterLocal.y < 0 ? -1 : 1
-    _scratchBoxPointLocal.y = faceSign * halfExtents.y
+    _scratchBoxPointLocal.y = faceSign * halfExtentsMeters.y
     _scratchNormal.set(0, -faceSign, 0)
-    _scratchTemporary.x = distanceToYFace
+    _scratchTemporary.x = distanceToYFaceMeters
   } else {
     const faceSign = _scratchSphereCenterLocal.z < 0 ? -1 : 1
-    _scratchBoxPointLocal.z = faceSign * halfExtents.z
+    _scratchBoxPointLocal.z = faceSign * halfExtentsMeters.z
     _scratchNormal.set(0, 0, -faceSign)
-    _scratchTemporary.x = distanceToZFace
+    _scratchTemporary.x = distanceToZFaceMeters
   }
 
   _scratchNormal.applyQuaternion(getOrientation(worldBoxTransform))
@@ -155,7 +171,7 @@ function collideSphereBox(sphere, sphereTransform, box, boxTransform) {
     .copy(_scratchBoxPointLocal)
     .applyQuaternion(getOrientation(worldBoxTransform))
     .add(_scratchCenterB)
-  return createContact(sphere.radius + _scratchTemporary.x)
+  return createContact(sphere.radiusMeters + _scratchTemporary.x)
 }
 
 function collideSphereCapsule(sphere, sphereTransform, capsule, capsuleTransform) {
@@ -179,21 +195,21 @@ function collideSphereCapsule(sphere, sphereTransform, capsule, capsuleTransform
     .addScaledVector(_scratchSegmentDirectionB, segmentParameter)
   _scratchCenterDelta.subVectors(_scratchClosestPointB, _scratchCenterA)
 
-  const radiusSum = sphere.radius + capsule.radius
-  const distanceSquared = _scratchCenterDelta.lengthSq()
-  if (distanceSquared > radiusSum * radiusSum) return null
+  const radiusSumMeters = sphere.radiusMeters + capsule.radiusMeters
+  const distanceMetersSquared = _scratchCenterDelta.lengthSq()
+  if (distanceMetersSquared > radiusSumMeters * radiusSumMeters) return null
 
-  const distance = Math.sqrt(distanceSquared)
-  if (distance > 0) {
-    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distance)
+  const distanceMeters = Math.sqrt(distanceMetersSquared)
+  if (distanceMeters > 0) {
+    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distanceMeters)
   } else {
     setDeterministicPerpendicular(_scratchNormal, _scratchCapsuleAxisB)
   }
 
-  const depth = radiusSum - distance
+  const depth = radiusSumMeters - distanceMeters
   _scratchContactPoint
     .copy(_scratchCenterA)
-    .addScaledVector(_scratchNormal, sphere.radius - depth * 0.5)
+    .addScaledVector(_scratchNormal, sphere.radiusMeters - depth * 0.5)
   return createContact(depth)
 }
 
@@ -218,24 +234,32 @@ function collideCapsuleCapsule(capsuleA, transformA, capsuleB, transformB) {
   closestPointsOnSegments()
   _scratchCenterDelta.subVectors(_scratchClosestPointB, _scratchClosestPointA)
 
-  const radiusSum = capsuleA.radius + capsuleB.radius
-  const distanceSquared = _scratchCenterDelta.lengthSq()
-  if (distanceSquared > radiusSum * radiusSum) return null
+  const radiusSumMeters = capsuleA.radiusMeters + capsuleB.radiusMeters
+  const distanceMetersSquared = _scratchCenterDelta.lengthSq()
+  if (distanceMetersSquared > radiusSumMeters * radiusSumMeters) return null
 
-  const distance = Math.sqrt(distanceSquared)
-  if (distance > 0) {
-    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distance)
+  const distanceMeters = Math.sqrt(distanceMetersSquared)
+  if (distanceMeters > 0) {
+    _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distanceMeters)
   } else {
-    const fallbackAxis = _scratchSegmentDirectionA.lengthSq() >= _scratchSegmentDirectionB.lengthSq()
-      ? _scratchSegmentDirectionA
-      : _scratchSegmentDirectionB
-    setDeterministicPerpendicular(_scratchNormal, fallbackAxis)
+    _scratchNormal.crossVectors(_scratchSegmentDirectionA, _scratchSegmentDirectionB)
+    const segmentLengthASquared = _scratchSegmentDirectionA.lengthSq()
+    const segmentLengthBSquared = _scratchSegmentDirectionB.lengthSq()
+    const parallelThreshold = segmentLengthASquared * segmentLengthBSquared * 1e-24
+    if (_scratchNormal.lengthSq() > parallelThreshold) {
+      _scratchNormal.normalize()
+    } else {
+      const fallbackAxis = segmentLengthASquared >= segmentLengthBSquared
+        ? _scratchSegmentDirectionA
+        : _scratchSegmentDirectionB
+      setDeterministicPerpendicular(_scratchNormal, fallbackAxis)
+    }
   }
 
-  const depth = radiusSum - distance
+  const depth = radiusSumMeters - distanceMeters
   _scratchContactPoint
     .copy(_scratchClosestPointA)
-    .addScaledVector(_scratchNormal, capsuleA.radius - depth * 0.5)
+    .addScaledVector(_scratchNormal, capsuleA.radiusMeters - depth * 0.5)
   return createContact(depth)
 }
 
@@ -298,17 +322,18 @@ function collideBoxBox(boxA, transformA, boxB, transformB) {
   _scratchCenterA.copy(getPosition(worldTransformA))
   _scratchCenterB.copy(getPosition(worldTransformB))
   _scratchCenterDelta.subVectors(_scratchCenterB, _scratchCenterA)
-  _scratchHalfExtentsA.copy(boxA.halfExtents)
-  _scratchHalfExtentsB.copy(boxB.halfExtents)
+  _scratchHalfExtentsAMeters.copy(boxA.halfExtentsMeters)
+  _scratchHalfExtentsBMeters.copy(boxB.halfExtentsMeters)
   setBoxAxes(getOrientation(worldTransformA), _scratchBoxAxesA)
   setBoxAxes(getOrientation(worldTransformB), _scratchBoxAxesB)
-  _minimumPenetrationDepth = Infinity
+  _minimumPenetrationDepthMeters = Infinity
+  _minimumPenetrationFeature = 0
 
   for (let axisIndex = 0; axisIndex < 3; axisIndex += 1) {
-    if (!evaluateSatAxis(_scratchBoxAxesA[axisIndex])) return null
+    if (!evaluateSatAxis(_scratchBoxAxesA[axisIndex], 0, axisIndex, -1)) return null
   }
   for (let axisIndex = 0; axisIndex < 3; axisIndex += 1) {
-    if (!evaluateSatAxis(_scratchBoxAxesB[axisIndex])) return null
+    if (!evaluateSatAxis(_scratchBoxAxesB[axisIndex], 1, -1, axisIndex)) return null
   }
   for (let axisIndexA = 0; axisIndexA < 3; axisIndexA += 1) {
     for (let axisIndexB = 0; axisIndexB < 3; axisIndexB += 1) {
@@ -316,37 +341,67 @@ function collideBoxBox(boxA, transformA, boxB, transformB) {
         _scratchBoxAxesA[axisIndexA],
         _scratchBoxAxesB[axisIndexB]
       )
-      if (!evaluateSatAxis(_scratchCandidateAxis)) return null
+      if (!evaluateSatAxis(_scratchCandidateAxis, 2, axisIndexA, axisIndexB)) return null
     }
   }
 
-  _scratchSupportPointA.copy(_scratchCenterA)
-  _scratchSupportPointB.copy(_scratchCenterB)
-  for (let axisIndex = 0; axisIndex < 3; axisIndex += 1) {
-    const axisA = _scratchBoxAxesA[axisIndex]
-    const axisB = _scratchBoxAxesB[axisIndex]
-    const projectionA = axisA.dot(_scratchBestNormal)
-    const projectionB = axisB.dot(_scratchBestNormal)
-    const halfExtentA = _scratchHalfExtentsA.getComponent(axisIndex)
-    const halfExtentB = _scratchHalfExtentsB.getComponent(axisIndex)
-    _scratchSupportPointA.addScaledVector(
-      axisA,
-      projectionA >= 0 ? halfExtentA : -halfExtentA
+  if (_minimumPenetrationFeature === 2) {
+    setBoxSupportEdge(
+      _scratchCenterA,
+      _scratchBoxAxesA,
+      _scratchHalfExtentsAMeters,
+      _minimumPenetrationAxisA,
+      _scratchBestNormal,
+      _scratchSegmentAStart,
+      _scratchSegmentAEnd
     )
-    _scratchSupportPointB.addScaledVector(
-      axisB,
-      projectionB <= 0 ? halfExtentB : -halfExtentB
+    _scratchSegmentDirectionA.subVectors(_scratchSegmentAEnd, _scratchSegmentAStart)
+    setBoxSupportEdge(
+      _scratchCenterB,
+      _scratchBoxAxesB,
+      _scratchHalfExtentsBMeters,
+      _minimumPenetrationAxisB,
+      _scratchTemporary.copy(_scratchBestNormal).negate(),
+      _scratchSegmentBStart,
+      _scratchSegmentBEnd
+    )
+    _scratchSegmentDirectionB.subVectors(_scratchSegmentBEnd, _scratchSegmentBStart)
+    _scratchSegmentOffset.subVectors(_scratchSegmentAStart, _scratchSegmentBStart)
+    closestPointsOnSegments()
+    _scratchContactPoint
+      .copy(_scratchClosestPointA)
+      .add(_scratchClosestPointB)
+      .multiplyScalar(0.5)
+  } else if (_minimumPenetrationFeature === 0) {
+    setBoxFaceContactPoint(
+      _scratchCenterA,
+      _scratchBoxAxesA,
+      _scratchHalfExtentsAMeters,
+      _minimumPenetrationAxisA,
+      _scratchBestNormal,
+      _scratchCenterB,
+      _scratchBoxAxesB,
+      _scratchHalfExtentsBMeters,
+      _scratchTemporary.copy(_scratchBestNormal).negate()
+    )
+  } else {
+    setBoxFaceContactPoint(
+      _scratchCenterB,
+      _scratchBoxAxesB,
+      _scratchHalfExtentsBMeters,
+      _minimumPenetrationAxisB,
+      _scratchTemporary.copy(_scratchBestNormal).negate(),
+      _scratchCenterA,
+      _scratchBoxAxesA,
+      _scratchHalfExtentsAMeters,
+      _scratchBestNormal
     )
   }
-  _scratchContactPoint
-    .copy(_scratchSupportPointA)
-    .add(_scratchSupportPointB)
-    .multiplyScalar(0.5)
   _scratchNormal.copy(_scratchBestNormal)
-  return createContact(_minimumPenetrationDepth)
+  return createContact(_minimumPenetrationDepthMeters)
 }
 
-function evaluateSatAxis(axis) {
+function evaluateSatAxis(axis, feature, axisIndexA, axisIndexB) {
   const axisLengthSquared = axis.lengthSq()
   if (axisLengthSquared === 0) return true
 
@@ -356,27 +411,217 @@ function evaluateSatAxis(axis) {
   const projectionB0 = axis.dot(_scratchBoxAxesB[0])
   const projectionB1 = axis.dot(_scratchBoxAxesB[1])
   const projectionB2 = axis.dot(_scratchBoxAxesB[2])
-  const radiusA =
-    _scratchHalfExtentsA.x * Math.abs(projectionA0) +
-    _scratchHalfExtentsA.y * Math.abs(projectionA1) +
-    _scratchHalfExtentsA.z * Math.abs(projectionA2)
-  const radiusB =
-    _scratchHalfExtentsB.x * Math.abs(projectionB0) +
-    _scratchHalfExtentsB.y * Math.abs(projectionB1) +
-    _scratchHalfExtentsB.z * Math.abs(projectionB2)
-  const signedCenterDistance = _scratchCenterDelta.dot(axis)
-  const overlap = radiusA + radiusB - Math.abs(signedCenterDistance)
-  if (overlap < 0) return false
+  const projectedRadiusAMeters =
+    _scratchHalfExtentsAMeters.x * Math.abs(projectionA0) +
+    _scratchHalfExtentsAMeters.y * Math.abs(projectionA1) +
+    _scratchHalfExtentsAMeters.z * Math.abs(projectionA2)
+  const projectedRadiusBMeters =
+    _scratchHalfExtentsBMeters.x * Math.abs(projectionB0) +
+    _scratchHalfExtentsBMeters.y * Math.abs(projectionB1) +
+    _scratchHalfExtentsBMeters.z * Math.abs(projectionB2)
+  const signedCenterDistanceMeters = _scratchCenterDelta.dot(axis)
+  const overlapMeters =
+    projectedRadiusAMeters + projectedRadiusBMeters - Math.abs(signedCenterDistanceMeters)
+  if (overlapMeters < 0) return false
 
-  const penetrationDepth = overlap / Math.sqrt(axisLengthSquared)
-  if (penetrationDepth < _minimumPenetrationDepth) {
-    const orientationSign = signedCenterDistance < 0 ? -1 : 1
+  const penetrationDepthMeters = overlapMeters / Math.sqrt(axisLengthSquared)
+  if (penetrationDepthMeters < _minimumPenetrationDepthMeters) {
+    const orientationSign = signedCenterDistanceMeters < 0 ? -1 : 1
     _scratchBestNormal.copy(axis).multiplyScalar(
       orientationSign / Math.sqrt(axisLengthSquared)
     )
-    _minimumPenetrationDepth = penetrationDepth
+    _minimumPenetrationDepthMeters = penetrationDepthMeters
+    _minimumPenetrationFeature = feature
+    _minimumPenetrationAxisA = axisIndexA
+    _minimumPenetrationAxisB = axisIndexB
   }
   return true
+}
+
+function setBoxFaceContactPoint(
+  referenceCenter,
+  referenceAxes,
+  referenceHalfExtentsMeters,
+  referenceFaceAxisIndex,
+  referenceOutwardNormal,
+  incidentCenter,
+  incidentAxes,
+  incidentHalfExtentsMeters,
+  incidentOutwardNormal
+) {
+  const referenceFaceAxis = referenceAxes[referenceFaceAxisIndex]
+  const referenceFaceSign = referenceFaceAxis.dot(referenceOutwardNormal) < 0 ? -1 : 1
+  _scratchFaceCenter
+    .copy(referenceCenter)
+    .addScaledVector(
+      referenceFaceAxis,
+      referenceFaceSign * referenceHalfExtentsMeters.getComponent(referenceFaceAxisIndex)
+    )
+
+  let incidentFaceAxisIndex = 0
+  let incidentFaceAlignment = Math.abs(incidentAxes[0].dot(incidentOutwardNormal))
+  for (let axisIndex = 1; axisIndex < 3; axisIndex += 1) {
+    const alignment = Math.abs(incidentAxes[axisIndex].dot(incidentOutwardNormal))
+    if (alignment > incidentFaceAlignment) {
+      incidentFaceAxisIndex = axisIndex
+      incidentFaceAlignment = alignment
+    }
+  }
+
+  const incidentFaceAxis = incidentAxes[incidentFaceAxisIndex]
+  const incidentFaceSign = incidentFaceAxis.dot(incidentOutwardNormal) < 0 ? -1 : 1
+  _scratchIncidentFaceCenter
+    .copy(incidentCenter)
+    .addScaledVector(
+      incidentFaceAxis,
+      incidentFaceSign * incidentHalfExtentsMeters.getComponent(incidentFaceAxisIndex)
+    )
+
+  const incidentTangentAxisIndexA = (incidentFaceAxisIndex + 1) % 3
+  const incidentTangentAxisIndexB = (incidentFaceAxisIndex + 2) % 3
+  const incidentTangentAxisA = incidentAxes[incidentTangentAxisIndexA]
+  const incidentTangentAxisB = incidentAxes[incidentTangentAxisIndexB]
+  const incidentTangentExtentAMeters = incidentHalfExtentsMeters.getComponent(incidentTangentAxisIndexA)
+  const incidentTangentExtentBMeters = incidentHalfExtentsMeters.getComponent(incidentTangentAxisIndexB)
+  for (let vertexIndex = 0; vertexIndex < 4; vertexIndex += 1) {
+    const signs = BOX_FACE_CORNER_SIGNS[vertexIndex]
+    _scratchClipPolygonA[vertexIndex]
+      .copy(_scratchIncidentFaceCenter)
+      .addScaledVector(incidentTangentAxisA, signs[0] * incidentTangentExtentAMeters)
+      .addScaledVector(incidentTangentAxisB, signs[1] * incidentTangentExtentBMeters)
+  }
+
+  let polygonInput = _scratchClipPolygonA
+  let polygonOutput = _scratchClipPolygonB
+  let polygonVertexCount = 4
+  for (let axisIndex = 0; axisIndex < 3; axisIndex += 1) {
+    if (axisIndex === referenceFaceAxisIndex) continue
+    const clipAxis = referenceAxes[axisIndex]
+    const clipExtentMeters = referenceHalfExtentsMeters.getComponent(axisIndex)
+    for (let directionSign = 1; directionSign >= -1; directionSign -= 2) {
+      polygonVertexCount = clipPolygonAgainstFaceSide(
+        polygonInput,
+        polygonVertexCount,
+        polygonOutput,
+        clipAxis,
+        directionSign,
+        clipExtentMeters,
+        referenceCenter
+      )
+      const previousInput = polygonInput
+      polygonInput = polygonOutput
+      polygonOutput = previousInput
+    }
+  }
+
+  polygonVertexCount = clipPolygonAgainstFaceSide(
+    polygonInput,
+    polygonVertexCount,
+    polygonOutput,
+    referenceOutwardNormal,
+    1,
+    0,
+    _scratchFaceCenter
+  )
+  const previousInput = polygonInput
+  polygonInput = polygonOutput
+  polygonOutput = previousInput
+
+  _scratchOppositeFaceNormal.copy(referenceOutwardNormal).negate()
+  _scratchOppositeFaceCenter
+    .copy(referenceCenter)
+    .addScaledVector(
+      referenceOutwardNormal,
+      -referenceHalfExtentsMeters.getComponent(referenceFaceAxisIndex)
+    )
+  polygonVertexCount = clipPolygonAgainstFaceSide(
+    polygonInput,
+    polygonVertexCount,
+    polygonOutput,
+    _scratchOppositeFaceNormal,
+    1,
+    0,
+    _scratchOppositeFaceCenter
+  )
+  const faceClipInput = polygonInput
+  polygonInput = polygonOutput
+  polygonOutput = faceClipInput
+
+  _scratchContactPoint.set(0, 0, 0)
+  if (polygonVertexCount === 0) {
+    _scratchContactPoint.copy(_scratchCenterA).add(_scratchCenterB).multiplyScalar(0.5)
+    return
+  }
+  for (let vertexIndex = 0; vertexIndex < polygonVertexCount; vertexIndex += 1) {
+    _scratchContactPoint.add(polygonInput[vertexIndex])
+  }
+  _scratchContactPoint.divideScalar(polygonVertexCount)
+  const faceAlignment = Math.abs(incidentFaceAxis.dot(referenceOutwardNormal))
+  if (faceAlignment >= 1 - 1e-12) {
+    _scratchClipRelative.subVectors(_scratchContactPoint, _scratchFaceCenter)
+    const faceSeparationMeters = _scratchClipRelative.dot(referenceOutwardNormal)
+    _scratchContactPoint.addScaledVector(referenceOutwardNormal, -faceSeparationMeters * 0.5)
+  }
+}
+
+function clipPolygonAgainstFaceSide(
+  polygonInput,
+  polygonVertexCount,
+  polygonOutput,
+  planeAxis,
+  directionSign,
+  planeExtentMeters,
+  referenceCenter
+) {
+  if (polygonVertexCount === 0) return 0
+
+  let outputVertexCount = 0
+  let previousVertex = polygonInput[polygonVertexCount - 1]
+  _scratchClipRelative.subVectors(previousVertex, referenceCenter)
+  let previousDistance = directionSign * planeAxis.dot(_scratchClipRelative) - planeExtentMeters
+  let previousIsInside = previousDistance <= 0
+
+  for (let vertexIndex = 0; vertexIndex < polygonVertexCount; vertexIndex += 1) {
+    const currentVertex = polygonInput[vertexIndex]
+    _scratchClipRelative.subVectors(currentVertex, referenceCenter)
+    const currentDistance = directionSign * planeAxis.dot(_scratchClipRelative) - planeExtentMeters
+    const currentIsInside = currentDistance <= 0
+
+    if (currentIsInside !== previousIsInside) {
+      const interpolation = previousDistance / (previousDistance - currentDistance)
+      _scratchClipEdge.subVectors(currentVertex, previousVertex)
+      polygonOutput[outputVertexCount]
+        .copy(previousVertex)
+        .addScaledVector(_scratchClipEdge, interpolation)
+      outputVertexCount += 1
+    }
+    if (currentIsInside) {
+      polygonOutput[outputVertexCount].copy(currentVertex)
+      outputVertexCount += 1
+    }
+
+    previousVertex = currentVertex
+    previousDistance = currentDistance
+    previousIsInside = currentIsInside
+  }
+  return outputVertexCount
+}
+
+function setBoxSupportEdge(center, axes, halfExtentsMeters, edgeAxisIndex, supportDirection, start, end) {
+  _scratchSupportEdgeCenter.copy(center)
+  for (let axisIndex = 0; axisIndex < 3; axisIndex += 1) {
+    if (axisIndex === edgeAxisIndex) continue
+    const axis = axes[axisIndex]
+    const sign = axis.dot(supportDirection) >= 0 ? 1 : -1
+    _scratchSupportEdgeCenter.addScaledVector(
+      axis,
+      sign * halfExtentsMeters.getComponent(axisIndex)
+    )
+  }
+  const edgeAxis = axes[edgeAxisIndex]
+  const edgeHalfExtentMeters = halfExtentsMeters.getComponent(edgeAxisIndex)
+  start.copy(_scratchSupportEdgeCenter).addScaledVector(edgeAxis, -edgeHalfExtentMeters)
+  end.copy(_scratchSupportEdgeCenter).addScaledVector(edgeAxis, edgeHalfExtentMeters)
 }
 
 function setBoxAxes(orientationQuaternion, axes) {
@@ -389,8 +634,8 @@ function setCapsuleSegment(capsule, transform, start, end, axis) {
   const worldTransform = resolveTransform(capsule, transform)
   const position = getPosition(worldTransform)
   axis.set(0, 1, 0).applyQuaternion(getOrientation(worldTransform))
-  start.copy(position).addScaledVector(axis, -capsule.halfHeight)
-  end.copy(position).addScaledVector(axis, capsule.halfHeight)
+  start.copy(position).addScaledVector(axis, -capsule.halfHeightMeters)
+  end.copy(position).addScaledVector(axis, capsule.halfHeightMeters)
 }
 
 function setDeterministicPerpendicular(target, direction) {

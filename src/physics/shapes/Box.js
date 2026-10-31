@@ -1,21 +1,21 @@
 // src/physics/shapes/Box.js
 
-export function createBox(halfExtents, worldTransform = null) {
+export function createBox(halfExtentsMeters, worldTransform = null) {
   if (
-    !halfExtents ||
-    !Number.isFinite(halfExtents.x) ||
-    !Number.isFinite(halfExtents.y) ||
-    !Number.isFinite(halfExtents.z) ||
-    halfExtents.x < 0 ||
-    halfExtents.y < 0 ||
-    halfExtents.z < 0
+    !halfExtentsMeters ||
+    !Number.isFinite(halfExtentsMeters.x) ||
+    !Number.isFinite(halfExtentsMeters.y) ||
+    !Number.isFinite(halfExtentsMeters.z) ||
+    halfExtentsMeters.x < 0 ||
+    halfExtentsMeters.y < 0 ||
+    halfExtentsMeters.z < 0
   ) {
-    throw new RangeError('Box halfExtents must be a vector of finite non-negative values')
+    throw new RangeError('Box halfExtentsMeters must be a vector of finite non-negative values')
   }
 
   return {
     type: 'box',
-    halfExtents,
+    halfExtentsMeters,
     worldTransform,
   }
 }
