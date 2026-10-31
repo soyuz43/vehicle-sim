@@ -184,6 +184,7 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 - **Rocket Prototype (MVR)**: a separate `src/rocket/` subsystem with six-degree-of-freedom rocket dynamics built on the generic `src/physics/RigidBody.js` primitive through a thin `rocketRigidBody.js` compatibility wrapper, reached through a vehicle-mode exclusive mode switch (`simulation.mode`, `'car'` or `'rocket'`). The vehicle solver is NOT extended to 6-DOF: it has planar motion plus a gated heave/pitch/roll seam, no orientation quaternion, no angular rate, and no inertia-tensor integration. The rocket reuses the shared gravity constant, the fixed-timestep runner, the terrain contact query, and the simulation constants. Its airframe is statically stable because the centre of pressure (the fin level, structural y = 3 m) sits BELOW the centre of mass (structural y = 8.06 m). A centre of pressure above the centre of mass is destabilising, not stabilising.
 - **Generic rigid-body contract**: `src/physics/RigidBody.js` is the foundational 6-DOF primitive. It uses Symplectic Euler integration, assumes a diagonal inertia tensor expressed in the body frame, and stores position at the center of mass. It intentionally omits the Euler gyroscopic term (`omega x (I * omega)`). Its reusable `THREE.Vector3` and `THREE.Quaternion` scratch objects remain at module scope.
 - **Narrow-phase collision contract**: `src/physics/Collision.js` dispatches deterministic Sphere, Capsule, and Box narrow-phase tests using analytical primitive math and the 15-axis OBB Separating Axis Theorem. It returns a single-contact record with an A-to-B normal, penetration depth, and world-space point; shape dimensions use explicit SI suffixes (`radiusMeters`, `halfHeightMeters`, and `halfExtentsMeters`). The capsule-box pair and multi-point manifolds are not implemented.
+- **Contact solver contract**: `src/physics/ContactSolver.js` resolves contact constraints with Projected Gauss-Seidel (sequential impulses), warm-starting, Coulomb friction, restitution, and a direct positional projection. It depends on `src/physics/RigidBody.js` for the impulse application and consumes the A-to-B normals produced by `src/physics/Collision.js`. See section 3.6.
 
 ### 3.2 Documented Unfinished Seams
 The genuine next-layer gaps, self-identified in source comments and `README.md`. Any "future work" claim must map to one of these or be evidenced in code:
@@ -197,6 +198,7 @@ The genuine next-layer gaps, self-identified in source comments and `README.md`.
 - Powertrain depth: torque converter (fluid coupling), detailed shift actuation, driveline compliance, launch control.
 - Aero depth: wind and drafting are not modeled; downforce/lift is a first-order speed-squared vertical load.
 - Timestep sensitivity: documented long-brake stopping-distance and stop-time spread across 60 to 480 Hz.
+- Contact solver depth: the solver resolves single-point contact and friction constraints only. Joints, hinges, suspension constraints, multi-point manifolds, and continuous collision detection (tunnelling) are not implemented.
 
 ### 3.3 Inference Discipline (Core Contract)
 When analyzing or describing this repository, you MUST:
@@ -226,6 +228,48 @@ Before finalizing a design report or large PR, quickly ask:
 5. Did I add an abstraction that live runtime would not yet consume?
 6. Did I decide a question that actually requires the user's explicit intent?
 7. Is the first proposed PR the smallest behavior-preserving precursor?
+
+### 3.6 Contact Solver Contract (`src/physics/ContactSolver.js`)
+
+Phase 0.3 of the unified physics migration. The solver is the impulse-resolution stage that sits between the collision narrow phase and the rigid-body integrator.
+
+**Inputs**: an array of contact constraints. Each entry carries the two bodies, the contact geometry, and the solver-owned warm-start accumulators:
+
+```javascript
+{
+  bodyA: RigidBody,
+  bodyB: RigidBody | null,        // null means static / infinite mass
+  normal: THREE.Vector3,          // points from A to B
+  depth: number,                  // penetration depth in meters
+  point: THREE.Vector3,           // world-space contact point
+  restitution: number | undefined,
+  frictionCoefficient: number | undefined,
+  // Solver-owned warm-start accumulators:
+  accumulatedNormalImpulseNewtonSeconds: number,
+  accumulatedFrictionImpulseNewtonSeconds: number, // magnitude in N*s
+  accumulatedFrictionImpulseTangent1NewtonSeconds: number,
+  accumulatedFrictionImpulseTangent2NewtonSeconds: number,
+}
+```
+
+`createContactConstraint(...)` builds a correctly initialised entry. The narrow phase only returns `normal`, `depth`, and `point`, so the caller must attach the bodies and the accumulators before solving. The same constraint object must be reused for a contact that persists across frames, otherwise the warm-start state is lost and the contact restarts from a cold solve.
+
+**Sign convention**: `normal` points from A to B, the same convention as the narrow phase. The solver measures the relative velocity of B with respect to A at the contact point, `vn = normal . (vB + wB x rB - vA - wA x rA)`. `vn < 0` means the bodies approach, `vn > 0` means they separate. The normal constraint drives `vn` up to a target that is never negative.
+
+**Algorithm**: Projected Gauss-Seidel (sequential impulses).
+
+1. Prepare: cache the restitution target (derived from the pre-solve approach velocity and only applied above `restitutionVelocityThresholdMetersPerSecond`) plus the effective mass of the normal and of the two tangent directions.
+2. Warm start: re-apply the impulses accumulated during the previous frame and retain them in the accumulators. Later normal and friction iterations can reduce an over-applied accumulated impulse as constraints converge.
+3. Velocity iterations (default 10): per contact, the normal impulse is clamped so the accumulated normal impulse stays `>= 0` (a contact pushes, it never pulls), and the friction impulse is clamped to the Coulomb cone `|jt| <= mu * jn`. A zero friction limit removes any previously applied friction rather than leaving it in place.
+4. Positional correction (default 1 pass): derive the remaining penetration from the body transforms changed by earlier passes, then reduce the part deeper than `slopMeters` by `positionCorrectionFactor`. The correction reuses the effective-mass formulation of the velocity constraint, so it also produces the matching rotation of both bodies.
+
+**Effect**: the solver writes velocity changes directly into `velocityMetersPerSecond` and `angularVelocityRadiansPerSecond`, and adjusts `positionMeters` and `orientationQuaternion` directly. It never touches the force accumulators, so it composes with the symplectic Euler integration of `integrateRigidBody`.
+
+**Determinism**: the tangent basis is derived from the normal with a fixed axis-selection rule, contacts are processed in array order, and no `THREE.Vector3` or `THREE.Quaternion` is allocated in the solve path (module-scope scratch objects only). Re-running the same scenario produces bit-identical results.
+
+**Integration order**: the solver is designed to run between the velocity phase and the position phase. `integrateRigidBody` currently fuses both phases, so a body resting on the ground sinks `g * dt^2` per step before the contact impulse can cancel the velocity; the positional projection bounds that at the steady state `slopMeters + g * dt^2 * (1 - positionCorrectionFactor) / positionCorrectionFactor`. Splitting the integrator into a velocity phase and a position phase is a prerequisite for a resting body that holds the surface exactly.
+
+**Not implemented**: joints, hinges, suspension constraints, multi-point manifolds, and continuous collision detection.
 
 ## 4. Hard Simulation Conventions
 - **Units**:
