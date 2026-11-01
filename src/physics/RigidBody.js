@@ -156,7 +156,19 @@ export function applyAngularImpulseInWorldFrame(body, angularImpulseNewtonMeterS
 
 // Semi-implicit (symplectic) Euler integration of the rigid body.
 // The caller supplies a fixed step.
+//
+// The fused entry point remains the compatibility path for callers that do
+// not need to insert a contact solve between the velocity and position phases.
 export function integrateRigidBody(body, deltaTimeSeconds) {
+  integrateRigidBodyVelocityPhase(body, deltaTimeSeconds)
+  integrateRigidBodyPositionPhase(body, deltaTimeSeconds)
+  return body
+}
+
+// Applies accumulated forces and torques to the body velocities. This phase
+// does not change the body pose. A contact solver may run after this call and
+// before integrateRigidBodyPositionPhase.
+export function integrateRigidBodyVelocityPhase(body, deltaTimeSeconds) {
   if (!body) return body
 
   const deltaSeconds = sanitizeNonNegativeNumber(deltaTimeSeconds, 0)
@@ -173,7 +185,6 @@ export function integrateRigidBody(body, deltaTimeSeconds) {
     body.linearAccelerationMetersPerSecondSquared,
     deltaSeconds
   )
-  body.positionMeters.addScaledVector(body.velocityMetersPerSecond, deltaSeconds)
 
   // Torque -> body frame -> divide by the diagonal inertia -> back to world.
   _scratchInverseQuaternion.copy(body.orientationQuaternion).invert()
@@ -195,6 +206,24 @@ export function integrateRigidBody(body, deltaTimeSeconds) {
     _scratchWorldAngularAccelerationRadiansPerSecondSquared,
     deltaSeconds
   )
+
+  body.isFinite = isFiniteBody(body)
+
+  return body
+}
+
+// Advances the body pose from its current velocities. This phase does not
+// consume the force or torque accumulators and does not change velocities.
+export function integrateRigidBodyPositionPhase(body, deltaTimeSeconds) {
+  if (!body) return body
+
+  const deltaSeconds = sanitizeNonNegativeNumber(deltaTimeSeconds, 0)
+  if (deltaSeconds <= 0) {
+    body.isFinite = isFiniteBody(body)
+    return body
+  }
+
+  body.positionMeters.addScaledVector(body.velocityMetersPerSecond, deltaSeconds)
 
   // Quaternion integration for a WORLD-frame angular rate:
   // q_next = normalize(q + 0.5 * dt * (omega_quat * q))

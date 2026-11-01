@@ -6,6 +6,8 @@ import {
   clearForceAccumulators,
   createRigidBody,
   integrateRigidBody,
+  integrateRigidBodyPositionPhase,
+  integrateRigidBodyVelocityPhase,
 } from '../src/physics/RigidBody.js'
 import {
   createContactConstraint,
@@ -26,11 +28,6 @@ const BOX_HALF_HEIGHT_METERS = 0.5
 const BOX_MASS_KG = 5
 
 const _gravityForceNewtons = new THREE.Vector3()
-const _gravityAccelerationMetersPerSecondSquared = new THREE.Vector3(
-  0,
-  GRAVITY_METERS_PER_SECOND_SQUARED,
-  0
-)
 
 function applyGravityForce(body) {
   _gravityForceNewtons.set(
@@ -41,21 +38,16 @@ function applyGravityForce(body) {
   addForce(body, _gravityForceNewtons)
 }
 
-// The repository's integrateRigidBody fuses the velocity phase and the
-// position phase into a single call. A contact solver that writes velocities
-// directly has to run between those two phases, otherwise the gravity
-// increment is already baked into the position update. The harness therefore
-// reproduces the velocity phase explicitly and lets integrateRigidBody
-// perform the position phase with the post-solve velocity.
+// The contact solver runs between the rigid-body velocity and position
+// phases. The fused integrator remains available for scenarios that do not
+// insert a contact solve.
 function integrateVelocityPhase(body, deltaSeconds) {
-  body.velocityMetersPerSecond.addScaledVector(
-    _gravityAccelerationMetersPerSecondSquared,
-    deltaSeconds
-  )
+  applyGravityForce(body)
+  integrateRigidBodyVelocityPhase(body, deltaSeconds)
 }
 
 function integratePositionPhase(body, deltaSeconds) {
-  integrateRigidBody(body, deltaSeconds)
+  integrateRigidBodyPositionPhase(body, deltaSeconds)
   clearForceAccumulators(body)
 }
 

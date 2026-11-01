@@ -18,8 +18,9 @@ import { applyImpulse } from './RigidBody.js'
 // The solver writes velocity changes directly into the rigid bodies
 // (velocityMetersPerSecond / angularVelocityRadiansPerSecond) and applies a
 // direct positional projection to positionMeters / orientationQuaternion.
-// It never touches the force accumulators, so it composes with the
-// symplectic Euler integration performed by integrateRigidBody.
+// It never touches the force accumulators. It composes with symplectic Euler
+// when called between integrateRigidBodyVelocityPhase and
+// integrateRigidBodyPositionPhase.
 
 const _scratchRelativeVelocity = new THREE.Vector3()
 const _scratchLeverArmA = new THREE.Vector3()

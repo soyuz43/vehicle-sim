@@ -267,7 +267,7 @@ Phase 0.3 of the unified physics migration. The solver is the impulse-resolution
 
 **Determinism**: the tangent basis is derived from the normal with a fixed axis-selection rule, contacts are processed in array order, and no `THREE.Vector3` or `THREE.Quaternion` is allocated in the solve path (module-scope scratch objects only). Re-running the same scenario produces bit-identical results.
 
-**Integration order**: the solver is designed to run between the velocity phase and the position phase. `integrateRigidBody` currently fuses both phases, so a body resting on the ground sinks `g * dt^2` per step before the contact impulse can cancel the velocity; the positional projection bounds that at the steady state `slopMeters + g * dt^2 * (1 - positionCorrectionFactor) / positionCorrectionFactor`. Splitting the integrator into a velocity phase and a position phase is a prerequisite for a resting body that holds the surface exactly.
+**Integration order**: `integrateRigidBody` remains the fused compatibility API and now delegates to explicit `integrateRigidBodyVelocityPhase` and `integrateRigidBodyPositionPhase` functions. The solver is designed to run between those two phases. Production still uses the fused path until a runtime contact loop consumes the split API. The split path keeps the contact impulse from being baked into the position update; its resting penetration is bounded by the solver's slop and positional-projection settings.
 
 **Not implemented**: joints, hinges, suspension constraints, multi-point manifolds, and continuous collision detection.
 
