@@ -182,9 +182,11 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 - Apply-at-speed reporting: a chassis change above 30 km/h drops the vertical dynamics state, and the apply reports that consequence.
 - Roll-center consumption: the vertical dynamics derives a roll-center height per axle, shortens the elastic roll arm, and applies the direct part of the lateral load transfer straight to the per-corner normal force.
 - **Rocket Prototype (MVR)**: a separate `src/rocket/` subsystem with six-degree-of-freedom rocket dynamics built on the generic `src/physics/RigidBody.js` primitive through a thin `rocketRigidBody.js` compatibility wrapper, reached through a vehicle-mode exclusive mode switch (`simulation.mode`, `'car'` or `'rocket'`). The vehicle solver is NOT extended to 6-DOF: it has planar motion plus a gated heave/pitch/roll seam, no orientation quaternion, no angular rate, and no inertia-tensor integration. The rocket reuses the shared gravity constant, the fixed-timestep runner, the terrain contact query, and the simulation constants. Its airframe is statically stable because the centre of pressure (the fin level, structural y = 3 m) sits BELOW the centre of mass (structural y = 8.06 m). A centre of pressure above the centre of mass is destabilising, not stabilising.
-- **Generic rigid-body contract**: `src/physics/RigidBody.js` is the foundational 6-DOF primitive. It uses Symplectic Euler integration, assumes a diagonal inertia tensor expressed in the body frame, and stores position at the center of mass. It intentionally omits the Euler gyroscopic term (`omega x (I * omega)`). Its reusable `THREE.Vector3` and `THREE.Quaternion` scratch objects remain at module scope.
-- **Narrow-phase collision contract**: `src/physics/Collision.js` dispatches deterministic Sphere, Capsule, and Box narrow-phase tests using analytical primitive math and the 15-axis OBB Separating Axis Theorem. It returns a single-contact record with an A-to-B normal, penetration depth, and world-space point; shape dimensions use explicit SI suffixes (`radiusMeters`, `halfHeightMeters`, and `halfExtentsMeters`). The capsule-box pair and multi-point manifolds are not implemented.
+- **Generic rigid-body contract**: `src/physics/RigidBody.js` is the foundational 6-DOF primitive. It uses Symplectic Euler integration, assumes a diagonal inertia tensor expressed in the body frame, and stores position at the center of mass. It intentionally omits the Euler gyroscopic term (`omega x (I * omega)`). Its reusable `THREE.Vector3` and `THREE.Quaternion` scratch objects remain at module scope. Every body also carries a `contactId`: an explicit identity from `config.contactId`, otherwise a generated `rigid-body-N` id that survives `resetRigidBody` unless a new id is supplied. That id is the stable half of a contact-cache key.
+- **Narrow-phase collision contract**: `src/physics/Collision.js` dispatches deterministic Sphere, Capsule, and Box narrow-phase tests using analytical primitive math and the 15-axis OBB Separating Axis Theorem. It returns a single-contact record with an A-to-B normal, penetration depth, and world-space point; shape dimensions use explicit SI suffixes (`radiusMeters`, `halfHeightMeters`, and `halfExtentsMeters`). The capsule-box pair and multi-point manifolds are not implemented. Every contact record also carries a `featureId`: a stable string naming the primitive support feature that was selected (for example `sphere-box:outside:face:y+` or `box-box:face:a:1:+`). The id describes the geometry, not the body order, and deliberately excludes the continuously moving contact point, which is what makes it usable as a persistent-contact identity.
 - **Contact solver contract**: `src/physics/ContactSolver.js` resolves contact constraints with Projected Gauss-Seidel (sequential impulses), warm-starting, Coulomb friction, restitution, and a direct positional projection. It depends on `src/physics/RigidBody.js` for the impulse application and consumes the A-to-B normals produced by `src/physics/Collision.js`. See section 3.6.
+- **Contact cache contract**: `src/physics/ContactCache.js` owns contact-constraint lifetime across frames. It keys a constraint by the ordered body pair plus the narrow-phase `featureId`, reuses the constraint object (and therefore its warm-start impulses) for a persisting contact, evicts contacts that were not generated in a step, and returns the active set in deterministic contact-key order. See section 3.7.
+- **Fixed-step contact scenario**: `src/physics/FixedStepContactScenario.js` is a standalone vertical slice that orders one fixed step as: clear and apply forces, integrate velocity, generate the contact, solve and project, integrate position once, commit the contact cache. It exercises the split integration phases, but it is NOT wired into the production runtime; the vehicle and rocket simulations still step through the fused `integrateRigidBody` path.
 
 ### 3.2 Documented Unfinished Seams
 The genuine next-layer gaps, self-identified in source comments and `README.md`. Any "future work" claim must map to one of these or be evidenced in code:
@@ -199,6 +201,8 @@ The genuine next-layer gaps, self-identified in source comments and `README.md`.
 - Aero depth: wind and drafting are not modeled; downforce/lift is a first-order speed-squared vertical load.
 - Timestep sensitivity: documented long-brake stopping-distance and stop-time spread across 60 to 480 Hz.
 - Contact solver depth: the solver resolves single-point contact and friction constraints only. Joints, hinges, suspension constraints, multi-point manifolds, and continuous collision detection (tunnelling) are not implemented.
+- Contact-cache integration: the contact cache and the fixed-step scenario are standalone. The production simulation does not insert contact generation or solving between the split integration phases, so no runtime contact loop consumes persistent-contact state yet.
+- Feature-id granularity: an id encodes the support feature only as far as each pair can expose it. The sphere-box outside case resolves to a face, edge, or vertex id; the sphere-box inside case and the box-box face case resolve to a face id; the box-box edge case resolves to an edge id; the sphere-sphere and capsule pairs fall back to a primitive-level id because the single-point narrow-phase API does not expose segment or cap parameter metadata.
 
 ### 3.3 Inference Discipline (Core Contract)
 When analyzing or describing this repository, you MUST:
@@ -271,6 +275,28 @@ Phase 0.3 of the unified physics migration. The solver is the impulse-resolution
 
 **Not implemented**: joints, hinges, suspension constraints, multi-point manifolds, and continuous collision detection.
 
+### 3.7 Contact Cache Contract (`src/physics/ContactCache.js`)
+
+The cache is the persistent-contact state layer between the narrow phase and the solver. It exists so a contact that persists across frames keeps its constraint object, and therefore its warm-start accumulators, instead of restarting from a cold solve every frame.
+
+**Identity**: a contact key is the ordered triple (bodyAId, bodyBId, featureId), serialized as JSON. The order is part of the identity because the solver's normal points from body A to body B, so reversing the pair would reverse the normal and invalidate the previous impulse sign. A pair whose two body identities are equal is rejected.
+
+**Lifecycle**:
+1. `beginStep()` opens a step and clears the pending containers.
+2. `acquire(contact)` validates the candidate and returns the constraint for that key. It creates a constraint when the key is new, and reuses the active constraint when the key AND both body references match. A duplicate key inside one step is an error.
+3. `commit()` publishes the pending set as the active set and retires the previous active set.
+4. `update(contacts)` runs the whole cycle for a caller that does not need the individual phases.
+
+**Warm start**: a reused constraint keeps its `accumulatedNormalImpulseNewtonSeconds` and friction accumulators, and its `ageSteps` counter increments. A change of body pair or of feature id produces a NEW constraint with zeroed accumulators, so a warm start can never leak across an incompatible contact.
+
+**Eviction**: a contact that was not acquired during a step is dropped from the active set when that step commits.
+
+**Determinism**: active contacts are returned in sorted contact-key order, so the order the solver sees never depends on Map insertion order.
+
+**Allocation discipline**: the two `Map`s and the duplicate-key `Set` are created once per cache and reused for its lifetime. `commit()` swaps the pending map with the active map and clears the retired one. The sorted key list and the JSON key-parts array are reused scratch buffers. The returned active-contact array is freshly allocated because callers retain it as a snapshot.
+
+**Not implemented**: multi-contact manifolds (the narrow phase emits one contact per pair, so the cache holds at most one constraint per body pair in practice), sleeping and islands, breakable contacts, and any coupling to the production runtime.
+
 ## 4. Hard Simulation Conventions
 - **Units**:
   - Distance: Meters (`m`)
@@ -288,9 +314,14 @@ Phase 0.3 of the unified physics migration. The solver is the impulse-resolution
   - Identifiers **must** include units if the value is physical.
     - ✅ `speedMetersPerSecond`, `torqueNewtonMeters`, `massKg`
     - ❌ `speed`, `power`, `value`, `amount`
+  - The rule applies to **parameters and local variables** as well as to properties.
+    - ✅ `appendOutsideAxis(outsideAxes, coordinateMeters, halfExtentMeters, ...)`
+    - ❌ `appendOutsideAxis(outsideAxes, coordinate, halfExtentMeters, ...)`
 - **Memory Management**:
   - Avoid per-frame allocations in hot loops (e.g., `updateWheelState`).
   - Reuse `THREE.Vector3` objects stored in state.
+  - Reuse containers instead of reallocating them per tick: the contact cache keeps two `Map`s and one `Set` for its lifetime and swaps/clears them between steps, the fixed-step scenario reuses one contact array, and the narrow phase reuses module-scope scratch buffers and constant axis labels.
+  - A value RETURNED to a caller (an active-contact array, a step result, a state snapshot) is an API boundary rather than a hot-loop allocation, so it may be freshly allocated.
 
 ## 5. Code Style & Module Structure
 - **Orchestration**: `src/main.js` is for wiring only. It should not contain physics logic.
