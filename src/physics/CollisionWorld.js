@@ -27,6 +27,7 @@ export function createCollisionWorld(config = {}) {
   const contactsToSolveScratch = []
   const collisionPairsScratch = []
   const collisionPairPoolScratch = []
+  let previouslyUsedCollisionPairCount = 0
   const contactCandidate = {
     bodyA: null,
     bodyB: null,
@@ -127,10 +128,11 @@ export function createCollisionWorld(config = {}) {
         }
       }
 
-      generateFilteredPairs(
+      previouslyUsedCollisionPairCount = generateFilteredPairs(
         registeredRecords,
         collisionPairsScratch,
-        collisionPairPoolScratch
+        collisionPairPoolScratch,
+        previouslyUsedCollisionPairCount
       )
       contactCache.beginStep()
       generateContacts(
@@ -157,7 +159,12 @@ export function createCollisionWorld(config = {}) {
   return world
 }
 
-function generateFilteredPairs(registeredRecords, collisionPairsScratch, collisionPairPoolScratch) {
+function generateFilteredPairs(
+  registeredRecords,
+  collisionPairsScratch,
+  collisionPairPoolScratch,
+  previouslyUsedCollisionPairCount
+) {
   collisionPairsScratch.length = 0
   for (let firstIndex = 0; firstIndex < registeredRecords.length; firstIndex += 1) {
     const firstRecord = registeredRecords[firstIndex]
@@ -177,10 +184,16 @@ function generateFilteredPairs(registeredRecords, collisionPairsScratch, collisi
       collisionPairsScratch.push(pair)
     }
   }
-  for (let pairIndex = collisionPairsScratch.length; pairIndex < collisionPairPoolScratch.length; pairIndex += 1) {
+  const currentCollisionPairCount = collisionPairsScratch.length
+  for (
+    let pairIndex = currentCollisionPairCount;
+    pairIndex < previouslyUsedCollisionPairCount;
+    pairIndex += 1
+  ) {
     clearCollisionPair(collisionPairPoolScratch[pairIndex])
   }
   collisionPairsScratch.sort(compareCollisionPairs)
+  return currentCollisionPairCount
 }
 
 function canCollide(firstRecord, secondRecord) {
