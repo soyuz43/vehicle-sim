@@ -79,13 +79,13 @@ function createSphereScenario(overrides = {}) {
 }
 
 test('projection and position integration do not double-correct penetration', () => {
-  const initialCenterY = 0.49
-  const initialPenetrationMeters = SPHERE_RADIUS_METERS - initialCenterY
+  const initialCenterYMeters = 0.49
+  const initialPenetrationMeters = SPHERE_RADIUS_METERS - initialCenterYMeters
   const expectedProjectionMeters =
     (initialPenetrationMeters - SOLVER_SLOP_METERS) * POSITION_CORRECTION_FACTOR
-  const expectedCenterY = initialCenterY + expectedProjectionMeters
+  const expectedCenterYMeters = initialCenterYMeters + expectedProjectionMeters
   const scenario = createSphereScenario({
-    positionYMeters: initialCenterY,
+    positionYMeters: initialCenterYMeters,
     gravityMetersPerSecondSquared: 0,
   })
 
@@ -94,9 +94,9 @@ test('projection and position integration do not double-correct penetration', ()
   assert.strictEqual(result.collisionGenerated, true)
   assert.strictEqual(result.solvedContactCount, 1)
   assert.ok(
-    Math.abs(scenario.dynamicBody.positionMeters.y - expectedCenterY) <=
+    Math.abs(scenario.dynamicBody.positionMeters.y - expectedCenterYMeters) <=
       POSE_TOLERANCE_METERS,
-    `expected projection-only pose ${expectedCenterY}, got ${scenario.dynamicBody.positionMeters.y}`
+    `expected projection-only pose ${expectedCenterYMeters}, got ${scenario.dynamicBody.positionMeters.y}`
   )
   assert.ok(
     Math.abs(scenario.dynamicBody.velocityMetersPerSecond.y) <=
@@ -136,7 +136,7 @@ test('a separating contact receives no normal impulse', () => {
     velocityYMetersPerSecond: 1,
     gravityMetersPerSecondSquared: 0,
   })
-  const initialVelocityY = scenario.dynamicBody.velocityMetersPerSecond.y
+  const initialVelocityYMetersPerSecond = scenario.dynamicBody.velocityMetersPerSecond.y
 
   const result = scenario.step()
 
@@ -148,16 +148,16 @@ test('a separating contact receives no normal impulse', () => {
   )
   assert.strictEqual(
     scenario.dynamicBody.velocityMetersPerSecond.y,
-    initialVelocityY
+    initialVelocityYMetersPerSecond
   )
 })
 
 test('friction reduces sliding speed and stays inside the Coulomb cone', () => {
   const frictionCoefficient = 0.5
-  const initialVelocityX = 2
+  const initialVelocityXMetersPerSecond = 2
   const scenario = createSphereScenario({
     positionYMeters: 0.495,
-    velocityXMetersPerSecond: initialVelocityX,
+    velocityXMetersPerSecond: initialVelocityXMetersPerSecond,
     frictionCoefficient,
   })
 
@@ -165,7 +165,7 @@ test('friction reduces sliding speed and stays inside the Coulomb cone', () => {
   const contact = result.activeContacts[0]
 
   assert.strictEqual(result.collisionGenerated, true)
-  assert.ok(scenario.dynamicBody.velocityMetersPerSecond.x < initialVelocityX)
+  assert.ok(scenario.dynamicBody.velocityMetersPerSecond.x < initialVelocityXMetersPerSecond)
   assert.ok(scenario.dynamicBody.angularVelocityRadiansPerSecond.z < 0)
   assert.ok(contact.accumulatedFrictionImpulseNewtonSeconds > 0)
   assert.ok(
@@ -184,20 +184,20 @@ test('restitution reverses a fast impact while losing energy', () => {
   })
 
   scenario.step()
-  const preSolveVelocityY =
+  const preSolveVelocityYMetersPerSecond =
     scenario.dynamicBody.velocityMetersPerSecond.y +
     GRAVITY_METERS_PER_SECOND_SQUARED * FIXED_TIMESTEP_SECONDS
-  const expectedBounceVelocityY = -restitution * preSolveVelocityY
+  const expectedBounceVelocityYMetersPerSecond = -restitution * preSolveVelocityYMetersPerSecond
   const result = scenario.step()
 
   assert.strictEqual(result.collisionGenerated, true)
   assert.ok(scenario.dynamicBody.velocityMetersPerSecond.y > 0)
-  assert.ok(scenario.dynamicBody.velocityMetersPerSecond.y < -preSolveVelocityY)
+  assert.ok(scenario.dynamicBody.velocityMetersPerSecond.y < -preSolveVelocityYMetersPerSecond)
   assert.ok(
     Math.abs(
-      scenario.dynamicBody.velocityMetersPerSecond.y - expectedBounceVelocityY
+      scenario.dynamicBody.velocityMetersPerSecond.y - expectedBounceVelocityYMetersPerSecond
     ) <= RESTITUTION_VELOCITY_TOLERANCE_METERS_PER_SECOND,
-    `expected bounce velocity ${expectedBounceVelocityY} m/s, got ${scenario.dynamicBody.velocityMetersPerSecond.y} m/s`
+    `expected bounce velocity ${expectedBounceVelocityYMetersPerSecond} m/s, got ${scenario.dynamicBody.velocityMetersPerSecond.y} m/s`
   )
 })
 

@@ -2,6 +2,10 @@
 
 import { createContactConstraint } from './ContactSolver.js'
 
+// Reused key-part array so building a contact key does not allocate an
+// intermediate array on every step. The serialized key form is unchanged.
+const _scratchContactKeyParts = ['', '', '']
+
 // A contact key is ordered because the solver's normal points from body A to
 // body B. Reversing the pair would reverse the normal and invalidate the
 // previous impulse sign, so pair order is part of the stable identity.
@@ -12,7 +16,10 @@ export function createContactKey(bodyAId, bodyBId, featureId) {
   if (normalizedBodyAId === normalizedBodyBId) {
     throw new TypeError('A contact body pair must use distinct identities')
   }
-  return JSON.stringify([normalizedBodyAId, normalizedBodyBId, normalizedFeatureId])
+  _scratchContactKeyParts[0] = normalizedBodyAId
+  _scratchContactKeyParts[1] = normalizedBodyBId
+  _scratchContactKeyParts[2] = normalizedFeatureId
+  return JSON.stringify(_scratchContactKeyParts)
 }
 
 // Resolves the cache key from a contact candidate. The candidate supplies raw
@@ -30,19 +37,25 @@ export function resolveContactKey(contact) {
 // caller generates contacts; commit() runs after position integration and
 // replaces the active set, dropping contacts that were not generated this step.
 export function createContactCache() {
+  // The two maps and the duplicate-key set are reused for the lifetime of the
+  // cache. A step fills the pending map; commit() swaps it with the active map
+  // and clears the retired one, so no container is allocated per tick.
   let _activeConstraintsByKey = new Map()
-  let _pendingConstraintsByKey = null
-  let _pendingKeys = null
+  let _pendingConstraintsByKey = new Map()
+  let _pendingKeys = new Set()
+  let _stepOpen = false
+  const _sortedContactKeysScratch = []
 
   const cache = {
     beginStep() {
-      _pendingConstraintsByKey = new Map()
-      _pendingKeys = new Set()
+      _pendingConstraintsByKey.clear()
+      _pendingKeys.clear()
+      _stepOpen = true
       return cache
     },
 
     acquire(contact) {
-      if (!_pendingConstraintsByKey) cache.beginStep()
+      if (!_stepOpen) cache.beginStep()
       validateContactCandidate(contact)
 
       const bodyAId = normalizeIdentity(
@@ -98,12 +111,18 @@ export function createContactCache() {
     },
 
     commit() {
-      if (!_pendingConstraintsByKey) return cache.getActiveContacts()
+      if (!_stepOpen) return cache.getActiveContacts()
 
-      const activeConstraints = getSortedConstraints(_pendingConstraintsByKey)
+      const activeConstraints = getSortedConstraints(
+        _pendingConstraintsByKey,
+        _sortedContactKeysScratch
+      )
+      const retiredConstraintsByKey = _activeConstraintsByKey
       _activeConstraintsByKey = _pendingConstraintsByKey
-      _pendingConstraintsByKey = null
-      _pendingKeys = null
+      _pendingConstraintsByKey = retiredConstraintsByKey
+      _pendingConstraintsByKey.clear()
+      _pendingKeys.clear()
+      _stepOpen = false
       return activeConstraints
     },
 
@@ -122,7 +141,7 @@ export function createContactCache() {
     },
 
     getActiveContacts() {
-      return getSortedConstraints(_activeConstraintsByKey)
+      return getSortedConstraints(_activeConstraintsByKey, _sortedContactKeysScratch)
     },
 
     get size() {
@@ -131,8 +150,9 @@ export function createContactCache() {
 
     clear() {
       _activeConstraintsByKey.clear()
-      _pendingConstraintsByKey = null
-      _pendingKeys = null
+      _pendingConstraintsByKey.clear()
+      _pendingKeys.clear()
+      _stepOpen = false
     },
   }
 
@@ -147,10 +167,20 @@ function updateConstraintGeometry(constraint, contact) {
   constraint.frictionCoefficient = contact.frictionCoefficient
 }
 
-function getSortedConstraints(constraintsByKey) {
-  return Array.from(constraintsByKey.keys())
-    .sort()
-    .map((contactKey) => constraintsByKey.get(contactKey))
+// The sorted key list is reused across calls. The returned constraint array is
+// freshly allocated because callers retain it as the active-contact snapshot.
+function getSortedConstraints(constraintsByKey, sortedContactKeysScratch) {
+  sortedContactKeysScratch.length = 0
+  for (const contactKey of constraintsByKey.keys()) {
+    sortedContactKeysScratch.push(contactKey)
+  }
+  sortedContactKeysScratch.sort()
+
+  const sortedConstraints = new Array(sortedContactKeysScratch.length)
+  for (let index = 0; index < sortedContactKeysScratch.length; index += 1) {
+    sortedConstraints[index] = constraintsByKey.get(sortedContactKeysScratch[index])
+  }
+  return sortedConstraints
 }
 
 function validateContactCandidate(contact) {

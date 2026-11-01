@@ -35,6 +35,7 @@ const _scratchHalfExtentsBMeters = new THREE.Vector3()
 const _scratchCandidateAxis = new THREE.Vector3()
 const _scratchBestNormal = new THREE.Vector3()
 const _scratchFeatureAxis = new THREE.Vector3()
+const _scratchOutsideAxes = []
 const _scratchFaceCenter = new THREE.Vector3()
 const _scratchOppositeFaceCenter = new THREE.Vector3()
 const _scratchOppositeFaceNormal = new THREE.Vector3()
@@ -682,18 +683,27 @@ function createContact(depth, featureId) {
 }
 
 function createSphereBoxOutsideFeatureId(halfExtentsMeters) {
-  const outsideAxes = []
-  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.x, halfExtentsMeters.x, 'x')
-  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.y, halfExtentsMeters.y, 'y')
-  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.z, halfExtentsMeters.z, 'z')
+  const outsideAxes = _scratchOutsideAxes
+  outsideAxes.length = 0
+  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.x, halfExtentsMeters.x, 'x+', 'x-')
+  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.y, halfExtentsMeters.y, 'y+', 'y-')
+  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.z, halfExtentsMeters.z, 'z+', 'z-')
   const featureKind =
     outsideAxes.length === 1 ? 'face' : outsideAxes.length === 2 ? 'edge' : 'vertex'
   return `sphere-box:outside:${featureKind}:${outsideAxes.join(',')}`
 }
 
-function appendOutsideAxis(outsideAxes, coordinate, halfExtentMeters, axisName) {
-  if (coordinate > halfExtentMeters) outsideAxes.push(`${axisName}+`)
-  else if (coordinate < -halfExtentMeters) outsideAxes.push(`${axisName}-`)
+// The axis labels are constant strings, so building a feature id does not
+// allocate a label per axis per contact.
+function appendOutsideAxis(
+  outsideAxes,
+  coordinateMeters,
+  halfExtentMeters,
+  positiveAxisLabel,
+  negativeAxisLabel
+) {
+  if (coordinateMeters > halfExtentMeters) outsideAxes.push(positiveAxisLabel)
+  else if (coordinateMeters < -halfExtentMeters) outsideAxes.push(negativeAxisLabel)
 }
 
 function createBoxBoxFeatureId() {

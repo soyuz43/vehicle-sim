@@ -44,6 +44,9 @@ export function createFixedStepContactScenario(config = {}) {
   const contactSolver = config.contactSolver ?? createContactSolver(config.solverOptions)
   const contactCache = config.contactCache ?? createContactCache()
   const gravityForceNewtons = new THREE.Vector3()
+  // The solver reads the contact list synchronously and never retains it, so a
+  // single array is reused for the lifetime of the scenario.
+  const contactsToSolve = []
   let stepIndex = 0
 
   const scenario = {
@@ -74,7 +77,7 @@ export function createFixedStepContactScenario(config = {}) {
         staticShape,
         staticBody
       )
-      const contactsToSolve = []
+      contactsToSolve.length = 0
       if (collision) {
         contactsToSolve.push(
           contactCache.acquire({
