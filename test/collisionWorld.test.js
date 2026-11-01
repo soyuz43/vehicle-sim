@@ -10,6 +10,122 @@ import { createCollisionWorld } from '../src/physics/CollisionWorld.js'
 
 const FIXED_TIMESTEP_SECONDS = 1 / 120
 
+test('gravity force scales with dynamic body mass', () => {
+  const world = createCollisionWorld({ gravityMetersPerSecondSquared: -10 })
+  const body = createRigidBody({
+    contactId: 'gravity-two-kilograms',
+    positionMeters: [0, 10, 0],
+    massKg: 2,
+  })
+  world.registerBody(body, [createSphere(0.1)])
+
+  world.step(0.1)
+
+  assert.ok(Math.abs(body.linearAccelerationMetersPerSecondSquared.y + 10) < 1e-12)
+  assert.ok(Math.abs(body.velocityMetersPerSecond.y + 1) < 1e-12)
+})
+
+test('multiple colliders keep distinct persistent contact identities', () => {
+  const world = createCollisionWorld({
+    gravityMetersPerSecondSquared: 0,
+    contactSolver: { solve() {} },
+  })
+  const compoundBody = createRigidBody({ contactId: 'compound-contact-body' })
+  const otherBody = createRigidBody({ contactId: 'other-contact-body' })
+  world.registerBody(compoundBody, [
+    { shape: createSphere(0.1), positionMeters: [-0.05, 0, 0] },
+    { shape: createSphere(0.1), positionMeters: [0.05, 0, 0] },
+  ])
+  world.registerBody(otherBody, [createSphere(0.1)])
+
+  world.step(FIXED_TIMESTEP_SECONDS)
+  const firstStepContacts = world.contactCache.getActiveContacts()
+  assert.strictEqual(firstStepContacts.length, 2)
+  assert.notStrictEqual(firstStepContacts[0].contactKey, firstStepContacts[1].contactKey)
+  assert.notStrictEqual(firstStepContacts[0].featureId, firstStepContacts[1].featureId)
+
+  world.step(FIXED_TIMESTEP_SECONDS)
+  const secondStepContacts = world.contactCache.getActiveContacts()
+  assert.strictEqual(secondStepContacts[0], firstStepContacts[0])
+  assert.strictEqual(secondStepContacts[1], firstStepContacts[1])
+})
+
+test('contacts against multiple static bodies retain independent normals', () => {
+  const world = createCollisionWorld({ gravityMetersPerSecondSquared: 0 })
+  const floorBody = createRigidBody({
+    contactId: 'normal-floor',
+    positionMeters: [0, -0.15, 0],
+  })
+  const wallBody = createRigidBody({
+    contactId: 'normal-wall',
+    positionMeters: [-0.15, 0, 0],
+  })
+  const dynamicBody = createRigidBody({
+    contactId: 'normal-dynamic',
+    positionMeters: [0, 0, 0],
+  })
+  floorBody.isStatic = true
+  wallBody.isStatic = true
+  world.registerBody(floorBody, [createSphere(0.1)])
+  world.registerBody(wallBody, [createSphere(0.1)])
+  world.registerBody(dynamicBody, [createSphere(0.1)])
+
+  world.step(FIXED_TIMESTEP_SECONDS)
+
+  const contacts = world.contactCache.getActiveContacts()
+  assert.strictEqual(contacts.length, 2)
+  assert.notStrictEqual(contacts[0].normal, contacts[1].normal)
+  const normalComponents = contacts.map((contact) => contact.normal.toArray())
+  assert.ok(normalComponents.some((normal) => normal[0] < -0.99 && Math.abs(normal[1]) < 0.01))
+  assert.ok(normalComponents.some((normal) => normal[1] < -0.99 && Math.abs(normal[0]) < 0.01))
+})
+
+test('registration rejects incomplete or non-positive dynamic mass properties', () => {
+  const requiredFields = [
+    'linearAccelerationMetersPerSecondSquared',
+    'angularAccelerationRadiansPerSecondSquared',
+    'inertiaTensorKgMeterSquared',
+  ]
+  for (const fieldName of requiredFields) {
+    const world = createCollisionWorld({ gravityMetersPerSecondSquared: 0 })
+    const body = createRigidBody({ contactId: 'missing-' + fieldName })
+    delete body[fieldName]
+    assert.throws(() => world.registerBody(body, [createSphere(0.1)]), TypeError)
+  }
+
+  for (const massKg of [0, -1]) {
+    const world = createCollisionWorld({ gravityMetersPerSecondSquared: 0 })
+    const body = createRigidBody({ contactId: 'invalid-mass-' + massKg })
+    body.massKg = massKg
+    assert.throws(() => world.registerBody(body, [createSphere(0.1)]), TypeError)
+  }
+})
+
+test('collision filters accept signed high bits and reject zero', () => {
+  const world = createCollisionWorld({ gravityMetersPerSecondSquared: 0 })
+  world.registerBody(
+    createRigidBody({ contactId: 'signed-filter' }),
+    [createSphere(0.1)],
+    -0x80000000,
+    -0x80000000
+  )
+  world.registerBody(
+    createRigidBody({ contactId: 'wildcard-filter' }),
+    [createSphere(0.1)],
+    0xffffffff,
+    0xffffffff
+  )
+
+  assert.throws(
+    () => world.registerBody(createRigidBody({ contactId: 'zero-group' }), [createSphere(0.1)], 0, 1),
+    RangeError
+  )
+  assert.throws(
+    () => world.registerBody(createRigidBody({ contactId: 'zero-mask' }), [createSphere(0.1)], 1, 0),
+    RangeError
+  )
+})
+
 test('multi-body sphere impact transfers impulse through the cache', () => {
   const world = createCollisionWorld({
     gravityMetersPerSecondSquared: 0,
@@ -101,7 +217,7 @@ test('stacked boxes settle above the static floor', () => {
   assert.strictEqual(world.contactCache.size > 0, true)
 })
 
-test('non-overlapping collision filters do not generate contacts', () => {
+test('collision filters reject a pair when only one direction matches', () => {
   const world = createCollisionWorld({ gravityMetersPerSecondSquared: 0 })
   const firstBody = createRigidBody({
     contactId: 'filtered-first',
@@ -112,7 +228,7 @@ test('non-overlapping collision filters do not generate contacts', () => {
     positionMeters: [0.05, 0, 0],
   })
 
-  world.registerBody(firstBody, [createSphere(0.1)], 1, 1)
+  world.registerBody(firstBody, [createSphere(0.1)], 1, 2)
   world.registerBody(secondBody, [createSphere(0.1)], 2, 2)
   world.step(FIXED_TIMESTEP_SECONDS)
 
@@ -188,16 +304,28 @@ test('body ids remain strictly monotonic after removal', () => {
   assert.strictEqual(thirdRecord.body.collisionWorldId, 3)
 })
 
-test('raw static bodies can omit force accumulators and mass', () => {
+test('raw static bodies resolve dynamic contacts without moving', () => {
   const world = createCollisionWorld({ gravityMetersPerSecondSquared: 0 })
   const staticBody = {
     contactId: 'raw-static',
-    positionMeters: new THREE.Vector3(0, -0.1, 0),
+    positionMeters: new THREE.Vector3(0, 0, 0),
     orientationQuaternion: new THREE.Quaternion(),
     isStatic: true,
   }
+  const dynamicBody = createRigidBody({
+    contactId: 'raw-static-contact-dynamic',
+    positionMeters: [0.1, 0, 0],
+  })
+  const originalStaticPosition = staticBody.positionMeters.clone()
+  const originalStaticOrientation = staticBody.orientationQuaternion.clone()
 
   world.registerBody(staticBody, [createSphere(0.1)])
+  world.registerBody(dynamicBody, [createSphere(0.1)])
 
-  assert.strictEqual(world.step(FIXED_TIMESTEP_SECONDS), undefined)
+  world.step(FIXED_TIMESTEP_SECONDS)
+
+  assert.strictEqual(world.contactCache.size, 1)
+  assert.ok(dynamicBody.positionMeters.x > 0.1)
+  assert.ok(staticBody.positionMeters.equals(originalStaticPosition))
+  assert.ok(staticBody.orientationQuaternion.equals(originalStaticOrientation))
 })

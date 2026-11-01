@@ -69,9 +69,9 @@ export function createContactConstraint(
   return {
     bodyA,
     bodyB,
-    normal,
+    normal: normal.clone(),
     depth,
-    point,
+    point: point.clone(),
     restitution: overrides.restitution,
     frictionCoefficient: overrides.frictionCoefficient,
     accumulatedNormalImpulseNewtonSeconds: 0,

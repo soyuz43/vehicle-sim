@@ -14,12 +14,6 @@ import { createContactSolver } from './ContactSolver.js'
 const DEFAULT_FILTER_GROUP = 1
 const DEFAULT_FILTER_MASK = 0xffffffff
 
-const _gravityForceNewtons = new THREE.Vector3()
-const _contactNormalScratch = new THREE.Vector3()
-const _contactsToSolveScratch = []
-const _collisionPairsScratch = []
-const _collisionPairPoolScratch = []
-
 export function createCollisionWorld(config = {}) {
   const gravityMetersPerSecondSquared = requireFiniteNumber(
     config.gravityMetersPerSecondSquared ?? -9.80665,
@@ -29,6 +23,22 @@ export function createCollisionWorld(config = {}) {
   const contactSolver = config.contactSolver ?? createContactSolver(config.solverOptions)
   const registeredRecords = []
   const recordsByBody = new Map()
+  const gravityForceNewtons = new THREE.Vector3()
+  const contactsToSolveScratch = []
+  const collisionPairsScratch = []
+  const collisionPairPoolScratch = []
+  const contactCandidate = {
+    bodyA: null,
+    bodyB: null,
+    bodyAId: undefined,
+    bodyBId: undefined,
+    featureId: '',
+    normal: new THREE.Vector3(),
+    depth: 0,
+    point: new THREE.Vector3(),
+    restitution: undefined,
+    frictionCoefficient: undefined,
+  }
   let nextBodyId = 1
 
   const world = {
@@ -47,9 +57,7 @@ export function createCollisionWorld(config = {}) {
 
       const bodyId = nextBodyId
       nextBodyId += 1
-      const registeredColliders = colliders.map((collider) =>
-        createRegisteredCollider(collider)
-      )
+      const registeredColliders = colliders.map(createRegisteredCollider)
       const record = {
         bodyId,
         body,
@@ -62,7 +70,7 @@ export function createCollisionWorld(config = {}) {
       body.collisionWorldId = bodyId
       registeredRecords.push(record)
       recordsByBody.set(body, record)
-      ensureCollisionPairPool(registeredRecords.length)
+      ensureCollisionPairPool(collisionPairPoolScratch, registeredRecords.length)
 
       return record
     },
@@ -77,20 +85,23 @@ export function createCollisionWorld(config = {}) {
       if (recordIndex >= 0) {
         registeredRecords.splice(recordIndex, 1)
       }
+      clearCollisionPairReferences(collisionPairPoolScratch, record)
+      collisionPairsScratch.length = 0
+      contactsToSolveScratch.length = 0
       recordsByBody.delete(body)
       delete body.collisionWorldId
     },
 
     applyGravity() {
-      _gravityForceNewtons.set(
-        0,
-        gravityMetersPerSecondSquared,
-        0
-      )
       for (let recordIndex = 0; recordIndex < registeredRecords.length; recordIndex += 1) {
         const record = registeredRecords[recordIndex]
         if (!record.isStatic) {
-          addForce(record.body, _gravityForceNewtons)
+          gravityForceNewtons.set(
+            0,
+            gravityMetersPerSecondSquared * record.body.massKg,
+            0
+          )
+          addForce(record.body, gravityForceNewtons)
         }
       }
     },
@@ -116,10 +127,21 @@ export function createCollisionWorld(config = {}) {
         }
       }
 
-      generateFilteredPairs()
+      generateFilteredPairs(
+        registeredRecords,
+        collisionPairsScratch,
+        collisionPairPoolScratch
+      )
       contactCache.beginStep()
-      generateContacts()
-      contactSolver.solve(_contactsToSolveScratch)
+      generateContacts(
+        collisionPairsScratch,
+        contactsToSolveScratch,
+        contactCache,
+        contactCandidate,
+        config.restitution,
+        config.frictionCoefficient
+      )
+      contactSolver.solve(contactsToSolveScratch)
 
       for (let recordIndex = 0; recordIndex < registeredRecords.length; recordIndex += 1) {
         const record = registeredRecords[recordIndex]
@@ -132,132 +154,154 @@ export function createCollisionWorld(config = {}) {
     },
   }
 
-  function generateFilteredPairs() {
-    _collisionPairsScratch.length = 0
-    for (let firstIndex = 0; firstIndex < registeredRecords.length; firstIndex += 1) {
-      const firstRecord = registeredRecords[firstIndex]
-      for (
-        let secondIndex = firstIndex + 1;
-        secondIndex < registeredRecords.length;
-        secondIndex += 1
-      ) {
-        const secondRecord = registeredRecords[secondIndex]
-        if (!canCollide(firstRecord, secondRecord)) continue
-        if (firstRecord.isStatic && secondRecord.isStatic) continue
-
-        const pairIndex = _collisionPairsScratch.length
-        const pair = _collisionPairPoolScratch[pairIndex]
-        if (!pair) {
-          throw new Error('Collision pair pool is smaller than the broad-phase result')
-        }
-        pair.bodyIdA = Math.min(firstRecord.bodyId, secondRecord.bodyId)
-        pair.bodyIdB = Math.max(firstRecord.bodyId, secondRecord.bodyId)
-        pair.recordA = firstRecord.bodyId === pair.bodyIdA ? firstRecord : secondRecord
-        pair.recordB = firstRecord.bodyId === pair.bodyIdB ? firstRecord : secondRecord
-        _collisionPairsScratch.push(pair)
-      }
-    }
-    _collisionPairsScratch.sort(compareCollisionPairs)
-  }
-
-  function canCollide(firstRecord, secondRecord) {
-    return (
-      (firstRecord.filterGroup & secondRecord.filterMask) !== 0 ||
-      (secondRecord.filterGroup & firstRecord.filterMask) !== 0
-    )
-  }
-
-  function generateContacts() {
-    _contactsToSolveScratch.length = 0
-
-    for (
-      let pairIndex = 0;
-      pairIndex < _collisionPairsScratch.length;
-      pairIndex += 1
-    ) {
-      const pair = _collisionPairsScratch[pairIndex]
-      updateColliderTransforms(pair.recordA)
-      updateColliderTransforms(pair.recordB)
-
-      for (
-        let colliderAIndex = 0;
-        colliderAIndex < pair.recordA.colliders.length;
-        colliderAIndex += 1
-      ) {
-        const colliderA = pair.recordA.colliders[colliderAIndex]
-        for (
-          let colliderBIndex = 0;
-          colliderBIndex < pair.recordB.colliders.length;
-          colliderBIndex += 1
-        ) {
-          const colliderB = pair.recordB.colliders[colliderBIndex]
-          const collision = testCollision(
-            colliderA.shape,
-            colliderA.worldTransform,
-            colliderB.shape,
-            colliderB.worldTransform
-          )
-          if (!collision) continue
-
-          acquireNormalizedContact(pair, collision)
-        }
-      }
-    }
-  }
-
-  function acquireNormalizedContact(pair, collision) {
-    const recordA = pair.recordA
-    const recordB = pair.recordB
-    const hasStaticRecord = recordA.isStatic !== recordB.isStatic
-    const dynamicRecord = recordA.isStatic ? recordB : recordA
-    const staticRecord = recordA.isStatic ? recordA : recordB
-    const dynamicIsFirst = dynamicRecord === recordA
-    const bodyA = hasStaticRecord ? dynamicRecord.body : recordA.body
-    const bodyB = hasStaticRecord ? null : recordB.body
-    const staticContactId = hasStaticRecord ? staticRecord.body.contactId : undefined
-    const normalAtoB =
-      !hasStaticRecord || dynamicIsFirst
-        ? collision.normal
-        : _contactNormalScratch.copy(collision.normal).negate()
-
-    _contactsToSolveScratch.push(
-      contactCache.acquire({
-        bodyA,
-        bodyB,
-        bodyAId: bodyA.contactId,
-        bodyBId: staticContactId,
-        featureId: collision.featureId,
-        normal: normalAtoB,
-        depth: collision.depth,
-        point: collision.point,
-        restitution: config.restitution,
-        frictionCoefficient: config.frictionCoefficient,
-      })
-    )
-  }
-
-  function updateColliderTransforms(record) {
-    const body = record.body
-    for (let colliderIndex = 0; colliderIndex < record.colliders.length; colliderIndex += 1) {
-      const collider = record.colliders[colliderIndex]
-      collider.worldTransform.positionMeters
-        .copy(collider.localPositionMeters)
-        .applyQuaternion(body.orientationQuaternion)
-        .add(body.positionMeters)
-      collider.worldTransform.orientationQuaternion
-        .copy(body.orientationQuaternion)
-        .multiply(collider.localOrientationQuaternion)
-    }
-  }
-
   return world
 }
 
-function ensureCollisionPairPool(bodyCount) {
-  const requiredPairCount = bodyCount * bodyCount
-  while (_collisionPairPoolScratch.length < requiredPairCount) {
-    _collisionPairPoolScratch.push(createCollisionPair())
+function generateFilteredPairs(registeredRecords, collisionPairsScratch, collisionPairPoolScratch) {
+  collisionPairsScratch.length = 0
+  for (let firstIndex = 0; firstIndex < registeredRecords.length; firstIndex += 1) {
+    const firstRecord = registeredRecords[firstIndex]
+    for (let secondIndex = firstIndex + 1; secondIndex < registeredRecords.length; secondIndex += 1) {
+      const secondRecord = registeredRecords[secondIndex]
+      if (!canCollide(firstRecord, secondRecord)) continue
+      if (firstRecord.isStatic && secondRecord.isStatic) continue
+
+      const pair = collisionPairPoolScratch[collisionPairsScratch.length]
+      if (!pair) {
+        throw new Error('Collision pair pool is smaller than the broad-phase result')
+      }
+      pair.bodyIdA = Math.min(firstRecord.bodyId, secondRecord.bodyId)
+      pair.bodyIdB = Math.max(firstRecord.bodyId, secondRecord.bodyId)
+      pair.recordA = firstRecord.bodyId === pair.bodyIdA ? firstRecord : secondRecord
+      pair.recordB = firstRecord.bodyId === pair.bodyIdB ? firstRecord : secondRecord
+      collisionPairsScratch.push(pair)
+    }
   }
+  for (let pairIndex = collisionPairsScratch.length; pairIndex < collisionPairPoolScratch.length; pairIndex += 1) {
+    clearCollisionPair(collisionPairPoolScratch[pairIndex])
+  }
+  collisionPairsScratch.sort(compareCollisionPairs)
+}
+
+function canCollide(firstRecord, secondRecord) {
+  return (
+    (firstRecord.filterGroup & secondRecord.filterMask) !== 0 &&
+    (secondRecord.filterGroup & firstRecord.filterMask) !== 0
+  )
+}
+
+function generateContacts(
+  collisionPairsScratch,
+  contactsToSolveScratch,
+  contactCache,
+  contactCandidate,
+  restitution,
+  frictionCoefficient
+) {
+  contactsToSolveScratch.length = 0
+  for (let pairIndex = 0; pairIndex < collisionPairsScratch.length; pairIndex += 1) {
+    const pair = collisionPairsScratch[pairIndex]
+    updateColliderTransforms(pair.recordA)
+    updateColliderTransforms(pair.recordB)
+
+    for (let colliderAIndex = 0; colliderAIndex < pair.recordA.colliders.length; colliderAIndex += 1) {
+      const colliderA = pair.recordA.colliders[colliderAIndex]
+      for (let colliderBIndex = 0; colliderBIndex < pair.recordB.colliders.length; colliderBIndex += 1) {
+        const colliderB = pair.recordB.colliders[colliderBIndex]
+        const collision = testCollision(
+          colliderA.shape,
+          colliderA.worldTransform,
+          colliderB.shape,
+          colliderB.worldTransform
+        )
+        if (!collision) continue
+
+        acquireNormalizedContact(
+          pair,
+          colliderA,
+          colliderB,
+          collision,
+          contactsToSolveScratch,
+          contactCache,
+          contactCandidate,
+          restitution,
+          frictionCoefficient
+        )
+      }
+    }
+  }
+}
+
+function acquireNormalizedContact(
+  pair,
+  colliderA,
+  colliderB,
+  collision,
+  contactsToSolveScratch,
+  contactCache,
+  contactCandidate,
+  restitution,
+  frictionCoefficient
+) {
+  const recordA = pair.recordA
+  const recordB = pair.recordB
+  const hasStaticRecord = recordA.isStatic !== recordB.isStatic
+  const dynamicRecord = recordA.isStatic ? recordB : recordA
+  const staticRecord = recordA.isStatic ? recordA : recordB
+  const dynamicIsFirst = dynamicRecord === recordA
+
+  contactCandidate.bodyA = hasStaticRecord ? dynamicRecord.body : recordA.body
+  contactCandidate.bodyB = hasStaticRecord ? null : recordB.body
+  contactCandidate.bodyAId = contactCandidate.bodyA.contactId
+  contactCandidate.bodyBId = hasStaticRecord ? staticRecord.body.contactId : undefined
+  contactCandidate.featureId =
+    String(colliderA.colliderId) + ':' + String(colliderB.colliderId) + ':' + collision.featureId
+  contactCandidate.normal.copy(collision.normal)
+  if (hasStaticRecord && !dynamicIsFirst) {
+    contactCandidate.normal.negate()
+  }
+  contactCandidate.depth = collision.depth
+  contactCandidate.point.copy(collision.point)
+  contactCandidate.restitution = restitution
+  contactCandidate.frictionCoefficient = frictionCoefficient
+  contactsToSolveScratch.push(contactCache.acquire(contactCandidate))
+}
+
+function updateColliderTransforms(record) {
+  const body = record.body
+  for (let colliderIndex = 0; colliderIndex < record.colliders.length; colliderIndex += 1) {
+    const collider = record.colliders[colliderIndex]
+    collider.worldTransform.positionMeters
+      .copy(collider.localPositionMeters)
+      .applyQuaternion(body.orientationQuaternion)
+      .add(body.positionMeters)
+    collider.worldTransform.orientationQuaternion
+      .copy(body.orientationQuaternion)
+      .multiply(collider.localOrientationQuaternion)
+  }
+}
+
+function ensureCollisionPairPool(collisionPairPoolScratch, bodyCount) {
+  const requiredPairCount = bodyCount * bodyCount
+  while (collisionPairPoolScratch.length < requiredPairCount) {
+    collisionPairPoolScratch.push(createCollisionPair())
+  }
+}
+
+function clearCollisionPairReferences(collisionPairPoolScratch, record) {
+  for (let pairIndex = 0; pairIndex < collisionPairPoolScratch.length; pairIndex += 1) {
+    const pair = collisionPairPoolScratch[pairIndex]
+    if (pair.recordA === record || pair.recordB === record) {
+      clearCollisionPair(pair)
+    }
+  }
+}
+
+function clearCollisionPair(pair) {
+  pair.bodyIdA = 0
+  pair.bodyIdB = 0
+  pair.recordA = null
+  pair.recordB = null
 }
 
 function createCollisionPair() {
@@ -273,7 +317,7 @@ function compareCollisionPairs(firstPair, secondPair) {
   return firstPair.bodyIdA - secondPair.bodyIdA || firstPair.bodyIdB - secondPair.bodyIdB
 }
 
-function createRegisteredCollider(collider) {
+function createRegisteredCollider(collider, colliderId) {
   const shape = collider?.shape ?? collider
   validateShape(shape)
   const localPositionMeters = new THREE.Vector3()
@@ -294,6 +338,7 @@ function createRegisteredCollider(collider) {
   }
 
   return {
+    colliderId,
     shape,
     localPositionMeters,
     localOrientationQuaternion,
@@ -314,13 +359,17 @@ function validateBody(body) {
     (isDynamicBody &&
       (typeof body.massKg !== 'number' ||
         !Number.isFinite(body.massKg) ||
+        body.massKg <= 0 ||
         !body.velocityMetersPerSecond ||
         !body.angularVelocityRadiansPerSecond ||
         !body.forceAccumulatorNewtons ||
-        !body.torqueAccumulatorNewtonMeters))
+        !body.torqueAccumulatorNewtonMeters ||
+        !isFiniteVector3(body.linearAccelerationMetersPerSecondSquared) ||
+        !isFiniteVector3(body.angularAccelerationRadiansPerSecondSquared) ||
+        !isPositiveFiniteVector3(body.inertiaTensorKgMeterSquared)))
   ) {
     throw new TypeError(
-      'dynamic body must provide contactId, positionMeters, orientationQuaternion, finite massKg, velocities, and force accumulators; static body may omit the dynamic fields'
+      'dynamic body must provide contactId, positionMeters, orientationQuaternion, positive finite massKg, velocities, force accumulators, accelerations, and positive finite inertia; static body may omit the dynamic fields'
     )
   }
 }
@@ -334,11 +383,31 @@ function requireColliderList(colliders) {
 function requireFilterMask(filterMask, fieldName) {
   if (
     !Number.isInteger(filterMask) ||
-    filterMask < 0 ||
-    filterMask > 0xffffffff
+    filterMask === 0 ||
+    filterMask < -0x80000000 ||
+    (filterMask > 0x7fffffff && filterMask !== 0xffffffff)
   ) {
-    throw new RangeError(`${fieldName} must be a non-negative 32-bit integer`)
+    throw new RangeError(fieldName + ' must be a non-zero signed 32-bit integer or 0xffffffff')
   }
+}
+
+function isFiniteVector3(vector) {
+  return (
+    vector &&
+    typeof vector.copy === 'function' &&
+    Number.isFinite(vector.x) &&
+    Number.isFinite(vector.y) &&
+    Number.isFinite(vector.z)
+  )
+}
+
+function isPositiveFiniteVector3(vector) {
+  return (
+    isFiniteVector3(vector) &&
+    vector.x > 0 &&
+    vector.y > 0 &&
+    vector.z > 0
+  )
 }
 
 function validateShape(shape) {
