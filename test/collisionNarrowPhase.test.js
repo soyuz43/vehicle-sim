@@ -44,6 +44,32 @@ test('spheres touching exactly produce a zero-depth contact', () => {
   assert.deepStrictEqual(contact.point.toArray(), [1, 0, 0])
 })
 
+test('contacts expose deterministic primitive feature ids for cache identity', () => {
+  const sphere = createSphere(1)
+  const box = createBox(new THREE.Vector3(1, 1, 1))
+
+  assert.strictEqual(
+    testCollision(sphere, createTransform(), sphere, createTransform(1.5)).featureId,
+    'sphere-sphere:center-line'
+  )
+  assert.strictEqual(
+    testCollision(sphere, createTransform(0, 1.5, 0), box, createTransform()).featureId,
+    'sphere-box:outside:face:y+'
+  )
+  assert.strictEqual(
+    testCollision(sphere, createTransform(1.5, 1.5, 0), box, createTransform()).featureId,
+    'sphere-box:outside:edge:x+,y+'
+  )
+  assert.strictEqual(
+    testCollision(sphere, createTransform(1.5, 1.5, 1.5), box, createTransform()).featureId,
+    'sphere-box:outside:vertex:x+,y+,z+'
+  )
+  assert.strictEqual(
+    testCollision(sphere, createTransform(0.8, 0, 0), box, createTransform()).featureId,
+    'sphere-box:inside:face:x+'
+  )
+})
+
 test('separated spheres do not collide', () => {
   assert.strictEqual(
     testCollision(createSphere(1), createTransform(), createSphere(1), createTransform(2.01)),

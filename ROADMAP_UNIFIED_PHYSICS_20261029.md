@@ -1,8 +1,8 @@
 # Staff Engineer Roadmap: Unified Vehicle/Rocket Physics with Crash Deformation
 
 **Created**: 2026-10-29
-**Last source review**: 2026-10-31 (merge PR #125, commit `4913280`)
-**Status**: In progress — generic rigid-body, primitive collision, and contact-solver foundations are merged; runtime integration and vehicle migration remain.
+**Last source review**: 2026-11-01 (G1 contact identity and fixed-step slice)
+**Status**: In progress — generic rigid-body, primitive collision, contact-solver, and G1 vertical-slice foundations are implemented; collision-world integration and vehicle migration remain.
 
 ---
 
@@ -33,7 +33,7 @@ Test/build counts are dated verification snapshots, not permanent guarantees. Re
 
 ## Phase 0: Foundation — Unified Rigid Body Abstraction
 
-**Status: Partial.** PR #124 added the generic body, rocket wrapper, and primitive narrow phase. PR #125 added the PGS contact solver. These modules remain standalone in production.
+**Status: Done for G1.** PR #124 added the generic body, rocket wrapper, and primitive narrow phase. PR #125 added the PGS contact solver. G1 slice two added deterministic contact identity/lifetime and a standalone fixed-step contact scenario. These modules remain standalone in production.
 
 ### 0.1 Generic Rigid Body — **Done**
 
@@ -47,16 +47,17 @@ Test/build counts are dated verification snapshots, not permanent guarantees. Re
 
 `src/physics/ContactSolver.js` implements sequential PGS iterations, warm-start accumulators, Coulomb friction, restitution, and positional correction. Tests cover the solver in isolation; production code does not yet call `solveContacts`.
 
-### 0.4 Runtime Contact Integration — **Partial**
+### 0.4 Runtime Contact Integration — **Done**
 
-The fused `integrateRigidBody` compatibility API now delegates to explicit `integrateRigidBodyVelocityPhase` and `integrateRigidBodyPositionPhase` functions. The production simulation still does not insert collision generation or the solver between those phases.
+The fused `integrateRigidBody` compatibility API delegates to explicit `integrateRigidBodyVelocityPhase` and `integrateRigidBodyPositionPhase` functions. G1 slice two adds a standalone fixed-step scenario that orders forces, velocity integration, contact generation, solving plus positional projection, position integration, and contact-cache commit. The production simulation still does not insert collision generation or the solver between those phases.
 
-Work:
-1. Adopt the split-phase API in a minimal runtime contact loop; preserve rocket parity behind the existing differential test.
-2. Define stable contact identity, lifetime, deterministic ordering, and warm-start invalidation when a pair or contact feature changes.
-3. Add one end-to-end fixed-step test with a dynamic body and static primitive. Cover rest, separation, friction, restitution, and repeat-run determinism.
+Implemented:
+1. `FixedStepContactScenario` drives one dynamic primitive against one static primitive through the split-phase API.
+2. `ContactCache` keys ordered body pairs and narrow-phase feature IDs, reuses constraints only for persisting contacts, orders active contacts deterministically, and invalidates warm-start accumulators on pair or feature changes.
+3. `Collision` exposes deterministic primitive feature IDs for cache identity, with documented primitive-level fallback for single-point capsule pairs.
+4. End-to-end tests cover rest within the declared penetration tolerance, separation without impulse, friction, restitution, repeat-run determinism, warm-start persistence, and cache invalidation.
 
-**Exit gate:** the runtime test exercises collision generation, persistent constraint state, solving, and integration together; a resting body remains within an explicit penetration/settling tolerance. Do not start vehicle migration before this gate passes.
+**Exit gate:** met by the fixed-step contact tests. The solver projects the pre-integration pose, position integration advances once from the post-solve velocity, and the double-correction regression test checks the combined result. Production orchestration and vehicle migration remain later gates.
 
 ---
 
@@ -300,7 +301,7 @@ Do not add shape types, loaders, schemas, or modules before a live consumer and 
 | Gate | Status | Completion criteria |
 |------|--------|---------------------|
 | **G0: Generic body parity** | **Done** | Rocket wrapper uses generic body; legacy differential test compares exact state vectors for its 60-step scenario; full suite passes |
-| **G1: Runtime contact vertical slice** | **Partial** | Fixed-step test runs collision generation, persistent constraints, solver, and integration; resting/separating/friction/restitution cases pass declared tolerances and deterministic replay |
+| **G1: Runtime contact vertical slice** | **Done** | Fixed-step test runs collision generation, persistent constraints, solver, and integration; resting/separating/friction/restitution cases pass declared tolerances and deterministic replay |
 | **G2: Collision world** | **Not started** | Stable pair generation and filtering; selected static/dynamic shapes and terrain/obstacle cases pass; warm-start cache survives only valid contacts |
 | **G3: Gated car adapter** | **Not started** | One chassis state; existing wheel forces applied once; baseline scenarios and documented feature-on tolerances pass |
 | **G4: Unified step and registry** | **Not started** | Configured car, rocket, and debris bodies step in deterministic order; mode changes and activation semantics have explicit tests |
@@ -326,8 +327,8 @@ For every new numeric threshold, record its physical units and rationale when th
 ## Recommended Execution Order
 
 1. **G0 is complete.** Keep its differential test as a regression gate.
-2. **Complete G1:** resolve integrator/contact ordering and wire a minimal runtime contact scenario.
-3. **Complete G2:** add collision-world lifecycle, terrain/body contacts, and obstacle migration behind tests.
+2. **G1 is complete.** Keep its fixed-step contact scenario and lifecycle tests as regression gates.
+3. **Complete G2:** add collision-world lifecycle, terrain/body contacts, and obstacle migration behind tests. G2 has not started.
 4. **Complete G3:** choose the vehicle DOF contract, then add the gated car adapter while preserving the old default.
 5. **Complete G4–G5:** unify body stepping, then prove cross-entity contacts.
 6. **Complete G6–G7:** build one deformation demonstrator, integrate telemetry/visuals, and measure release performance.

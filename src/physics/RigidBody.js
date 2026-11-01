@@ -2,6 +2,8 @@
 
 import * as THREE from 'three'
 
+let _nextGeneratedRigidBodyContactId = 1
+
 // Foundational six-degree-of-freedom rigid-body state and integration.
 //
 // The Euler rigid-body term omega x (I * omega) is intentionally not
@@ -25,6 +27,10 @@ const _scratchDeltaQuaternion = new THREE.Quaternion()
 
 export function createRigidBody(config = {}) {
   const body = {
+    // Stable identity for contact-cache keys. A generated identity persists
+    // across resets; callers can supply config.contactId for explicit replay
+    // or scene-registry identities.
+    contactId: null,
     positionMeters: new THREE.Vector3(),
     velocityMetersPerSecond: new THREE.Vector3(),
     orientationQuaternion: new THREE.Quaternion(),
@@ -47,6 +53,7 @@ export function createRigidBody(config = {}) {
 export function resetRigidBody(body, config = {}) {
   if (!body) return body
 
+  body.contactId = resolveRigidBodyContactId(body, config.contactId)
   const position = config.positionMeters
   body.positionMeters.set(
     Array.isArray(position) ? position[0] : position?.x ?? 0,
@@ -331,4 +338,14 @@ function sanitizePositiveNumber(value, fallback) {
 
 function sanitizeNonNegativeNumber(value, fallback = 0) {
   return Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+function resolveRigidBodyContactId(body, requestedContactId) {
+  if (requestedContactId !== undefined && requestedContactId !== null) {
+    const requestedId = String(requestedContactId)
+    if (requestedId.length > 0) return requestedId
+  }
+
+  if (body.contactId) return body.contactId
+  return `rigid-body-${_nextGeneratedRigidBodyContactId++}`
 }
