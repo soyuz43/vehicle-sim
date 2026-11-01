@@ -1,206 +1,249 @@
 # Staff Engineer Roadmap: Unified Vehicle/Rocket Physics with Crash Deformation
 
-**Generated**: 2026-10-29
-**Author**: Analysis of vehicle-sim codebase (340 commits, 121 PRs, ~45k LOC)
-**Status**: Proposal — not yet implemented
+**Created**: 2026-10-29
+**Last source review**: 2026-10-31 (merge PR #125, commit `4913280`)
+**Status**: In progress — generic rigid-body, primitive collision, and contact-solver foundations are merged; runtime integration and vehicle migration remain.
 
 ---
 
 ## Executive Summary
 
-**Current State**: Two parallel solvers sharing only fixedTimestepRunner, terrainContactQuery, and gravity.
-- **Car**: Planar (x/z/yaw) + gated 3-DOF vertical, per-wheel raycast suspension, tire forces
-- **Rocket**: Full 6-DOF (quaternion + inertia tensor), multi-point ring ground contact, stage separation
+**Current state (verified against source)**:
+- **Car**: Planar chassis motion plus enabled, gated 3-DOF heave/pitch/roll; per-wheel raycast suspension and the existing tire-force model remain the live vehicle path.
+- **Rocket**: Uses generic 6-DOF `RigidBody` through a compatibility wrapper, but retains rocket-owned update, ground-contact, stage-separation, and debris paths.
+- **Shared physics modules**: `RigidBody`, primitive `Collision`, and PGS `ContactSolver` exist. Collision queries and the contact solver are not called by the production simulation step.
+- **Not implemented**: `CollisionWorld`, broad phase, `VehicleRigidBody`, shared body registry, and shared car/rocket crash-deformation state.
 
-**Target State**: Single unified rigid-body framework where:
-- Car = 4-wheeled rigid body with suspension constraints
-- Rocket = multi-body rigid system (stages + debris)
-- Both support arbitrary collision + deformation (car-car, car-rocket, rocket-terrain, car-terrain)
-- Shared collision pipeline, deformation system, and visual feedback
+**Target**: Preserve current vehicle and rocket behavior while incrementally moving them onto shared rigid-body, collision, and contact infrastructure. Keep tire-ground forces and suspension raycasts separate from chassis/body collision unless a later measured change explicitly replaces them.
 
----
+This roadmap tracks the **unified-physics effort**. Existing vehicle-model seams are listed separately below; they are not prerequisites unless a migration step depends on them.
 
-## Phase 0: Foundation — Unified Rigid Body Abstraction (Weeks 1-3)
+### Status Legend
 
-### 0.1 Create src/physics/RigidBody.js — The Common Denominator
+| Status | Meaning |
+|--------|---------|
+| **Done** | Implemented and verified in the current source/test suite. |
+| **Partial** | Some code or tests exist, but the capability is incomplete or not used at runtime. |
+| **Not started** | No corresponding production implementation is present. |
+| **Decision required** | Record a design choice before implementation; alternatives are not settled. |
 
-Migration Strategy:
-1. Rocket: Replace rocketRigidBody.js to thin wrapper over RigidBody (1:1 mapping)
-2. Car: Create VehicleRigidBody extending RigidBody with:
-   - suspensionConstraints: 4 (raycast to constraint forces)
-   - wheelColliders: 4 (tire contact patches)
-   - planarConstraint: true (locks Y-position, X/Z rotation — optional flag)
-
-### 0.2 Unified Collision Detection (src/physics/Collision.js)
-
-Key Decision: Car tires = capsules (radius = tire radius, half-height = section width/2). Rocket = capsule (body) + boxes (fins). Chassis = box or convex hull.
-
-### 0.3 Contact Solver (src/physics/ContactSolver.js)
-
-Integration Point: Called after force accumulation, before integration in fixed step.
+Test/build counts are dated verification snapshots, not permanent guarantees. Re-run validation before updating them.
 
 ---
 
-## Phase 1: Car to Rigid Body Migration (Weeks 3-6)
+## Phase 0: Foundation — Unified Rigid Body Abstraction
 
-### 1.1 Replace Planar Motion with Full 6-DOF (Gated)
+**Status: Partial.** PR #124 added the generic body, rocket wrapper, and primitive narrow phase. PR #125 added the PGS contact solver. These modules remain standalone in production.
 
-Critical: Keep verticalDynamicsEnabled as the suspension solver; the rigid body just receives its forces. The 3-DOF vertical dynamics becomes a constraint generator for the rigid body.
+### 0.1 Generic Rigid Body — **Done**
 
-### 1.2 Wheel Colliders
+`src/physics/RigidBody.js` provides 6-DOF state, force/impulse operations, diagonal body-frame inertia, and symplectic-Euler integration. `src/rocket/rocketRigidBody.js` is a compatibility wrapper. A differential test compares legacy and generic state vectors exactly over a 60-step scenario. This verifies that scenario, not every possible rocket scenario.
 
-### 1.3 Chassis Collider
+### 0.2 Primitive Narrow Phase — **Partial**
 
-### 1.4 Suspension as Constraint Forces
+`src/physics/Collision.js` currently handles Sphere–Sphere, Sphere–Box, Sphere–Capsule, Capsule–Capsule, and Box–Box (including oriented box SAT). It returns a single contact. Capsule–Box, Cylinder, ConvexHull, Heightfield, broad phase, and runtime shape assignment are not implemented. Do not describe vehicle or rocket colliders as active until shapes are attached to live bodies and exercised through the runtime.
 
-Result: Car becomes a rigid body with 4 external force generators (wheels). Yaw/pitch/roll emerge naturally.
+### 0.3 Contact Solver — **Partial**
 
----
+`src/physics/ContactSolver.js` implements sequential PGS iterations, warm-start accumulators, Coulomb friction, restitution, and positional correction. Tests cover the solver in isolation; production code does not yet call `solveContacts`.
 
-## Phase 2: Unified Collision Pipeline (Weeks 6-9)
+### 0.4 Runtime Contact Integration — **Not started**
 
-### 2.1 Collision World (src/physics/CollisionWorld.js)
+The solver contract places contact solving after velocity/force updates and before position integration. `integrateRigidBody` currently fuses velocity and position updates, so the runtime cannot insert the solver at that boundary without changing the integration API or explicitly accepting a different approximation.
 
-### 2.2 Terrain as Static Collider
+Work:
+1. Choose and document the integrator/solver ordering; preserve rocket parity behind the existing differential test.
+2. Define stable contact identity, lifetime, deterministic ordering, and warm-start invalidation when a pair or contact feature changes.
+3. Add one end-to-end fixed-step test with a dynamic body and static primitive. Cover rest, separation, friction, restitution, and repeat-run determinism.
 
-### 2.3 Obstacle Integration
-
-- Movable obstacles to RigidBody with mass > 0, colliders: [box/cylinder]
-- Static obstacles to staticColliders
-- Existing createVehicleObstacleInteraction deprecated, replaced by contact solver
-
----
-
-## Phase 3: Deformation System (Weeks 9-14)
-
-### 3.1 Deformation Architecture
-
-### 3.2 Deformation Types
-
-| Object | Method | Visual | Physics Feedback |
-|--------|--------|--------|------------------|
-| **Terrain** | Heightfield displacement (existing) | Mesh vertex update | Changed contact normals/heights |
-| **Car Body** | Convex hull vertex displacement | Morph targets / vertex shader | Changed collider shape to new contacts |
-| **Car Wheels** | Tire: sidewall bulge (pressure-dependent) | Toroidal mesh deformation | Changed capsule radius/half-height |
-| | Rim: permanent bend | Vertex displacement | Changed collider, possible air leak |
-| **Rocket Body** | Skin panel denting (thin-shell) | Vertex displacement / normal map | Changed capsule/box dimensions |
-| **Rocket Fins** | Bending (cantilever beam) | Vertex displacement | Changed fin aerodynamics (CoP shift) |
-| **Rocket Nose** | Crush zone | Progressive shortening | Mass shift, CoM change |
-
-### 3.3 Deformation State (src/physics/DeformationState.js)
-
-### 3.4 Car-Specific Deformation
-
-### 3.5 Rocket-Specific Deformation
+**Exit gate:** the runtime test exercises collision generation, persistent constraint state, solving, and integration together; a resting body remains within an explicit penetration/settling tolerance. Do not start vehicle migration before this gate passes.
 
 ---
 
-## Phase 4: Unified Simulation Loop (Weeks 14-17)
+## Phase 1: Collision World and Terrain/Obstacle Contacts
 
-### 4.1 Single Fixed Step for All Bodies
+**Status: Not started beyond the Phase 0 narrow-phase and solver modules.**
 
-### 4.2 Body Registry
+### 1.1 Collision World and Broad Phase
 
-### 4.3 Mode Switching Becomes Body Activation
+Define body/collider registration, transform ownership, collision filtering, deterministic pair ordering, and contact-cache lifetime. Benchmark broad-phase candidates against the actual terrain and obstacle workload before choosing a grid size or data structure. The earlier 50 m uniform-grid proposal was an unvalidated estimate, not a requirement.
+
+### 1.2 Terrain Contact
+
+Keep heightfield/raycast queries for suspension and tire contact. Add a separate body-contact query only where needed; do not force the existing terrain into generic convex collision. Specify how terrain height, normal, and deformation revisions reach body contacts.
+
+### 1.3 Obstacle Migration
+
+Represent static obstacles as static colliders and movable obstacles as finite-mass bodies with supported primitive shapes. Preserve `createVehicleObstacleInteraction` until the new path passes equivalent interaction tests; remove or deprecate it only after parity and failure behavior are documented.
+
+**Exit gate:** deterministic broad/narrow-phase contacts for selected primitive and terrain cases; bounded resting contact; filtered non-colliding pairs; no duplicate forces; existing terrain and obstacle regression tests pass.
 
 ---
 
-## Phase 5: Cross-Entity Interaction Scenarios (Weeks 17-22)
+## Phase 2: Car Rigid-Body Migration
 
-### 5.1 Car-Rocket Collision
+**Status: Not started.** The vehicle controller remains authoritative. PR #123 added progressive suspension stops to that system; it did not migrate the car to `RigidBody`.
 
-### 5.2 Car-Car Collision (Multiplayer / AI Future)
+### 2.1 Vehicle Degrees of Freedom — **Decision required**
 
-### 5.3 Rocket-Rocket (Stage Separation Gone Wrong)
+Choose one canonical chassis state before coding:
+- **Compatibility-first adapter (recommended first step):** map current planar chassis state and gated heave/pitch/roll state to one rigid-body state behind a new, disabled-by-default gate. Preserve current defaults and do not integrate the same degree of freedom in both old and new solvers.
+- **Full 6-DOF migration:** allow all translation and orientation axes and accept changes to rollover, airborne, contact, and tuning behavior. This is a model change, not a behavior-preserving refactor.
+
+The old roadmap alternated between a hard planar lock and a soft planar constraint. Those are different models; select and test one. No vehicle rigid-body rollout flag is currently implemented.
+
+### 2.2 Wheel Forces and Contact Patches
+
+Keep the existing per-wheel suspension raycasts and tire-force calculations as force generators for the first adapter. Define coordinate transforms, force application points, and once-per-fixed-step ordering. A capsule collider is a possible body-contact approximation, not a replacement for tire slip, normal-load, or suspension calculations.
+
+### 2.3 Chassis Collider
+
+Start with a catalog-backed box only after verifying vehicle dimensions, local center, orientation, and filtering. Define behavior when a chassis/configuration change is applied at speed. Defer convex hulls until supported and tested.
+
+### 2.4 Parity and Rollout
+
+Compare the gated adapter against the current controller for straight-line acceleration, braking, steering/yaw response, suspension travel, reset, and airborne/recontact. Keep the current path as default until agreed tolerances pass. Document intentional behavior changes rather than claiming byte parity for a changed model.
+
+**Exit gate:** one authoritative chassis transform and velocity; wheel forces applied exactly once; feature-off behavior unchanged; feature-on differences bounded by documented tests and tolerances.
 
 ---
 
-## Phase 6: Visual & Effects Integration (Weeks 22-26)
+## Phase 3: Unified Simulation Loop
+
+**Status: Not started.** The fixed-step runner exists, but the car and rocket currently take mutually exclusive mode-specific steps.
+
+### 3.1 Body Registry and Step Order
+
+Specify ownership and order for force generation, collision detection, velocity solve, position integration, contact-cache update, and visual synchronization. Define which objects are bodies, which are systems, and how debris is created/destroyed without avoidable per-step allocation.
+
+### 3.2 Active Participants and Mode Selection
+
+Separate selected control/visual mode from whether a body participates in physics. Preserve current exclusive car/rocket behavior until a scenario explicitly opts into simultaneous participation; do not accidentally advance hidden entities or freeze a body needed for collision.
+
+**Exit gate:** deterministic fixed-step tests advance a configured set of bodies in stable order; mode changes preserve intended state; car and rocket can coexist in a test world without adding game/menu behavior.
+
+---
+
+## Phase 4: Cross-Entity Interaction Scenarios
+
+**Status: Not started.** These are physics regression scenarios, not gameplay modes.
+
+### 4.1 Car-Rocket and Car-Car Contacts
+
+Add deterministic scenes with declared masses, initial velocities, shape pairs, and expected momentum/penetration bounds. Multiplayer, AI racers, scoring, and race logic are out of scope.
+
+### 4.2 Rocket and Debris Contacts
+
+Test stage separation and debris contact only after each body is registered in the shared world. State how detached components inherit linear and angular velocity; measure resulting conservation error.
+
+**Exit gate:** each scenario is reproducible from a fixed initial state and passes explicit bounds for momentum change, penetration, and finite state.
+
+---
+
+## Phase 5: Deformation System
+
+**Status: Not started for crash damage.** Terrain deformation already exists in its own subsystem; tire-pressure visual deformation is not crash damage and does not imply a shared deformation model.
+
+### 5.1 Deformation Contract
+
+Before implementation, define per-object damage state, persistence/reset behavior, impact inputs, bounded update rate, and the boundary between visual damage and collision-shape changes. Define whether damage affects mass/inertia; do not change either implicitly.
+
+### 5.2 First Demonstrator
+
+Start with one bounded car-body visual deformation driven by a reproducible impact test. Add collider feedback only after shape updates are deterministic and contact-cache invalidation is specified.
+
+### 5.3 Rocket Demonstrator
+
+Choose one damage-driven test (for example, fin bending separate from commanded aerodynamic fin control, or nose shortening), define structural limits and aerodynamic/mass consequences, then test independently. Do not imply arbitrary skin-panel, crush, or fracture simulation from a visual dent.
+
+**Exit gate:** repeatable impact produces bounded visual damage; reset restores baseline; if physics feedback is enabled, collision and mass-property updates are separately tested.
+
+---
+
+## Phase 6: Visual and Telemetry Integration
+
+**Status: Not started for unified collisions/damage.** Limit this phase to physics-backed visualization and developer telemetry.
 
 ### 6.1 Deformation Visualization
 
-### 6.2 Audio Integration
+Render the deformation state produced by Phase 5; verify reset, geometry disposal, and collider/visual revision synchronization.
 
-### 6.3 Telemetry / HUD
+### 6.2 Physics Audio
 
----
+Add only event-driven impact or tire cues tied to measured contact/slip state. Do not add objectives, timers, or game-facing progression.
 
-## Phase 7: Advanced Features (Weeks 26+)
+### 6.3 Telemetry
 
-| Feature | Description |
-|---------|-------------|
-| **Soft-body tires** | FEM or XPBD for tire carcass (replaces capsule) |
-| **Fracture & debris** | Voronoi fracture on exceed strain; debris = new rigid bodies |
-| **Fire/smoke/fluid** | Fuel leak to particle fluid; battery thermal runaway |
-| **Occupant kinematics** | Crash test dummy (ragdoll) for injury metrics |
-| **Replay system** | Deterministic replay from seed + input log |
-| **Multi-body rocket** | Booster separation, interstage collision |
+Expose contact count, penetration, impulses, solver iterations, and deformation state in developer telemetry. Keep raw physics values out of the driver-facing panel unless intentionally translated into driver-relevant status.
+
+**Exit gate:** visuals represent the latest completed physics step and do not mutate simulation state; telemetry agrees with solver records in a deterministic test.
 
 ---
 
+## Phase 7: Deferred Research Topics
 
-## Consolidated Baseline & Seam Inventory (merged from production roadmap)
+**Status: Parking lot.** These are not committed milestones and must not block Phases 0–6. Re-scope each only when a concrete experiment justifies it.
 
-This section consolidates the verified `roadmap_production_complete_20261025.md` so the unified physics effort retains the car baseline context it builds upon.
+| Topic | Possible experiment | Prerequisite |
+|-------|---------------------|--------------|
+| Soft-body tires | Compare FEM/XPBD against current tire model | Validated tire/contact baseline and a defined use case |
+| Fracture and debris | Spawn bounded rigid debris from a failure criterion | Stable body registry and collision world |
+| Fire/smoke/fluid | Visualize a defined fuel/thermal event | Physics event/state model; not a generic fluid-simulation commitment |
+| Occupant kinematics | Ragdoll/crash-test dummy metrics | Defined measurement question and safety/validity scope |
+| Deterministic replay | Replay fixed-step inputs and configuration | Determinism contract across all participating systems |
+| Multi-body rocket | Booster/interstage collision tests | Shared registry, contact pipeline, and separation-state tests |
 
-### Verified Baseline (2026-10-25)
-- 806/806 tests pass; clean `vite build`; 338 commits / 121 PRs
-- Fixed 1/60 s timestep decoupled from render
-- Magic Formula tire path and engine-drivetrain ODE are genuinely implemented behind their flags, not stubbed
+## Existing Vehicle Model: Baseline and Open Seams
 
-### Flag Defaults
+This is context for the vehicle model that the unified-physics work must preserve or deliberately replace. It is separate from the phase numbering above. Defaults below were checked against `src/vehicle/defaultVehicleSpec.js` on 2026-10-31; source wins if this table later drifts.
+
+### Verified Project Snapshot (2026-10-31)
+
+- `npm test`: 852 tests pass.
+- `npm run build`: succeeds; Vite reports the existing >500 kB chunk-size warning.
+- Fixed 1/60 s timestep remains decoupled from rendering.
+- The generic rigid body and rocket wrapper are merged; primitive collision and PGS solver tests pass, but neither collision query nor solver is wired into runtime stepping.
+- Car remains planar plus gated 3-DOF vertical dynamics. Rocket is 6-DOF through the generic body wrapper but retains rocket-specific update/contact code.
+
+### Vehicle Flag Defaults
+
 | Default | Flags |
 |---------|-------|
-| ON | `verticalDynamicsEnabled`, `powertrainDriveTorqueEnabled`, `automaticTransmissionEnabled`, `serviceBrakeAbsEnabled` (legacy slip-ratio ABS), `longitudinalTireForceRelaxationEnabled` |
-| OFF (staged seams) | `combinedSlipTireModelEnabled`, `engineDrivetrainModelEnabled`, `clutchModelEnabled`, `engineBrakingEnabled`, `aeroDownforceEnabled`, `tireThermalModelEnabled`, `advancedAbsEnabled`, `tractionControlEnabled`, `electronicStabilityControlEnabled`, `wheelLockModelEnabled` |
+| ON | `verticalDynamicsEnabled`, `verticalDynamicsForcingEnabled`, `powertrainDriveTorqueEnabled`, `automaticTransmissionEnabled`, `serviceBrakeAbsEnabled` (legacy slip-ratio ABS), `longitudinalTireForceRelaxationEnabled` |
+| OFF | `combinedSlipTireModelEnabled`, `engineDrivetrainModelEnabled`, `clutchModelEnabled`, `engineBrakingEnabled`, `aeroDownforceEnabled`, `tireThermalModelEnabled`, `advancedAbsEnabled`, `tractionControlEnabled`, `electronicStabilityControlEnabled`, `wheelLockModelEnabled` |
 
-### Seam Inventory
-| Flag / gap | Default | What "complete" requires |
-|---|---|---|
-| `combinedSlipTireModelEnabled` | false | Validate Magic Formula vs baseline; promote to default |
-| `tireThermalModelEnabled` | false | Feed mu(temp, wear) back into tire model |
-| `wheelLockModelEnabled` | false | Enable true omega→0 lock |
-| `engineDrivetrainModelEnabled` | false | Promote engine + friction clutch to default |
-| `clutchModelEnabled` / `engineBrakingEnabled` | false | Real slip-coupling + launch control |
-| `advancedAbsEnabled` / `tractionControlEnabled` / `electronicStabilityControlEnabled` | false | Production selective-brake + engine-cut control |
-| `aeroDownforceEnabled` | false | Wind, drafting, ride-height/pitch coupling |
-| Roll-center per-axle + anti-dive/squat | — | Per-axle overrides + longitudinal roll center |
-| Solid-axle lateral transfer | — | Leaf torsional stiffness / beam articulation |
-| Multibody beyond 3-DOF | — | Landing impulses, nonlinear bump stops |
-| Timestep sensitivity | — | Sub-step or certify minimum rate |
+The combined-slip default preset is `brushFiala`. Optional parameterized Pacejka-style curves exist, but are not a validated professional tire library. The engine/drivetrain ODE and several driver-assist seams exist behind flags; their existence does not mean they are production defaults.
 
-### Recommended Incremental Sequence
-P0 → P1 → P4 → P3 → P2 → P5 → P6 (lock baseline → tire model → driver assists → powertrain → vertical/contact → aero/effects → determinism)
+### Separate Vehicle-Model Seams
 
-### Two Readings of "Production-Complete"
-- **Reading A (recommended):** Keep car planar + gated 3-DOF vertical; flip seams one at a time with `flag=false` byte-identity regression tests as the hard gate.
-- **Reading B:** Full 6-DOF vehicle rigid body (mirroring the rocket solver). Defer behind `vehicleSixDofEnabled` so the car controller never silently changes shape.
+| Seam | Current status | What a separate completion effort would require |
+|------|----------------|-----------------------------------------------|
+| Combined-slip tire model | Disabled by default; brush/Fiala baseline | Validate optional curves against measured/accepted targets before any default change |
+| Tire thermal feedback | Disabled | Feed validated temperature/wear friction changes into tire forces |
+| Wheel-lock model | Disabled | Validate true wheel-lock behavior and interaction with ABS |
+| Engine/friction-clutch model | Disabled | Validate flywheel/clutch behavior and define launch/shift scope |
+| ABS/TC/ESC advanced behavior | Disabled | Validate staged control seams; do not imply production hydraulic behavior |
+| Downforce/lift | Disabled | Validate load coupling; wind/drafting remain separate gaps |
+| Roll-center depth | Per-axle roll-center height is consumed; longitudinal anti-dive/squat is not modeled | Define longitudinal geometry and tests if required |
+| Solid-axle lateral transfer | Not modeled across the coupled axle | Model beam articulation/leaf torsional behavior if required |
+| Beyond 3-DOF sprung mass | Not modeled | Define landing impulses and nonlinear suspension coupling |
+| Timestep sensitivity | Regression spread is documented | Decide acceptable sensitivity or adopt/validate sub-stepping |
 
-### Verification Evidence (Appendix A)
-| Claim | Evidence |
-|-------|----------|
-| Flag defaults | `src/vehicle/defaultVehicleSpec.js` L67,174,191,209,215,234,240,246,267,281,290,298,306,329,374 |
-| Magic Formula implemented | `src/vehicle/tireModelLibrary.js` L5-58 |
-| Engine-drivetrain implemented | `src/vehicle/createEngineDrivetrainState.js` L1-50 |
-| Combined-slip harness | `src/vehicle/combinedSlipTireForceState.js` L101 |
-| Wheel-lock gated | `src/vehicle/VehicleController.js` L3785,3792,3825; `isWheelLocked` L4550 |
-| Anti-dive not modelled | `src/vehicle/componentCatalog.js` L379, L427 |
-| No per-axle roll-center override | only `solidAxleRollCenterHeightMeters` (`defaultVehicleSpec.js` L104) |
-| Timestep spread | `test/timestepSensitivityRegression.test.js` L9-10 |
-| Rocket 6-DOF reference | `src/rocket/rocketRigidBody.js` |
+Do not make these unrelated seams blockers for rigid-body plumbing. When a migration depends on one, link that specific dependency and its test rather than reopening the whole vehicle roadmap.
 
+---
 
-## Technical Decisions & Tradeoffs
+## Technical Decisions and Open Questions
 
-| Decision | Options | Recommendation | Rationale |
-|----------|---------|----------------|-----------|
-| **Integration scheme** | Symplectic Euler vs RK4 vs XPBD | **Symplectic Euler** (current) | Deterministic, stable at 60Hz, matches existing |
-| **Collision narrow phase** | GJK/EPA vs SAT vs custom | **SAT for primitives, GJK for convex** | SAT fast for boxes/cylinders; GJK general |
-| **Contact solver** | PGS vs TGS vs Direct | **PGS with warm-start** | Proven, deterministic, handles friction well |
-| **Deformation representation** | Vertex displacement vs FEM vs Voxel | **Vertex displacement + plastic strain** | GPU-friendly, matches Three.js, good enough |
-| **Car planar constraint** | Hard lock (Y, pitch, roll) vs soft (stiff springs) | **Soft constraint (configurable stiffness)** | Allows rollover, airborne, smooth transition |
-| **Terrain collision** | Heightfield special-case vs voxel | **Heightfield special-case** | Infinite detail, existing investment |
-| **Broad phase** | Uniform grid vs BVH vs Sweep-Prune | **Uniform grid (50m cells)** | Simple, cache-friendly, scales to 1200m |
+| Area | Current evidence | Decision / next action |
+|------|------------------|------------------------|
+| Integration | Generic body uses symplectic Euler; contact solver requires a velocity/position boundary | Keep the integrator unless evidence requires change; resolve and test solver ordering before runtime use |
+| Narrow phase | Analytical Sphere/Capsule/Box tests; OBB SAT for Box–Box; single contact | Extend only for required pairs. Decide on GJK/EPA when a convex-hull use case exists |
+| Contact solver | PGS with warm-start, friction, restitution, and positional projection is implemented in isolation | Keep PGS for the first vertical slice; test stability and convergence in runtime before tuning or replacing it |
+| Vehicle degrees of freedom | Current car is planar plus gated heave/pitch/roll; roadmap previously proposed both hard and soft planar constraints | Record one canonical-state design. Prefer a gated compatibility adapter first; full 6-DOF is a separately tested behavior change |
+| Terrain | Suspension uses terrain queries; no generic heightfield collider exists | Preserve the query path and add the smallest body-contact query that satisfies tests |
+| Broad phase | No implementation or measured workload comparison | Benchmark uniform grid, sweep/prune, or other candidates before selecting; do not assume 50 m cells |
+| Deformation | No shared crash-damage model | Build one bounded visual demonstrator before selecting a general representation or changing collider/mass state |
 
 ---
 
@@ -208,106 +251,100 @@ P0 → P1 → P4 → P3 → P2 → P5 → P6 (lock baseline → tire model → d
 
 | Risk | Mitigation |
 |------|------------|
-| **Breaks existing car physics** | Gate behind fullRigidBodyEnabled: false default; byte-identity regression tests |
-| **Performance regression** | Profile each phase; broad phase culling; limit contact iterations |
-| **Rocket stability lost** | Rocket uses same RigidBody -> 1:1 behavior preservation |
-| **Deformation explodes** | Energy threshold gating; max vertices displaced per frame; LOD |
-| **Visual/physics desync** | Single source of truth: physics updates collider -> visual reads collider |
+| Car behavior changes during migration | Keep the legacy path as default; gate the adapter; compare named scenarios and record tolerated differences |
+| Duplicate or missing forces | Assign one owner and one fixed-step phase to each force source; test wheel-force application exactly once |
+| Contact jitter or stale warm starts | Give contacts stable identities, deterministic order, explicit invalidation, and resting-contact regression tests |
+| Rocket behavior drifts | Keep the legacy differential test and full rocket suite passing as body/integrator changes land |
+| Collision performance degrades | Measure candidate pairs, active contacts, solver time, and frame cost on a declared test workload before choosing a broad phase |
+| Visual/physics desync | Version collision and visual geometry updates; verify reset/disposal and that rendering never mutates physics state |
+| Damage causes unbounded physics changes | Bound deformation; make collider and mass-property feedback separately gated and tested |
 
 ---
 
-## File Structure (Target)
+## File Structure: Current and Candidate
 
-`
-src/
-physics/
-    RigidBody.js              # Core (NEW)
-    Collision.js              # Narrow phase (NEW)
-    ContactSolver.js          # PGS solver (NEW)
-    CollisionWorld.js         # Broad + narrow + step (NEW)
-    DeformationState.js       # Deformation tracking (NEW)
-    BroadPhase.js             # Uniform grid (NEW)
-    shapes/
-        Sphere.js
-        Capsule.js
-        Box.js
-        Cylinder.js
-        ConvexHull.js
-        Heightfield.js
-vehicle/
-    VehicleRigidBody.js       # Extends RigidBody (NEW)
-    deformation/
-        createVehicleDeformation.js (NEW)
-        vehicleDeformationVisuals.js (NEW)
-    dynamics/
-        suspensionConstraint.js  # Suspension to force application (REFACTOR)
-rocket/
-    deformation/
-        createRocketDeformation.js (NEW)
-        rocketDeformationVisuals.js (NEW)
-    rocketRigidBody.js        # to thin wrapper over RigidBody (REFACTOR)
-terrain/
-    HeightfieldCollider.js    # Implements physics/shapes/Heightfield.js (NEW)
-simulation/
-    UnifiedSimulation.js      # Single step for all bodies (REFACTOR)
-`
+**Present foundation**:
+
+```text
+src/physics/
+  RigidBody.js
+  Collision.js
+  ContactSolver.js
+  shapes/Box.js
+  shapes/Capsule.js
+  shapes/Sphere.js
+src/rocket/rocketRigidBody.js  # compatibility wrapper
+```
+
+**Candidate additions, only when their phase consumes them**:
+
+```text
+src/physics/
+  CollisionWorld.js           # body/collider lifecycle and contact generation
+  BroadPhase.js               # selected only after workload comparison
+  DeformationState.js         # shared only when a real consumer exists
+src/vehicle/
+  VehicleRigidBody.js         # or adapter module; design pending
+src/simulation/
+  UnifiedSimulation.js        # body registry and ordered fixed step
+src/terrain/
+  HeightfieldBodyContact.js   # if tests require a separate terrain body query
+```
+
+Do not add shape types, loaders, schemas, or modules before a live consumer and tests require them.
 
 ---
 
 ## Milestone Gates (Definition of Done)
 
-| Milestone | Gate Criteria |
-|-----------|---------------|
-| **M0: RigidBody parity** | Rocket on RigidBody passes all 12 existing rocket tests byte-identical |
-| **M1: Car on RigidBody** | Car on VehicleRigidBody (gated) passes all 93 vehicle tests; verticalDynamicsEnabled still works |
-| **M2: Unified collision** | Car-rocket collision in same step produces plausible impulses; no interpenetration |
-| **M3: Terrain collision** | Both car and rocket collide with terrain via CollisionWorld; suspension still works |
-| **M4: Deformation MVP** | Car hitting wall at 50 km/h -> visible dent + updated collider; rocket landing -> fin bend |
-| **M5: Full integration** | Single stepSimulation runs car + rocket + debris; mode switch = body activation |
-| **M6: Production** | All tests pass; 60Hz sustained with 10 bodies + deformation; visual sync < 1 frame |
+| Gate | Status | Completion criteria |
+|------|--------|---------------------|
+| **G0: Generic body parity** | **Done** | Rocket wrapper uses generic body; legacy differential test compares exact state vectors for its 60-step scenario; full suite passes |
+| **G1: Runtime contact vertical slice** | **Not started** | Fixed-step test runs collision generation, persistent constraints, solver, and integration; resting/separating/friction/restitution cases pass declared tolerances and deterministic replay |
+| **G2: Collision world** | **Not started** | Stable pair generation and filtering; selected static/dynamic shapes and terrain/obstacle cases pass; warm-start cache survives only valid contacts |
+| **G3: Gated car adapter** | **Not started** | One chassis state; existing wheel forces applied once; baseline scenarios and documented feature-on tolerances pass |
+| **G4: Unified step and registry** | **Not started** | Configured car, rocket, and debris bodies step in deterministic order; mode changes and activation semantics have explicit tests |
+| **G5: Cross-entity scenarios** | **Not started** | Car/rocket, car/car, and rocket/debris scenes meet declared momentum, penetration, and finite-state bounds |
+| **G6: Deformation MVP** | **Not started** | Reproducible bounded damage, reset, and separately verified collider/mass feedback where enabled |
+| **G7: Release/performance gate** | **Not started** | Full tests and build pass; at a recorded machine and declared body/contact load, p95 fixed-step time stays below 16.67 ms; contact count, solver settings, and visual-sync lag (target: at most one rendered frame) are reported |
+
+For every new numeric threshold, record its physical units and rationale when the test is introduced. “Plausible,” “no interpenetration,” and “production” are not acceptance criteria by themselves.
 
 ---
 
-## Staff Engineer Notes
+## Working Rules for This Roadmap
 
-1. Dont unify prematurely. Phase 0-1 are infrastructure — no user-visible change. Gate everything.
-2. Preserve the seams. verticalDynamicsEnabled, combinedSlipTireModelEnabled, engineDrivetrainModelEnabled remain valid configuration knobs.
-3. Terrain is special. Dont force it into generic collision. Keep queryRay for suspension; add queryCollider for body contacts.
-4. Deformation is visual-first, physics-second. Start with vertex displacement on impact; physics feedback (collider shape change) is Phase 3.5+.
-5. Test determinism at each gate. The byte-identity trace is your most valuable asset — protect it.
-6. Rocket is the stress test. 6-DOF + high velocity + stage separation exercises every edge case. If it works for rocket, car is easy.
-
----
-
-## Estimated Timeline
-
-| Phase | Weeks | Cumulative |
-|-------|-------|------------|
-| 0: Unified RigidBody | 3 | 3 |
-| 1: Car Migration | 4 | 7 |
-| 2: Collision Pipeline | 4 | 11 |
-| 3: Deformation System | 6 | 17 |
-| 4: Unified Loop | 4 | 21 |
-| 5: Cross-Entity | 6 | 27 |
-| 6: Visual/Effects | 5 | 32 |
-| **Total** | **~32 weeks** | **~8 months** |
-
-**Parallelizable**: Phase 3 (deformation) can start after M1; Phase 6 (visuals) can parallel Phase 4-5.
+1. Work one gate at a time; a phase is not complete because its module exists.
+2. Each implementation PR states the source behavior changed, tests added/run, feature-flag defaults, and any known behavior difference.
+3. Preserve the vehicle’s existing tire and suspension model unless a task explicitly migrates it.
+4. Keep terrain suspension queries separate from rigid-body contacts unless a validated replacement is ready.
+5. Test determinism and contact lifecycle at the same stage as integration, not as late cleanup.
+6. Treat Phase 7 as a research backlog, not a promised feature set. Game systems remain out of scope.
 
 ---
 
-## First PR Scope (Week 1)
+## Recommended Execution Order
 
-> **PR: feat(physics): introduce RigidBody abstraction and migrate rocket**
-> - src/physics/RigidBody.js (new)
-> - src/rocket/rocketRigidBody.js to wrapper
-> - All 12 rocket tests pass byte-identical
-> - AGENTS.md updated with new physics module contract
+1. **G0 is complete.** Keep its differential test as a regression gate.
+2. **Complete G1:** resolve integrator/contact ordering and wire a minimal runtime contact scenario.
+3. **Complete G2:** add collision-world lifecycle, terrain/body contacts, and obstacle migration behind tests.
+4. **Complete G3:** choose the vehicle DOF contract, then add the gated car adapter while preserving the old default.
+5. **Complete G4–G5:** unify body stepping, then prove cross-entity contacts.
+6. **Complete G6–G7:** build one deformation demonstrator, integrate telemetry/visuals, and measure release performance.
 
-This establishes the foundation without touching the car. Zero risk to existing vehicle physics.
+Calendar estimates are intentionally omitted: the remaining work depends on unresolved solver-order and vehicle-DOF decisions, and no capacity assumption is recorded. Re-estimate after G1 with measured implementation scope.
+
+---
+
+## Merged Work and Verification Snapshot
+
+- **PR #123:** Progressive suspension stops in the existing vehicle path; useful vehicle-model work, not a unified-rigid-body milestone.
+- **PR #124:** Generic `RigidBody`, rocket compatibility wrapper, primitive narrow phase, and legacy differential test. This fulfills the original first-PR scope.
+- **PR #125:** PGS contact solver and isolated solver tests. Runtime wiring remains open.
+- **Verified 2026-10-31:** `npm test` passes 852/852; `npm run build` succeeds with the Vite chunk-size warning.
 
 ---
 
 ## Bottom Line
 
-The architecture wants this unification. The cars per-wheel forces are already constraint forces; the rockets contact ring is already a multi-point collider. The fixed timestep runner is the universal clock. Youre not adding collision — youre **revealing the unified rigid body that was always implicit**.
+The rigid-body foundation, primitive collision tests, and PGS solver are implemented—not merely proposed. The key remaining step is to connect contact generation and solving to fixed-step integration with a correct, tested ordering. After that, proceed through the collision world, a gated car adapter, unified stepping, cross-entity scenarios, and only then deformation. No end-to-end unified car/rocket collision or crash-deformation system exists yet.
