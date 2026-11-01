@@ -186,6 +186,7 @@ Confirmed present against `src/` and the passing test suite. This is the referen
 - **Narrow-phase collision contract**: `src/physics/Collision.js` dispatches deterministic Sphere, Capsule, and Box narrow-phase tests using analytical primitive math and the 15-axis OBB Separating Axis Theorem. It returns a single-contact record with an A-to-B normal, penetration depth, and world-space point; shape dimensions use explicit SI suffixes (`radiusMeters`, `halfHeightMeters`, and `halfExtentsMeters`). The capsule-box pair and multi-point manifolds are not implemented. Every contact record also carries a `featureId`: a stable string naming the primitive support feature that was selected (for example `sphere-box:outside:face:y+` or `box-box:face:a:1:+`). The id describes the geometry, not the body order, and deliberately excludes the continuously moving contact point, which is what makes it usable as a persistent-contact identity.
 - **Contact solver contract**: `src/physics/ContactSolver.js` resolves contact constraints with Projected Gauss-Seidel (sequential impulses), warm-starting, Coulomb friction, restitution, and a direct positional projection. It depends on `src/physics/RigidBody.js` for the impulse application and consumes the A-to-B normals produced by `src/physics/Collision.js`. See section 3.6.
 - **Contact cache contract**: `src/physics/ContactCache.js` owns contact-constraint lifetime across frames. It keys a constraint by the ordered body pair plus the narrow-phase `featureId`, reuses the constraint object (and therefore its warm-start impulses) for a persisting contact, evicts contacts that were not generated in a step, and returns the active set in deterministic contact-key order. See section 3.7.
+- **Collision world contract**: `src/physics/CollisionWorld.js` registers rigid bodies with primitive colliders and bitmask filters, generates deterministic O(N²) collision pairs, feeds contacts through the contact cache and solver, and preserves the velocity-solve-position step ordering. It is physics infrastructure only and is not yet consumed by the vehicle or rocket runtime. See section 3.8.
 - **Fixed-step contact scenario**: `src/physics/FixedStepContactScenario.js` is a standalone vertical slice that orders one fixed step as: clear and apply forces, integrate velocity, generate the contact, solve and project, integrate position once, commit the contact cache. It exercises the split integration phases, but it is NOT wired into the production runtime; the vehicle and rocket simulations still step through the fused `integrateRigidBody` path.
 
 ### 3.2 Documented Unfinished Seams
@@ -296,6 +297,33 @@ The cache is the persistent-contact state layer between the narrow phase and the
 **Allocation discipline**: the two `Map`s and the duplicate-key `Set` are created once per cache and reused for its lifetime. `commit()` swaps the pending map with the active map and clears the retired one. The sorted key list and the JSON key-parts array are reused scratch buffers. The returned active-contact array is freshly allocated because callers retain it as a snapshot.
 
 **Not implemented**: multi-contact manifolds (the narrow phase emits one contact per pair, so the cache holds at most one constraint per body pair in practice), sleeping and islands, breakable contacts, and any coupling to the production runtime.
+
+### 3.8 Collision World Contract (`src/physics/CollisionWorld.js`)
+
+The world is the registration and step-orchestration layer for primitive rigid-body collision. It consumes the existing `RigidBody`, narrow-phase shapes, `Collision`, `ContactCache`, and `ContactSolver`; it does not replace or bypass any of those contracts.
+
+**Registration and identity**:
+
+1. `registerBody(body, colliders, filterGroup, filterMask)` validates the body and collider payloads, accepts `body.isStatic === true` as an infinite-mass collider (and allows such raw static bodies to omit force/torque accumulators and `massKg`), and stores a single registration record for the body. A body registered twice is an error.
+2. The colliders supplied to `registerBody` are shared references. Their local transforms are copied into a registration-local transform cache; users must not mutate the registration payload, especially before `step`.
+3. `removeBody(body)` removes a registration, including its collider records. It intentionally does not reuse the slot. A subsequent registration receives the next integer in the strictly monotonic sequence, so body order remains stable across registration and removal.
+4. Every registered body receives `body.collisionWorldId`. These integer identities determine collision-pair order; the body-level `contactId` remains the stable cache identity required by the contact-cache contract.
+5. `world.contactCache` is an inspection/debug API.
+
+**Colliders**: each registered collider is an entry such as `{ shape: createSphere(...), positionMeters: [...], orientationQuaternion: [...], ... }`. The module does not create or expose shape classes; it validates the registration and clones local transforms. Supported narrow-phase primitives are the Sphere, Capsule, and Box pairs documented in section 3.1. Terrain colliders are out of scope for this phase.
+
+**Collision filtering**: each registration has a `filterGroup` and a `filterMask` represented as signed 32-bit integers. A pair collides when `(groupA & maskB) !== 0 && (groupB & maskA) !== 0`. Zero means no collision and is therefore rejected at registration. There is intentionally no all-bits wildcard; passing `0xffffffff` is the conventional wildcard.
+
+**Step order** (`world.step(dtSeconds)`): clear every dynamic body's force and torque accumulators; apply gravity through `world.applyGravity`; run velocity integration; generate broad-phase pairs; run the narrow phase for every filtered pair, updating the world transform before `Collision.testCollision`; acquire every contact through the cache; solve contacts with `solveContacts`; run position integration; then commit the contact cache. The world deliberately preserves the velocity-solve-position ordering required by the split integration contract.
+
+**Broad phase**: `world.step` uses a deterministic O(N²) naive pair loop. This is the Phase 1 / Gate 2 baseline, intentionally retained so spatial partitioning can later be benchmarked against real workloads. The pair pool is allocated when the first body registers and is reused for the lifetime of the world. The step clears it by resetting its length, and sorts the generated pairs by `(min bodyId, max bodyId)`. Static-static pairs and non-colliding filter pairs are skipped. The implementation performs no hot-loop allocation, including no `THREE.Vector3` or matrix allocation.
+
+**Gravity**: `applyGravity` applies a shared `gravityMetersPerSecondSquared` value downward in world Y to every dynamic body. Bodies marked `body.isStatic = true` are skipped, as is force clearing for those bodies, so raw static bodies without force accumulators are supported. Per-body or mixed gravity vectors are not supported.
+
+**Determinism**: registration order, the shared pair pool, the sort key, and the contact cache keying establish deterministic contact ordering. Narrow-phase feature ids provide stable contact identities across steps, enabling warm starts.
+
+**Not implemented**: broad-phase spatial partitioning; multi-contact manifolds; sleeping, islands, or solver event callbacks; terrain or height-field colliders; and integration with the production vehicle, rocket, or fixed-step contact scenario runtimes.
+
 
 ## 4. Hard Simulation Conventions
 - **Units**:
