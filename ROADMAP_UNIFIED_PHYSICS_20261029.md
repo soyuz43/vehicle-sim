@@ -47,12 +47,12 @@ Test/build counts are dated verification snapshots, not permanent guarantees. Re
 
 `src/physics/ContactSolver.js` implements sequential PGS iterations, warm-start accumulators, Coulomb friction, restitution, and positional correction. Tests cover the solver in isolation; production code does not yet call `solveContacts`.
 
-### 0.4 Runtime Contact Integration — **Not started**
+### 0.4 Runtime Contact Integration — **Partial**
 
-The solver contract places contact solving after velocity/force updates and before position integration. `integrateRigidBody` currently fuses velocity and position updates, so the runtime cannot insert the solver at that boundary without changing the integration API or explicitly accepting a different approximation.
+The fused `integrateRigidBody` compatibility API now delegates to explicit `integrateRigidBodyVelocityPhase` and `integrateRigidBodyPositionPhase` functions. The production simulation still does not insert collision generation or the solver between those phases.
 
 Work:
-1. Choose and document the integrator/solver ordering; preserve rocket parity behind the existing differential test.
+1. Adopt the split-phase API in a minimal runtime contact loop; preserve rocket parity behind the existing differential test.
 2. Define stable contact identity, lifetime, deterministic ordering, and warm-start invalidation when a pair or contact feature changes.
 3. Add one end-to-end fixed-step test with a dynamic body and static primitive. Cover rest, separation, friction, restitution, and repeat-run determinism.
 
@@ -300,7 +300,7 @@ Do not add shape types, loaders, schemas, or modules before a live consumer and 
 | Gate | Status | Completion criteria |
 |------|--------|---------------------|
 | **G0: Generic body parity** | **Done** | Rocket wrapper uses generic body; legacy differential test compares exact state vectors for its 60-step scenario; full suite passes |
-| **G1: Runtime contact vertical slice** | **Not started** | Fixed-step test runs collision generation, persistent constraints, solver, and integration; resting/separating/friction/restitution cases pass declared tolerances and deterministic replay |
+| **G1: Runtime contact vertical slice** | **Partial** | Fixed-step test runs collision generation, persistent constraints, solver, and integration; resting/separating/friction/restitution cases pass declared tolerances and deterministic replay |
 | **G2: Collision world** | **Not started** | Stable pair generation and filtering; selected static/dynamic shapes and terrain/obstacle cases pass; warm-start cache survives only valid contacts |
 | **G3: Gated car adapter** | **Not started** | One chassis state; existing wheel forces applied once; baseline scenarios and documented feature-on tolerances pass |
 | **G4: Unified step and registry** | **Not started** | Configured car, rocket, and debris bodies step in deterministic order; mode changes and activation semantics have explicit tests |
@@ -347,4 +347,4 @@ Calendar estimates are intentionally omitted: the remaining work depends on unre
 
 ## Bottom Line
 
-The rigid-body foundation, primitive collision tests, and PGS solver are implemented—not merely proposed. The key remaining step is to connect contact generation and solving to fixed-step integration with a correct, tested ordering. After that, proceed through the collision world, a gated car adapter, unified stepping, cross-entity scenarios, and only then deformation. No end-to-end unified car/rocket collision or crash-deformation system exists yet.
+The rigid-body foundation, primitive collision tests, PGS solver, and split integration-phase seam are implemented—not merely proposed. The key remaining step is to connect contact generation and solving to the split fixed-step phases with persistent contact state. After that, proceed through the collision world, a gated car adapter, unified stepping, cross-entity scenarios, and only then deformation. No end-to-end unified car/rocket collision or crash-deformation system exists yet.
