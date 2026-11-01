@@ -34,6 +34,7 @@ const _scratchHalfExtentsAMeters = new THREE.Vector3()
 const _scratchHalfExtentsBMeters = new THREE.Vector3()
 const _scratchCandidateAxis = new THREE.Vector3()
 const _scratchBestNormal = new THREE.Vector3()
+const _scratchFeatureAxis = new THREE.Vector3()
 const _scratchFaceCenter = new THREE.Vector3()
 const _scratchOppositeFaceCenter = new THREE.Vector3()
 const _scratchOppositeFaceNormal = new THREE.Vector3()
@@ -102,7 +103,7 @@ function collideSphereSphere(sphereA, transformA, sphereB, transformB) {
   _scratchContactPoint
     .copy(_scratchCenterA)
     .addScaledVector(_scratchNormal, sphereA.radiusMeters - depth * 0.5)
-  return createContact(depth)
+  return createContact(depth, 'sphere-sphere:center-line')
 }
 
 function collideSphereBox(sphere, sphereTransform, box, boxTransform) {
@@ -141,29 +142,36 @@ function collideSphereBox(sphere, sphereTransform, box, boxTransform) {
     const distanceMeters = Math.sqrt(distanceMetersSquared)
     _scratchNormal.copy(_scratchCenterDelta).multiplyScalar(1 / distanceMeters)
     _scratchContactPoint.copy(_scratchTemporary)
-    return createContact(sphere.radiusMeters - distanceMeters)
+    return createContact(
+      sphere.radiusMeters - distanceMeters,
+      createSphereBoxOutsideFeatureId(halfExtentsMeters)
+    )
   }
 
   const distanceToXFaceMeters = halfExtentsMeters.x - Math.abs(_scratchSphereCenterLocal.x)
   const distanceToYFaceMeters = halfExtentsMeters.y - Math.abs(_scratchSphereCenterLocal.y)
   const distanceToZFaceMeters = halfExtentsMeters.z - Math.abs(_scratchSphereCenterLocal.z)
   _scratchBoxPointLocal.copy(_scratchSphereCenterLocal)
+  let featureId = null
 
   if (distanceToXFaceMeters <= distanceToYFaceMeters && distanceToXFaceMeters <= distanceToZFaceMeters) {
     const faceSign = _scratchSphereCenterLocal.x < 0 ? -1 : 1
     _scratchBoxPointLocal.x = faceSign * halfExtentsMeters.x
     _scratchNormal.set(-faceSign, 0, 0)
     _scratchTemporary.x = distanceToXFaceMeters
+    featureId = `sphere-box:inside:face:x${faceSign > 0 ? '+' : '-'}`
   } else if (distanceToYFaceMeters <= distanceToZFaceMeters) {
     const faceSign = _scratchSphereCenterLocal.y < 0 ? -1 : 1
     _scratchBoxPointLocal.y = faceSign * halfExtentsMeters.y
     _scratchNormal.set(0, -faceSign, 0)
     _scratchTemporary.x = distanceToYFaceMeters
+    featureId = `sphere-box:inside:face:y${faceSign > 0 ? '+' : '-'}`
   } else {
     const faceSign = _scratchSphereCenterLocal.z < 0 ? -1 : 1
     _scratchBoxPointLocal.z = faceSign * halfExtentsMeters.z
     _scratchNormal.set(0, 0, -faceSign)
     _scratchTemporary.x = distanceToZFaceMeters
+    featureId = `sphere-box:inside:face:z${faceSign > 0 ? '+' : '-'}`
   }
 
   _scratchNormal.applyQuaternion(getOrientation(worldBoxTransform))
@@ -171,7 +179,7 @@ function collideSphereBox(sphere, sphereTransform, box, boxTransform) {
     .copy(_scratchBoxPointLocal)
     .applyQuaternion(getOrientation(worldBoxTransform))
     .add(_scratchCenterB)
-  return createContact(sphere.radiusMeters + _scratchTemporary.x)
+  return createContact(sphere.radiusMeters + _scratchTemporary.x, featureId)
 }
 
 function collideSphereCapsule(sphere, sphereTransform, capsule, capsuleTransform) {
@@ -210,7 +218,7 @@ function collideSphereCapsule(sphere, sphereTransform, capsule, capsuleTransform
   _scratchContactPoint
     .copy(_scratchCenterA)
     .addScaledVector(_scratchNormal, sphere.radiusMeters - depth * 0.5)
-  return createContact(depth)
+  return createContact(depth, 'sphere-capsule:segment')
 }
 
 function collideCapsuleCapsule(capsuleA, transformA, capsuleB, transformB) {
@@ -260,7 +268,7 @@ function collideCapsuleCapsule(capsuleA, transformA, capsuleB, transformB) {
   _scratchContactPoint
     .copy(_scratchClosestPointA)
     .addScaledVector(_scratchNormal, capsuleA.radiusMeters - depth * 0.5)
-  return createContact(depth)
+  return createContact(depth, 'capsule-capsule:segment-pair')
 }
 
 function closestPointsOnSegments() {
@@ -398,7 +406,10 @@ function collideBoxBox(boxA, transformA, boxB, transformB) {
     )
   }
   _scratchNormal.copy(_scratchBestNormal)
-  return createContact(_minimumPenetrationDepthMeters)
+  return createContact(
+    _minimumPenetrationDepthMeters,
+    createBoxBoxFeatureId()
+  )
 }
 
 function evaluateSatAxis(axis, feature, axisIndexA, axisIndexB) {
@@ -657,12 +668,56 @@ function setDeterministicPerpendicular(target, direction) {
   target.crossVectors(direction, _scratchPerpendicularSeed).normalize()
 }
 
-function createContact(depth) {
+// featureId identifies the stable primitive support feature selected by the
+// narrow phase. It deliberately does not encode the continuously moving
+// contact point. Capsule pairs use a bounded primitive-level fallback because
+// this single-point API does not expose cap/segment parameter metadata.
+function createContact(depth, featureId) {
   return {
     normal: _scratchNormal.clone(),
     depth,
     point: _scratchContactPoint.clone(),
+    featureId,
   }
+}
+
+function createSphereBoxOutsideFeatureId(halfExtentsMeters) {
+  const outsideAxes = []
+  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.x, halfExtentsMeters.x, 'x')
+  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.y, halfExtentsMeters.y, 'y')
+  appendOutsideAxis(outsideAxes, _scratchSphereCenterLocal.z, halfExtentsMeters.z, 'z')
+  const featureKind =
+    outsideAxes.length === 1 ? 'face' : outsideAxes.length === 2 ? 'edge' : 'vertex'
+  return `sphere-box:outside:${featureKind}:${outsideAxes.join(',')}`
+}
+
+function appendOutsideAxis(outsideAxes, coordinate, halfExtentMeters, axisName) {
+  if (coordinate > halfExtentMeters) outsideAxes.push(`${axisName}+`)
+  else if (coordinate < -halfExtentMeters) outsideAxes.push(`${axisName}-`)
+}
+
+function createBoxBoxFeatureId() {
+  if (_minimumPenetrationFeature === 2) {
+    _scratchFeatureAxis.crossVectors(
+      _scratchBoxAxesA[_minimumPenetrationAxisA],
+      _scratchBoxAxesB[_minimumPenetrationAxisB]
+    )
+    const normalSign = _scratchBestNormal.dot(_scratchFeatureAxis) >= 0 ? '+' : '-'
+    return `box-box:edge:a:${_minimumPenetrationAxisA}:b:${_minimumPenetrationAxisB}:${normalSign}`
+  }
+
+  const referenceAxes =
+    _minimumPenetrationFeature === 0 ? _scratchBoxAxesA : _scratchBoxAxesB
+  const referenceBoxName = _minimumPenetrationFeature === 0 ? 'a' : 'b'
+  const referenceAxisIndex =
+    _minimumPenetrationFeature === 0
+      ? _minimumPenetrationAxisA
+      : _minimumPenetrationAxisB
+  const bestNormalProjection = _scratchBestNormal.dot(referenceAxes[referenceAxisIndex])
+  const outwardProjection =
+    _minimumPenetrationFeature === 0 ? bestNormalProjection : -bestNormalProjection
+  const faceSign = outwardProjection >= 0 ? '+' : '-'
+  return `box-box:face:${referenceBoxName}:${referenceAxisIndex}:${faceSign}`
 }
 
 function invertContact(contact) {
