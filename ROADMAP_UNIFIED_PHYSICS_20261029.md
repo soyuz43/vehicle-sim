@@ -1,8 +1,8 @@
 # Staff Engineer Roadmap: Unified Vehicle/Rocket Physics with Crash Deformation
 
 **Created**: 2026-10-29
-**Last source review**: 2026-11-01 (G1 contact identity and fixed-step slice)
-**Status**: In progress — generic rigid-body, primitive collision, contact-solver, and G1 vertical-slice foundations are implemented; collision-world integration and vehicle migration remain.
+**Last source review**: 2026-11-01 (Phase 1.2 heightfield body contacts)
+**Status**: In progress — generic rigid-body, primitive collision, contact-solver, collision-world, and heightfield body-contact foundations are implemented; obstacle migration, vehicle migration, and production runtime integration remain.
 
 ---
 
@@ -11,8 +11,8 @@
 **Current state (verified against source)**:
 - **Car**: Planar chassis motion plus enabled, gated 3-DOF heave/pitch/roll; per-wheel raycast suspension and the existing tire-force model remain the live vehicle path.
 - **Rocket**: Uses generic 6-DOF `RigidBody` through a compatibility wrapper, but retains rocket-owned update, ground-contact, stage-separation, and debris paths.
-- **Shared physics modules**: `RigidBody`, primitive `Collision`, and PGS `ContactSolver` exist. Collision queries and the contact solver are not called by the production simulation step.
-- **Not implemented**: `CollisionWorld`, broad phase, `VehicleRigidBody`, shared body registry, and shared car/rocket crash-deformation state.
+- **Shared physics modules**: `RigidBody`, primitive `Collision`, PGS `ContactSolver`, persistent `ContactCache`, and `CollisionWorld` exist. The collision world now supports query-based static heightfield body contacts, but neither it nor the contact solver is called by the production simulation step.
+- **Not implemented**: `VehicleRigidBody`, a shared body registry, obstacle migration into `CollisionWorld`, production runtime contact integration, and shared car/rocket crash-deformation state.
 
 **Target**: Preserve current vehicle and rocket behavior while incrementally moving them onto shared rigid-body, collision, and contact infrastructure. Keep tire-ground forces and suspension raycasts separate from chassis/body collision unless a later measured change explicitly replaces them.
 
@@ -41,11 +41,11 @@ Test/build counts are dated verification snapshots, not permanent guarantees. Re
 
 ### 0.2 Primitive Narrow Phase — **Partial**
 
-`src/physics/Collision.js` currently handles Sphere–Sphere, Sphere–Box, Sphere–Capsule, Capsule–Capsule, and Box–Box (including oriented box SAT). It returns a single contact. Capsule–Box, Cylinder, ConvexHull, Heightfield, broad phase, and runtime shape assignment are not implemented. Do not describe vehicle or rocket colliders as active until shapes are attached to live bodies and exercised through the runtime.
+`src/physics/Collision.js` currently handles Sphere–Sphere, Sphere–Box, Sphere–Capsule, Capsule–Capsule, and Box–Box (including oriented box SAT). It returns a single contact. Capsule–Box, Cylinder, ConvexHull, and generic Heightfield narrow-phase pairs are not implemented; terrain body contacts use the separate heightfield-query bridge in Phase 1.2. Do not describe vehicle or rocket colliders as active until shapes are attached to live bodies and exercised through the runtime.
 
 ### 0.3 Contact Solver — **Partial**
 
-`src/physics/ContactSolver.js` implements sequential PGS iterations, warm-start accumulators, Coulomb friction, restitution, and positional correction. Tests cover the solver in isolation; production code does not yet call `solveContacts`.
+`src/physics/ContactSolver.js` implements sequential PGS iterations, warm-start accumulators, Coulomb friction, restitution, and positional correction. Tests cover the solver in isolation and through `CollisionWorld`; the production simulation loop does not yet call the collision world or solver.
 
 ### 0.4 Runtime Contact Integration — **Done**
 
@@ -63,15 +63,15 @@ Implemented:
 
 ## Phase 1: Collision World and Terrain/Obstacle Contacts
 
-**Status: Not started beyond the Phase 0 narrow-phase and solver modules.**
+**Status: In progress.** Phase 1.1 has a deterministic O(N²) collision-world baseline; Phase 1.2 terrain body contacts are complete; obstacle migration in Phase 1.3 and broad-phase workload benchmarking remain.
 
 ### 1.1 Collision World and Broad Phase
 
-Define body/collider registration, transform ownership, collision filtering, deterministic pair ordering, and contact-cache lifetime. Benchmark broad-phase candidates against the actual terrain and obstacle workload before choosing a grid size or data structure. The earlier 50 m uniform-grid proposal was an unvalidated estimate, not a requirement.
+`CollisionWorld` implements body/collider registration, transform ownership, collision filtering, deterministic O(N²) pair ordering, and contact-cache lifetime. Keep this baseline until candidate broad phases are benchmarked against representative terrain and obstacle workloads; the earlier 50 m uniform-grid proposal remains unvalidated.
 
 ### 1.2 Terrain Contact
 
-Keep heightfield/raycast queries for suspension and tire contact. Add a separate body-contact query only where needed; do not force the existing terrain into generic convex collision. Specify how terrain height, normal, and deformation revisions reach body contacts.
+**Status: Done.** `src/terrain/HeightfieldBodyContact.js` samples the existing terrain surface profile for sphere, capsule, and OBB body contacts; `CollisionWorld.registerTerrain` registers terrain as a static participant and sends its contacts through the existing cache and solver. Terrain height, normal, and material friction are sampled during contact generation, so live surface-profile changes are observed without a separate revision cache. Support-feature ids and fixed corner ordering make the selected contact deterministic. No mesh or convex-hull conversion is used. Existing per-wheel suspension raycasts and tire-force queries remain untouched.
 
 ### 1.3 Obstacle Migration
 
@@ -242,8 +242,8 @@ Do not make these unrelated seams blockers for rigid-body plumbing. When a migra
 | Narrow phase | Analytical Sphere/Capsule/Box tests; OBB SAT for Box–Box; single contact | Extend only for required pairs. Decide on GJK/EPA when a convex-hull use case exists |
 | Contact solver | PGS with warm-start, friction, restitution, and positional projection is implemented in isolation | Keep PGS for the first vertical slice; test stability and convergence in runtime before tuning or replacing it |
 | Vehicle degrees of freedom | Current car is planar plus gated heave/pitch/roll; roadmap previously proposed both hard and soft planar constraints | Record one canonical-state design. Prefer a gated compatibility adapter first; full 6-DOF is a separately tested behavior change |
-| Terrain | Suspension uses terrain queries; no generic heightfield collider exists | Preserve the query path and add the smallest body-contact query that satisfies tests |
-| Broad phase | No implementation or measured workload comparison | Benchmark uniform grid, sweep/prune, or other candidates before selecting; do not assume 50 m cells |
+| Terrain | Suspension and tire forces retain their existing terrain-query path; body contacts use the separate `HeightfieldBodyContact` bridge in `CollisionWorld` | Preserve separate query paths; extend heightfield support only with bounded, tested increments |
+| Broad phase | Deterministic O(N²) pair generation and terrain-bound overlap filtering are implemented; no alternative has been benchmarked | Benchmark uniform grid, sweep/prune, or other candidates before selecting; do not assume 50 m cells |
 | Deformation | No shared crash-damage model | Build one bounded visual demonstrator before selecting a general representation or changing collider/mass state |
 
 ---
@@ -289,7 +289,7 @@ src/vehicle/
 src/simulation/
   UnifiedSimulation.js        # body registry and ordered fixed step
 src/terrain/
-  HeightfieldBodyContact.js   # if tests require a separate terrain body query
+  HeightfieldBodyContact.js   # implemented query-based primitive/terrain body contacts
 ```
 
 Do not add shape types, loaders, schemas, or modules before a live consumer and tests require them.
@@ -302,7 +302,7 @@ Do not add shape types, loaders, schemas, or modules before a live consumer and 
 |------|--------|---------------------|
 | **G0: Generic body parity** | **Done** | Rocket wrapper uses generic body; legacy differential test compares exact state vectors for its 60-step scenario; full suite passes |
 | **G1: Runtime contact vertical slice** | **Done** | Fixed-step test runs collision generation, persistent constraints, solver, and integration; resting/separating/friction/restitution cases pass declared tolerances and deterministic replay |
-| **G2: Collision world** | **Not started** | Stable pair generation and filtering; selected static/dynamic shapes and terrain/obstacle cases pass; warm-start cache survives only valid contacts |
+| **G2: Collision world** | **In progress** | Deterministic collision-world pair generation, filtering, primitive contacts, and query-based terrain body contacts are implemented and tested; obstacle migration and the remaining gate scenarios are outstanding |
 | **G3: Gated car adapter** | **Not started** | One chassis state; existing wheel forces applied once; baseline scenarios and documented feature-on tolerances pass |
 | **G4: Unified step and registry** | **Not started** | Configured car, rocket, and debris bodies step in deterministic order; mode changes and activation semantics have explicit tests |
 | **G5: Cross-entity scenarios** | **Not started** | Car/rocket, car/car, and rocket/debris scenes meet declared momentum, penetration, and finite-state bounds |
@@ -328,7 +328,7 @@ For every new numeric threshold, record its physical units and rationale when th
 
 1. **G0 is complete.** Keep its differential test as a regression gate.
 2. **G1 is complete.** Keep its fixed-step contact scenario and lifecycle tests as regression gates.
-3. **Complete G2:** add collision-world lifecycle, terrain/body contacts, and obstacle migration behind tests. G2 has not started.
+3. **Continue G2:** preserve the collision-world and terrain-contact regression tests, then migrate obstacles and close the remaining exit-gate cases.
 4. **Complete G3:** choose the vehicle DOF contract, then add the gated car adapter while preserving the old default.
 5. **Complete G4–G5:** unify body stepping, then prove cross-entity contacts.
 6. **Complete G6–G7:** build one deformation demonstrator, integrate telemetry/visuals, and measure release performance.
@@ -342,10 +342,11 @@ Calendar estimates are intentionally omitted: the remaining work depends on unre
 - **PR #123:** Progressive suspension stops in the existing vehicle path; useful vehicle-model work, not a unified-rigid-body milestone.
 - **PR #124:** Generic `RigidBody`, rocket compatibility wrapper, primitive narrow phase, and legacy differential test. This fulfills the original first-PR scope.
 - **PR #125:** PGS contact solver and isolated solver tests. Runtime wiring remains open.
-- **Verified 2026-10-31:** `npm test` passes 852/852; `npm run build` succeeds with the Vite chunk-size warning.
+- **Verified 2026-11-01:** Phase 1.2 adds query-based heightfield contacts to `CollisionWorld` with flat-resting, frictionless-slope, terrain-friction, and deterministic-feature tests. Suspension raycast and tire-force code remain unchanged.
+- **Verified 2026-11-01:** `npm test` passes 885/885; `npm run build` succeeds with the existing Vite chunk-size warning.
 
 ---
 
 ## Bottom Line
 
-The rigid-body foundation, primitive collision tests, PGS solver, and split integration-phase seam are implemented—not merely proposed. The key remaining step is to connect contact generation and solving to the split fixed-step phases with persistent contact state. After that, proceed through the collision world, a gated car adapter, unified stepping, cross-entity scenarios, and only then deformation. No end-to-end unified car/rocket collision or crash-deformation system exists yet.
+The rigid-body foundation, primitive collision tests, PGS solver, split integration seam, collision-world baseline, and Phase 1.2 heightfield body contacts are implemented—not merely proposed. The remaining work includes obstacle migration, production runtime integration, a gated car adapter, unified stepping, cross-entity scenarios, and only then deformation. No end-to-end unified car/rocket collision or crash-deformation system exists yet.
