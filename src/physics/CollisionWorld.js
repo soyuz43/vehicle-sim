@@ -10,9 +10,27 @@ import {
 import { testCollision } from './Collision.js'
 import { createContactCache } from './ContactCache.js'
 import { createContactSolver } from './ContactSolver.js'
+import {
+  getTerrainSurfaceProfile,
+  testTerrainCollision,
+} from '../terrain/HeightfieldBodyContact.js'
 
 const DEFAULT_FILTER_GROUP = 1
 const DEFAULT_FILTER_MASK = 0xffffffff
+const TERRAIN_FEATURE_IDS_BY_SHAPE = Object.freeze({
+  sphere: Object.freeze(['sphere:bottom']),
+  capsule: Object.freeze(['capsule:end:-', 'capsule:end:+']),
+  box: Object.freeze([
+    'box:corner:---',
+    'box:corner:--+',
+    'box:corner:-+-',
+    'box:corner:-++',
+    'box:corner:+--',
+    'box:corner:+-+',
+    'box:corner:++-',
+    'box:corner:+++',
+  ]),
+})
 
 export function createCollisionWorld(config = {}) {
   const gravityMetersPerSecondSquared = requireFiniteNumber(
@@ -28,6 +46,7 @@ export function createCollisionWorld(config = {}) {
   const collisionPairsScratch = []
   const collisionPairPoolScratch = []
   let previouslyUsedCollisionPairCount = 0
+  let terrainRecord = null
   const contactCandidate = {
     bodyA: null,
     bodyB: null,
@@ -55,6 +74,12 @@ export function createCollisionWorld(config = {}) {
       if (recordsByBody.has(body)) {
         throw new TypeError('body is already registered in this CollisionWorld')
       }
+      if (
+        terrainRecord &&
+        String(body.contactId) === String(terrainRecord.body.contactId)
+      ) {
+        throw new TypeError('body contactId must be unique from the registered terrain')
+      }
 
       const bodyId = nextBodyId
       nextBodyId += 1
@@ -74,6 +99,68 @@ export function createCollisionWorld(config = {}) {
       ensureCollisionPairPool(collisionPairPoolScratch, registeredRecords.length)
 
       return record
+    },
+
+    registerTerrain(terrain, options = {}) {
+      if (terrainRecord) {
+        throw new TypeError('a terrain collider is already registered in this CollisionWorld')
+      }
+      const surfaceProfile = getTerrainSurfaceProfile(terrain)
+      const terrainHalfSizeMeters =
+        surfaceProfile?.halfSizeMeters ?? surfaceProfile?.sizeMeters * 0.5
+      if (
+        typeof surfaceProfile?.querySurfaceAtWorldPosition !== 'function' ||
+        !Number.isFinite(terrainHalfSizeMeters) ||
+        terrainHalfSizeMeters <= 0
+      ) {
+        throw new TypeError('terrain must expose a bounded heightfield surface profile')
+      }
+
+      const contactId =
+        options.contactId ?? 'collision-world-terrain-' + String(nextBodyId)
+      if (String(contactId).length === 0) {
+        throw new TypeError('terrain contactId must not be empty')
+      }
+      for (let recordIndex = 0; recordIndex < registeredRecords.length; recordIndex += 1) {
+        if (String(registeredRecords[recordIndex].body.contactId) === String(contactId)) {
+          throw new TypeError('terrain contactId must be unique in this CollisionWorld')
+        }
+      }
+      const filterGroup = options.filterGroup ?? DEFAULT_FILTER_GROUP
+      const filterMask = options.filterMask ?? DEFAULT_FILTER_MASK
+      requireFilterMask(filterGroup, 'filterGroup')
+      requireFilterMask(filterMask, 'filterMask')
+
+      const terrainBody = { contactId, isStatic: true }
+      terrainRecord = {
+        bodyId: nextBodyId,
+        body: terrainBody,
+        colliders: [],
+        filterGroup,
+        filterMask,
+        isStatic: true,
+        isTerrain: true,
+        terrain,
+        terrainHalfSizeMeters,
+      }
+      nextBodyId += 1
+      registeredRecords.push(terrainRecord)
+      ensureCollisionPairPool(collisionPairPoolScratch, registeredRecords.length)
+      return terrainRecord
+    },
+
+    removeTerrain() {
+      if (!terrainRecord) {
+        throw new TypeError('terrain is not registered in this CollisionWorld')
+      }
+      const recordIndex = registeredRecords.indexOf(terrainRecord)
+      if (recordIndex >= 0) registeredRecords.splice(recordIndex, 1)
+      clearCollisionPairReferences(collisionPairPoolScratch, terrainRecord)
+      collisionPairsScratch.length = 0
+      contactsToSolveScratch.length = 0
+      const removedTerrain = terrainRecord.terrain
+      terrainRecord = null
+      return removedTerrain
     },
 
     removeBody(body) {
@@ -172,6 +259,14 @@ function generateFilteredPairs(
       const secondRecord = registeredRecords[secondIndex]
       if (!canCollide(firstRecord, secondRecord)) continue
       if (firstRecord.isStatic && secondRecord.isStatic) continue
+      if (
+        firstRecord.isTerrain &&
+        !overlapsTerrainBounds(secondRecord, firstRecord)
+      ) continue
+      if (
+        secondRecord.isTerrain &&
+        !overlapsTerrainBounds(firstRecord, secondRecord)
+      ) continue
 
       const pair = collisionPairPoolScratch[collisionPairsScratch.length]
       if (!pair) {
@@ -214,6 +309,17 @@ function generateContacts(
   contactsToSolveScratch.length = 0
   for (let pairIndex = 0; pairIndex < collisionPairsScratch.length; pairIndex += 1) {
     const pair = collisionPairsScratch[pairIndex]
+    if (pair.recordA.isTerrain || pair.recordB.isTerrain) {
+      generateTerrainContacts(
+        pair,
+        contactsToSolveScratch,
+        contactCache,
+        contactCandidate,
+        restitution,
+        frictionCoefficient
+      )
+      continue
+    }
     updateColliderTransforms(pair.recordA)
     updateColliderTransforms(pair.recordB)
 
@@ -242,6 +348,46 @@ function generateContacts(
         )
       }
     }
+  }
+}
+
+function generateTerrainContacts(
+  pair,
+  contactsToSolveScratch,
+  contactCache,
+  contactCandidate,
+  restitution,
+  frictionCoefficient
+) {
+  const terrainRecord = pair.recordA.isTerrain ? pair.recordA : pair.recordB
+  const dynamicRecord = pair.recordA.isTerrain ? pair.recordB : pair.recordA
+  updateColliderTransforms(dynamicRecord)
+
+  for (let colliderIndex = 0; colliderIndex < dynamicRecord.colliders.length; colliderIndex += 1) {
+    const collider = dynamicRecord.colliders[colliderIndex]
+    const collision = testTerrainCollision(
+      terrainRecord.terrain,
+      collider.shape,
+      collider.worldTransform
+    )
+    if (!collision) continue
+
+    contactCandidate.bodyA = dynamicRecord.body
+    contactCandidate.bodyB = null
+    contactCandidate.bodyAId = dynamicRecord.body.contactId
+    contactCandidate.bodyBId = terrainRecord.body.contactId
+    const terrainFeatureId = collider.terrainFeatureIds[collision.featureId]
+    if (!terrainFeatureId) {
+      throw new Error('terrain collision returned an unregistered support feature')
+    }
+    contactCandidate.featureId = terrainFeatureId
+    contactCandidate.normal.copy(collision.normal).negate()
+    contactCandidate.depth = collision.depth
+    contactCandidate.point.copy(collision.point)
+    contactCandidate.restitution = restitution
+    contactCandidate.frictionCoefficient =
+      frictionCoefficient ?? collision.frictionCoefficient
+    contactsToSolveScratch.push(contactCache.acquire(contactCandidate))
   }
 }
 
@@ -278,6 +424,43 @@ function acquireNormalizedContact(
   contactCandidate.restitution = restitution
   contactCandidate.frictionCoefficient = frictionCoefficient
   contactsToSolveScratch.push(contactCache.acquire(contactCandidate))
+}
+
+function overlapsTerrainBounds(bodyRecord, terrainRecord) {
+  const body = bodyRecord.body
+  let horizontalRadiusMeters = 0
+  for (let colliderIndex = 0; colliderIndex < bodyRecord.colliders.length; colliderIndex += 1) {
+    const collider = bodyRecord.colliders[colliderIndex]
+    const shape = collider.shape
+    let shapeRadiusMeters
+    if (shape.type === 'sphere') {
+      shapeRadiusMeters = shape.radiusMeters
+    } else if (shape.type === 'capsule') {
+      shapeRadiusMeters = shape.radiusMeters + shape.halfHeightMeters
+    } else {
+      const halfExtentsMeters = shape.halfExtentsMeters
+      shapeRadiusMeters = Math.sqrt(
+        halfExtentsMeters.x * halfExtentsMeters.x +
+        halfExtentsMeters.y * halfExtentsMeters.y +
+        halfExtentsMeters.z * halfExtentsMeters.z
+      )
+    }
+    const localPositionMeters = collider.localPositionMeters
+    const colliderRadiusMeters = shapeRadiusMeters + Math.sqrt(
+      localPositionMeters.x * localPositionMeters.x +
+      localPositionMeters.y * localPositionMeters.y +
+      localPositionMeters.z * localPositionMeters.z
+    )
+    horizontalRadiusMeters = Math.max(horizontalRadiusMeters, colliderRadiusMeters)
+  }
+
+  const terrainHalfSizeMeters = terrainRecord.terrainHalfSizeMeters
+  return (
+    body.positionMeters.x + horizontalRadiusMeters >= -terrainHalfSizeMeters &&
+    body.positionMeters.x - horizontalRadiusMeters <= terrainHalfSizeMeters &&
+    body.positionMeters.z + horizontalRadiusMeters >= -terrainHalfSizeMeters &&
+    body.positionMeters.z - horizontalRadiusMeters <= terrainHalfSizeMeters
+  )
 }
 
 function updateColliderTransforms(record) {
@@ -353,6 +536,7 @@ function createRegisteredCollider(collider, colliderId) {
   return {
     colliderId,
     shape,
+    terrainFeatureIds: createTerrainFeatureIds(colliderId, shape),
     localPositionMeters,
     localOrientationQuaternion,
     worldTransform: {
@@ -360,6 +544,17 @@ function createRegisteredCollider(collider, colliderId) {
       orientationQuaternion: new THREE.Quaternion(),
     },
   }
+}
+
+function createTerrainFeatureIds(colliderId, shape) {
+  const featureIds = TERRAIN_FEATURE_IDS_BY_SHAPE[shape.type]
+  const terrainFeatureIds = Object.create(null)
+  const featurePrefix = 'terrain:' + String(colliderId) + ':'
+  for (let featureIndex = 0; featureIndex < featureIds.length; featureIndex += 1) {
+    const featureId = featureIds[featureIndex]
+    terrainFeatureIds[featureId] = featurePrefix + featureId
+  }
+  return Object.freeze(terrainFeatureIds)
 }
 
 function validateBody(body) {
