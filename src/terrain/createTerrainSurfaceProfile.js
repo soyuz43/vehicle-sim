@@ -35,6 +35,7 @@ export function createTerrainSurfaceProfile(config = {}) {
   )
   const flatGroundHeightMeters = sanitizeNumber(config.groundHeightMeters)
   const fallbackResult = createSurfaceResult()
+  const resolvedSurfaceScratch = { surfaceKind, frictionCoefficient }
 
   function isWithinBounds(worldXMeters, worldZMeters) {
     return (
@@ -83,10 +84,9 @@ export function createTerrainSurfaceProfile(config = {}) {
       resolvedFrictionCoefficient = frictionCoefficient
     }
 
-    return {
-      surfaceKind: resolvedSurfaceKind,
-      frictionCoefficient: resolvedFrictionCoefficient,
-    }
+    resolvedSurfaceScratch.surfaceKind = resolvedSurfaceKind
+    resolvedSurfaceScratch.frictionCoefficient = resolvedFrictionCoefficient
+    return resolvedSurfaceScratch
   }
 
   function getHeightAtWorldXZ(worldXMeters, worldZMeters) {
