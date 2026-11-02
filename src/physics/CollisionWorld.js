@@ -17,6 +17,20 @@ import {
 
 const DEFAULT_FILTER_GROUP = 1
 const DEFAULT_FILTER_MASK = 0xffffffff
+const TERRAIN_FEATURE_IDS_BY_SHAPE = Object.freeze({
+  sphere: Object.freeze(['sphere:bottom']),
+  capsule: Object.freeze(['capsule:end:-', 'capsule:end:+']),
+  box: Object.freeze([
+    'box:corner:---',
+    'box:corner:--+',
+    'box:corner:-+-',
+    'box:corner:-++',
+    'box:corner:+--',
+    'box:corner:+-+',
+    'box:corner:++-',
+    'box:corner:+++',
+  ]),
+})
 
 export function createCollisionWorld(config = {}) {
   const gravityMetersPerSecondSquared = requireFiniteNumber(
@@ -362,8 +376,11 @@ function generateTerrainContacts(
     contactCandidate.bodyB = null
     contactCandidate.bodyAId = dynamicRecord.body.contactId
     contactCandidate.bodyBId = terrainRecord.body.contactId
-    contactCandidate.featureId =
-      'terrain:' + String(collider.colliderId) + ':' + collision.featureId
+    const terrainFeatureId = collider.terrainFeatureIds[collision.featureId]
+    if (!terrainFeatureId) {
+      throw new Error('terrain collision returned an unregistered support feature')
+    }
+    contactCandidate.featureId = terrainFeatureId
     contactCandidate.normal.copy(collision.normal).negate()
     contactCandidate.depth = collision.depth
     contactCandidate.point.copy(collision.point)
@@ -519,6 +536,7 @@ function createRegisteredCollider(collider, colliderId) {
   return {
     colliderId,
     shape,
+    terrainFeatureIds: createTerrainFeatureIds(colliderId, shape),
     localPositionMeters,
     localOrientationQuaternion,
     worldTransform: {
@@ -526,6 +544,17 @@ function createRegisteredCollider(collider, colliderId) {
       orientationQuaternion: new THREE.Quaternion(),
     },
   }
+}
+
+function createTerrainFeatureIds(colliderId, shape) {
+  const featureIds = TERRAIN_FEATURE_IDS_BY_SHAPE[shape.type]
+  const terrainFeatureIds = Object.create(null)
+  const featurePrefix = 'terrain:' + String(colliderId) + ':'
+  for (let featureIndex = 0; featureIndex < featureIds.length; featureIndex += 1) {
+    const featureId = featureIds[featureIndex]
+    terrainFeatureIds[featureId] = featurePrefix + featureId
+  }
+  return Object.freeze(terrainFeatureIds)
 }
 
 function validateBody(body) {
